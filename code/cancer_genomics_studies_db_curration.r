@@ -237,17 +237,17 @@ genie <- read.csv(inFile,sep="\t")
 RSQLite::dbWriteTable(rawDataDb, "GeniePatientVarients", genie, overwrite=T)
 
 ### Hartwig
-inFile <- paste0(baseDir,"/../../data/Hartwig/data/output_v4/hartwig_clinically_actionable_pcgr_entries.txt")
+#inFile <- paste0(baseDir,"/../../data/Hartwig/data/output_v4/hartwig_clinically_actionable_pcgr_entries.txt")
+inFile <- paste0(baseDir,"/../../data/Hartwig/processed/hartwig_sample_pcgr_maf_oncokb_gene_subset.maf")
 hartwig.pcgr <- read.csv(inFile,sep="\t")
 RSQLite::dbWriteTable(rawDataDb, "HartwigPatientVarients", hartwig.pcgr, overwrite=T)
 
-
 harwigMod <- hartwig.pcgr %>%
   dplyr::mutate(Hugo_Symbol = SYMBOL,
-                Entrez_Gene_Id = ENTREZ_ID,
+                #Entrez_Gene_Id = ENTREZ_ID,
                 Center = NA,
-                NCBI_Build = NA,
-                Chromosome = CHROM,
+                #NCBI_Build = NA,
+                #Chromosome = CHROM,
                 Start_Position = POS,
                 End_Position = NA,
                 Strand = NA,
