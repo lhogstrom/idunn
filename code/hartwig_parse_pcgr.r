@@ -5,7 +5,7 @@ library(dplyr)
 # define inputs
 tissueList <- "/data/larsonh/hartwig/output/tissue_list.txt"
 tList <- read.csv(tissueList,sep="\t",header=F)
-okbGeneList <- "/data/larsonh/hartwig/output/cancerGeneList.tsv"
+okbGeneList <- "/data/larsonh/hartwig/output/cancerGeneList.tsv" # timestamp needed
 oncokbGenes <- read.csv(okbGeneList,sep="\t")
 
 baseDir <- "/data/common/hartwig_pcgr"
@@ -46,9 +46,9 @@ for (dir in tList$V1) {
 	  	# filter out non-coding and variants not in oncokb list
 	  	df.oncokb <- df.pcgr[df.pcgr$Hugo_Symbol %in% oncokbGenes$Hugo.Symbol,] 
 	  	df.subset <- df.oncokb %>%
-			mutate(contains_vep_str = sapply(Consequence, function(x) any(sapply(conseqList, function(y) grepl(y, x))))) %>%
-			dplyr::filter(HGVSp != "" | contains_vep_str) %>%
-			dplyr::select(-contains_vep_str)
+	  	  mutate(contains_vep_str = sapply(Consequence, function(x) any(sapply(conseqList, function(y) grepl(y, x))))) %>%
+	  	  dplyr::filter(HGVSp != "" | contains_vep_str) %>%
+	  	  dplyr::select(-contains_vep_str)
 	  	print(dim(df.pcgr))
 		print(".")
 		print(dim(df.subset))
