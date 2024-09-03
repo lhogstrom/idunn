@@ -14,7 +14,7 @@ if (length(args) != 3) {
 baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
 outDbName <- args[2]
 outDbName2 <- args[3]
-# outDbName <- paste0(bDir,"/balder-harmonized-biomarker-data-v",timestamp,".sqlite")
+# outDbName <- paste0(baseDir,"/balder-harmonized-biomarker-data-v",timestamp,".sqlite")
 
 print("working dir:")
 print(getwd())
@@ -48,6 +48,7 @@ rawDataDb <- DBI::dbConnect(RSQLite::SQLite(), outDbName2)
 
 # define output columns for harmonized sample info
 harmSampleCols <- c("SAMPLE_ID",
+                    # patient ID
                     "CANCER_TYPE",
                     "CANCER_TYPE_DETAILED",
                     "ONCOTREE_CODE",
@@ -61,7 +62,14 @@ harmSampleCols <- c("SAMPLE_ID",
                     "DEAD",
                     "INT_SEQ_TO_DEATH",
                     "INT_SEQ_TO_CONTACT",
-                    "SourceStudy")
+                    "SourceStudy",
+                    "PATIENT_ID",
+                    "SEX",
+                    "AGE",
+                    "RACE",
+                    "TUMOR_PLOIDY",
+                    "CENTER")
+#sample class: pancan cell line? 
 
 ### load hartwig data
 hartwigDir <- paste0(baseDir,"/../../data/Hartwig/data")
@@ -84,9 +92,8 @@ deathDateNum <- as.Date(hMeta$deathDate,"%Y-%m-%d")
 hMeta$INT_Biopsy_To_Death <- deathDateNum - biopsyDateNum
 
 # sample columns needed: cancer type, met/primary
-hSampleSubset <- hMeta[,c("sampleId","primaryTumorLocation","primaryTumorType","tumorPurity","INT_Biopsy_To_Death")]
-colnames(hSampleSubset) <- c("SAMPLE_ID","CANCER_TYPE","CANCER_TYPE_DETAILED","tumorPurity","INT_Biopsy_To_Death")
-hSampleSubset$TUMOR_PURITY <- hSampleSubset$tumorPurity
+hSampleSubset <- hMeta[,c("sampleId","hmfPatientId","primaryTumorLocation","primaryTumorType","tumorPurity","INT_Biopsy_To_Death","gender","birthYear","biopsyDate")]
+colnames(hSampleSubset) <- c("SAMPLE_ID","PATIENT_ID","CANCER_TYPE","CANCER_TYPE_DETAILED","TUMOR_PURITY","INT_Biopsy_To_Death","SEX","birthYear","biopsyDate")
 hSampleSubset$SAMPLE_TYPE <- "Metastasis" # assume all samples are met from Hartwig
 hSampleSubset$SourceStudy <- "Hartwig-data"
 hSampleSubset$SourceStudyInfo <- "Hartwig_WGS_n4495"
@@ -98,6 +105,15 @@ hSampleSubset$DEAD <- NA
 hSampleSubset$STAGE <- NA
 hSampleSubset$INT_SEQ_TO_DEATH <- NA
 hSampleSubset$INT_SEQ_TO_CONTACT <- NA
+
+#hSampleSubset$SEX <- NA
+iBirthBiopYearNull <- hSampleSubset$biopsyDate=="null" | hSampleSubset$birthYear=="null"
+
+hSampleSubset$AGE <- NA
+hSampleSubset$RACE <- NA
+hSampleSubset$TUMOR_PLOIDY <- NA
+hSampleSubset$CENTER <- NA
+
 
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", hSampleSubset[,harmSampleCols],overwrite=T)
 
@@ -122,6 +138,8 @@ RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", hSampleSubset[,harmS
 # RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", mskSampleSubset[,harmSampleCols],append=T)
 
 ### PANCAN
+
+# sample level info
 inFile <- paste0(baseDir,"/../../data/ICGC_TCGA_WGS_2020/pancan_pcawg_2020/data_clinical_sample.txt")
 pancanSampInfo <- read.csv(inFile,sep="\t",skip = 4)
 RSQLite::dbWriteTable(rawDataDb, "pancanMetadata", pancanSampInfo, overwrite=T)
@@ -137,6 +155,20 @@ pancanSampleSubset$DEAD <- NA
 pancanSampleSubset$INT_Biopsy_To_Death <- NA
 pancanSampleSubset$INT_SEQ_TO_DEATH <- NA
 pancanSampleSubset$INT_SEQ_TO_CONTACT <- NA
+
+# $PATIENT_ID <- NA
+# $SEX <- NA
+# $AGE <- NA
+# $RACE <- NA
+# $TUMOR_PLOIDY <- NA
+# $CENTER <- NA
+
+
+### patient info
+### TO-DO
+inFile <- paste0(baseDir,"/../../data/ICGC_TCGA_WGS_2020/pancan_pcawg_2020/data_clinical_patient.txt")
+pancanPatientInfo <- read.csv(inFile,sep="\t",skip = 4)
+RSQLite::dbWriteTable(rawDataDb, "PancanPatienteData", pancanPatientInfo, overwrite=T)
 
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", pancanSampleSubset[,harmSampleCols],append=T)
 
@@ -184,6 +216,14 @@ genieSampleSubset$STAGE <- NA
 genieSampleSubset$TUMOR_PURITY <- NA
 genieSampleSubset$INT_Biopsy_To_Death <- NA
 
+# $PATIENT_ID <- NA
+# $SEX <- NA
+# $AGE <- NA
+# $RACE <- NA
+# $TUMOR_PLOIDY <- NA
+# $CENTER <- NA
+
+
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", genieSampleSubset[,harmSampleCols],append=T)
 
 # to-do: compile minimal patient columns across data sets: age, gender, race, ethnicity
@@ -199,6 +239,28 @@ RSQLite::dbWriteTable(harmonizedDb, "Mc3TCGASiteCodes", tss, overwrite=T)
 ## Review harmonized output
 #sRes <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo')
 #print(dim(sRes))
+
+# summarize input patient and sample information
+sampleDataSources <- list(pancanSampInfo,
+                       pancanPatientInfo,
+                       patient.genie,
+                       sample.genie,
+                       hMeta,
+                       hTreatment)
+
+varNames <- c("pancan sample Info",
+                          "pancan Patient Info",
+                          "GENIE patient info",
+                          "GENIE sample genie",
+                          "Hartwig Sample Metadata",
+                          "Hartwig Subject Treatment")
+
+for (ix in seq(length(sampleDataSources))) {
+  varName <- varNames[ix]
+  sourceData <- sampleDataSources[[ix]]
+  print(varName)
+  tibble::glimpse(sourceData)
+}
 
 ################################################
 ### short variants - load SNV and indel data ###
