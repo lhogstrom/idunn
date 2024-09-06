@@ -2,6 +2,7 @@ library(dplyr)
 library(tidyr)
 library(DBI)
 library(RSQLite)
+library(phenOncoX)
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -42,13 +43,35 @@ harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), outDbName)
 #outDbName2 <- paste0(bDir,"/balder-compiled-raw-data-v",timestamp,".sqlite")
 rawDataDb <- DBI::dbConnect(RSQLite::SQLite(), outDbName2)
 
+#############################
+### get phenOncoX records ###
+#############################
+
+# download_dir <- tempdir()
+# phenTreeDepth2 <- phenOncoX::get_tree(
+#   cache_dir = download_dir, max_tree_depth = 2)
+# 
+# oncoterms <- phenOncoX::get_terms(
+#   cache_dir = download_dir)
+# 
+# # select entries with DOI code
+# doiRecords <- oncoterms$records %>%
+#   dplyr::filter(!is.na(do_id)) 
+# length(unique(doiRecords$do_id))
+# otDoiRecords <- doiRecords %>%
+#   dplyr::filter(!is.na(ot_code))
+# length(unique(otDoiRecords$do_id))
+
+# hMeta$doidsStr <- paste0("DOID:",hMeta$doids)
+# table(hMeta$doidsStr %in% doiRecords$do_id)
+
 ######################################################
 ### patient and sample tables from various studies ###
 ######################################################
 
 # define output columns for harmonized sample info
 harmSampleCols <- c("SAMPLE_ID",
-                    # patient ID
+                    "PATIENT_ID",
                     "CANCER_TYPE",
                     "CANCER_TYPE_DETAILED",
                     "ONCOTREE_CODE",
@@ -65,11 +88,10 @@ harmSampleCols <- c("SAMPLE_ID",
                     "SourceStudy",
                     "PATIENT_ID",
                     "SEX",
-                    "AGE",
                     "RACE",
+                    "ETHNICITY",
                     "TUMOR_PLOIDY",
                     "CENTER")
-#sample class: pancan cell line? 
 
 ### load hartwig data
 hartwigDir <- paste0(baseDir,"/../../data/Hartwig/data")
@@ -100,20 +122,23 @@ hSampleSubset$SourceStudyInfo <- "Hartwig_WGS_n4495"
 hSampleSubset$ONCOTREE_CODE <- NA # no code listed by authors
 hSampleSubset$SAMPLE_TYPE_DETAILED <- NA
 hSampleSubset$SEQ_ASSAY_ID <- NA
-hSampleSubset$AGE_AT_SEQ_REPORT <- NA
 hSampleSubset$DEAD <- NA
-hSampleSubset$STAGE <- NA
+hSampleSubset$STAGE <- NA_character_
 hSampleSubset$INT_SEQ_TO_DEATH <- NA
 hSampleSubset$INT_SEQ_TO_CONTACT <- NA
 
-#hSampleSubset$SEX <- NA
+# get age based on birth year and biopsy date field
 iBirthBiopYearNull <- hSampleSubset$biopsyDate=="null" | hSampleSubset$birthYear=="null"
+hSampleSubset$biopsyDateFormat <- NA
+tmpDate <- as.Date(hSampleSubset[!iBirthBiopYearNull,"biopsyDate"],"%Y")
+hSampleSubset[!iBirthBiopYearNull,"biopsyDateFormat"] <- format(tmpDate, "%Y")
+hSampleSubset$AGE_AT_SEQ_REPORT <- NA
+hSampleSubset[!iBirthBiopYearNull,"AGE_AT_SEQ_REPORT"] <- as.numeric(hSampleSubset[!iBirthBiopYearNull,"biopsyDateFormat"]) - as.numeric(hSampleSubset[!iBirthBiopYearNull,"birthYear"])
 
-hSampleSubset$AGE <- NA
-hSampleSubset$RACE <- NA
+hSampleSubset$RACE <- "White or unknown"
+hSampleSubset$ETHNICITY <- NA
 hSampleSubset$TUMOR_PLOIDY <- NA
 hSampleSubset$CENTER <- NA
-
 
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", hSampleSubset[,harmSampleCols],overwrite=T)
 
@@ -144,31 +169,43 @@ inFile <- paste0(baseDir,"/../../data/ICGC_TCGA_WGS_2020/pancan_pcawg_2020/data_
 pancanSampInfo <- read.csv(inFile,sep="\t",skip = 4)
 RSQLite::dbWriteTable(rawDataDb, "pancanMetadata", pancanSampInfo, overwrite=T)
 
-pancanSampleSubset <- pancanSampInfo[,c("SAMPLE_ID","CANCER_TYPE","CANCER_TYPE_DETAILED","ONCOTREE_CODE","SAMPLE_TYPE","STAGE","PURITY")]
-pancanSampleSubset$SourceStudy <- "PANCAN-WGS-data"
-pancanSampleSubset$SourceStudyInfo <- "PANCAN_WGS_n2583"
-pancanSampleSubset$TUMOR_PURITY <- pancanSampleSubset$PURITY
-pancanSampleSubset$SAMPLE_TYPE_DETAILED <- NA
-pancanSampleSubset$SEQ_ASSAY_ID <- NA
-pancanSampleSubset$AGE_AT_SEQ_REPORT <- NA
-pancanSampleSubset$DEAD <- NA
-pancanSampleSubset$INT_Biopsy_To_Death <- NA
-pancanSampleSubset$INT_SEQ_TO_DEATH <- NA
-pancanSampleSubset$INT_SEQ_TO_CONTACT <- NA
-
-# $PATIENT_ID <- NA
-# $SEX <- NA
-# $AGE <- NA
-# $RACE <- NA
-# $TUMOR_PLOIDY <- NA
-# $CENTER <- NA
-
-
-### patient info
-### TO-DO
+#  patient info
 inFile <- paste0(baseDir,"/../../data/ICGC_TCGA_WGS_2020/pancan_pcawg_2020/data_clinical_patient.txt")
 pancanPatientInfo <- read.csv(inFile,sep="\t",skip = 4)
 RSQLite::dbWriteTable(rawDataDb, "PancanPatienteData", pancanPatientInfo, overwrite=T)
+
+# subset selection
+pancanSampInfo <- pancanSampInfo %>%
+  dplyr::left_join(pancanPatientInfo,by="PATIENT_ID")
+
+pancanSampleSubset <- pancanSampInfo[,c("SAMPLE_ID",
+                                        "PATIENT_ID",
+                                        "CANCER_TYPE",
+                                        "CANCER_TYPE_DETAILED",
+                                        "ONCOTREE_CODE",
+                                        "SAMPLE_TYPE",
+                                        "STAGE",
+                                        "PURITY",
+                                        "PLOIDY",
+                                        "SEX",
+                                        "OS_STATUS",
+                                        "OS_MONTHS",
+                                        "AGE")]
+pancanSampleSubset$SourceStudy <- "PANCAN-WGS-data"
+pancanSampleSubset$SourceStudyInfo <- "PANCAN_WGS_n2583"
+pancanSampleSubset$TUMOR_PURITY <- pancanSampleSubset$PURITY
+pancanSampleSubset$TUMOR_PLOIDY <- pancanSampleSubset$PLOIDY
+pancanSampleSubset$SAMPLE_TYPE_DETAILED <- NA
+pancanSampleSubset$SEQ_ASSAY_ID <- NA
+pancanSampleSubset$AGE_AT_SEQ_REPORT <- pancanSampleSubset$AGE
+pancanSampleSubset$DEAD <- pancanSampleSubset$OS_STATUS
+pancanSampleSubset$INT_Biopsy_To_Death <- NA
+pancanSampleSubset$INT_SEQ_TO_DEATH <- as.numeric(pancanSampleSubset$OS_MONTHS) * 31
+pancanSampleSubset$INT_SEQ_TO_CONTACT <- NA
+
+pancanSampleSubset$RACE <- NA
+pancanSampleSubset$ETHNICITY <- NA
+pancanSampleSubset$CENTER <- NA
 
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", pancanSampleSubset[,harmSampleCols],append=T)
 
@@ -187,12 +224,12 @@ sample.genie$INF_AGE_SEQ_REPORT_DAYS <- (sample.genie$AGE_AT_SEQ_REPORT_NUMERIC 
 samplePatient <- sample.genie %>%
   dplyr::left_join(patient.genie,by="PATIENT_ID") %>%
   dplyr::mutate(
-    INT_SEQ_TO_DEATH = if_else(
+    INT_SEQ_TO_DEATH = dplyr::if_else(
       !is.na(as.numeric(INT_DOD)) & !is.na(as.numeric(INF_AGE_SEQ_REPORT_DAYS)),
       as.numeric(INT_DOD) - INF_AGE_SEQ_REPORT_DAYS,
       NA  # Assign NA of type double if conditions are not met
     ),
-    INT_SEQ_TO_CONTACT = if_else(
+    INT_SEQ_TO_CONTACT = dplyr::if_else(
       !is.na(as.numeric(INT_CONTACT)) & !is.na(as.numeric(INF_AGE_SEQ_REPORT_DAYS)),
       as.numeric(INT_CONTACT) - INF_AGE_SEQ_REPORT_DAYS,
       NA  # Assign NA of type double if conditions are not met
@@ -200,6 +237,7 @@ samplePatient <- sample.genie %>%
   )
 
 genieSampleSubset <- samplePatient[,c("SAMPLE_ID",
+                                      "PATIENT_ID",
                                       "CANCER_TYPE",
                                       "CANCER_TYPE_DETAILED",
                                       "ONCOTREE_CODE",
@@ -209,20 +247,21 @@ genieSampleSubset <- samplePatient[,c("SAMPLE_ID",
                                       "AGE_AT_SEQ_REPORT",
                                       "DEAD",
                                       "INT_SEQ_TO_DEATH",
-                                      "INT_SEQ_TO_CONTACT")]
+                                      "INT_SEQ_TO_CONTACT",
+                                      "SEX",
+                                      "PRIMARY_RACE",
+                                      "ETHNICITY",
+                                      "CENTER")]
 genieSampleSubset$SourceStudy <- "AACR-GENIE-data"
 genieSampleSubset$SourceStudyInfo <- "AACR_GENIE_TARGETED_n161797"
-genieSampleSubset$STAGE <- NA
+genieSampleSubset$AGE_AT_SEQ_REPORT <- as.numeric(genieSampleSubset$AGE_AT_SEQ_REPORT)
+genieSampleSubset$STAGE <- NA_character_
 genieSampleSubset$TUMOR_PURITY <- NA
 genieSampleSubset$INT_Biopsy_To_Death <- NA
 
-# $PATIENT_ID <- NA
-# $SEX <- NA
-# $AGE <- NA
-# $RACE <- NA
-# $TUMOR_PLOIDY <- NA
-# $CENTER <- NA
-
+genieSampleSubset$AGE <- as.numeric(genieSampleSubset$AGE_AT_SEQ_REPORT)
+genieSampleSubset$RACE <- genieSampleSubset$PRIMARY_RACE
+genieSampleSubset$TUMOR_PLOIDY <- NA
 
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", genieSampleSubset[,harmSampleCols],append=T)
 
@@ -290,7 +329,6 @@ mc3 <- read.csv(inFile,sep="\t") %>%
   dplyr::rename(StrandPlusMinus=STRAND)
 RSQLite::dbWriteTable(rawDataDb, "Mc3PatientVarients", mc3, overwrite=T)
 
-### to-do: check to see if previous MSK-IMPACT data set is a subset of the newest GENIE dataset
 ### add label for assay used - what does each panel capture?
 
 ### AACR GENIE
@@ -304,45 +342,45 @@ inFile <- paste0(baseDir,"/../../data/Hartwig/processed/hartwig_sample_pcgr_maf_
 hartwig.pcgr <- read.csv(inFile,sep="\t")
 RSQLite::dbWriteTable(rawDataDb, "HartwigPatientVarients", hartwig.pcgr, overwrite=T)
 
-harwigMod <- hartwig.pcgr %>%
-  dplyr::mutate(Hugo_Symbol = SYMBOL,
-                #Entrez_Gene_Id = ENTREZ_ID,
-                Center = NA,
-                #NCBI_Build = NA,
-                #Chromosome = CHROM,
-                Start_Position = POS,
-                End_Position = NA,
-                Strand = NA,
-                Variant_Classification = NA,
-                Variant_Type = NA,
-                Reference_Allele = REF,
-                Tumor_Seq_Allele1 = NA,
-                Tumor_Seq_Allele2 = ALT,
-                dbSNP_RS = NA,
-                dbSNP_Val_Status = NA,
-                Tumor_Sample_Barcode = sample,
-                Matched_Norm_Sample_Barcode = NA,
-                Match_Norm_Seq_Allele1 = NA,
-                Match_Norm_Seq_Allele2 = NA,
-                Tumor_Validation_Allele1 = NA,
-                Tumor_Validation_Allele2 = NA,
-                Match_Norm_Validation_Allele1 = NA,
-                Match_Norm_Validation_Allele2 = NA,
-                Verification_Status = NA,
-                Validation_Status = NA,
-                Mutation_Status = NA,
-                Sequencing_Phase = NA,
-                Sequence_Source = NA,
-                Validation_Method = NA,
-                Score = NA,
-                BAM_File = NA,
-                Sequencer = NA,
-                t_ref_count = NA,
-                t_alt_count = NA,
-                n_ref_count = NA,
-                n_alt_count = NA,
-                HGVSp_Short = HGVSp_short,
-                Transcript_ID = NA)
+# harwigMod <- hartwig.pcgr %>%
+#   dplyr::mutate(Hugo_Symbol = SYMBOL,
+#                 #Entrez_Gene_Id = ENTREZ_ID,
+#                 Center = NA,
+#                 #NCBI_Build = NA,
+#                 #Chromosome = CHROM,
+#                 Start_Position = POS,
+#                 End_Position = NA,
+#                 Strand = NA,
+#                 Variant_Classification = NA,
+#                 Variant_Type = NA,
+#                 Reference_Allele = REF,
+#                 Tumor_Seq_Allele1 = NA,
+#                 Tumor_Seq_Allele2 = ALT,
+#                 dbSNP_RS = NA,
+#                 dbSNP_Val_Status = NA,
+#                 Tumor_Sample_Barcode = sample,
+#                 Matched_Norm_Sample_Barcode = NA,
+#                 Match_Norm_Seq_Allele1 = NA,
+#                 Match_Norm_Seq_Allele2 = NA,
+#                 Tumor_Validation_Allele1 = NA,
+#                 Tumor_Validation_Allele2 = NA,
+#                 Match_Norm_Validation_Allele1 = NA,
+#                 Match_Norm_Validation_Allele2 = NA,
+#                 Verification_Status = NA,
+#                 Validation_Status = NA,
+#                 Mutation_Status = NA,
+#                 Sequencing_Phase = NA,
+#                 Sequence_Source = NA,
+#                 Validation_Method = NA,
+#                 Score = NA,
+#                 BAM_File = NA,
+#                 Sequencer = NA,
+#                 t_ref_count = NA,
+#                 t_alt_count = NA,
+#                 n_ref_count = NA,
+#                 n_alt_count = NA,
+#                 HGVSp_Short = HGVSp_short,
+#                 Transcript_ID = NA)
 
 ###############################################################
 ### write common variant columns for each dataset to SQLite ###
@@ -352,12 +390,15 @@ harwigMod <- hartwig.pcgr %>%
 pancanCols <- colnames(svPancan)
 genieCols <- colnames(genie)
 mc3Cols <- colnames(mc3)
+hartwigCols <- colnames(hartwig.pcgr)
 #mskCols <- colnames(msk)
 #uCols <- base::intersect(base::intersect(pancanCols,genieCols),base::intersect(mc3Cols,mskCols))
-uCols <- base::intersect(base::intersect(pancanCols,genieCols),mc3Cols)
+#uCols <- base::intersect(base::intersect(pancanCols,genieCols),)
+uCols <- base::intersect(base::intersect(pancanCols,genieCols),base::intersect(hartwigCols,mc3Cols))
 
 varTable <- svPancan[,uCols]
 varTable$TVAF <- NA
+varTable$Protein_position <- as.character(varTable$Protein_position)
 varTable$SourceStudy <- "PANCAN-WGS-data"
 RSQLite::dbWriteTable(harmonizedDb, "patientObservedVariantTable", varTable, overwrite=T)
 
@@ -373,10 +414,11 @@ RSQLite::dbWriteTable(harmonizedDb, "patientObservedVariantTable", varTableMC3,a
 
 varTableGenie <- genie[,uCols]
 varTableGenie$TVAF <- NA
+varTableGenie$Protein_position <- as.character(varTableGenie$Protein_position)
 varTableGenie$SourceStudy <- "AACR-GENIE-data"
 RSQLite::dbWriteTable(harmonizedDb, "patientObservedVariantTable", varTableGenie,append=T)
 
-varTableHartwig <- harwigMod[,c(uCols,"TVAF")]
+varTableHartwig <- hartwig.pcgr[,c(uCols,"TVAF")]
 varTableHartwig$SourceStudy <- "Hartwig-data"
 RSQLite::dbWriteTable(harmonizedDb, "patientObservedVariantTable", varTableHartwig,append=T)
 

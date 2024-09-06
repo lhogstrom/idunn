@@ -19,15 +19,13 @@ utilFile <- paste0(baseDir,"/../code/R/snv_indel_annotation.R")
 source(utilFile)
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240712")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
-
 
 ### connect to result DB and get variants
 #outDir <- "../../output/clinical_annotation_matching_20240503"
 #bDir <- "../../data/processed/balderResultsDb"
 #dbName <- paste0(bDir,"/balder-harmonized-biomarker-data-v20240412.sqlite")
-harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 # load clinical annotations
 dbRules <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM MoaCiVICRuleEntries') %>%
