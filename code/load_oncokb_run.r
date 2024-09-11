@@ -14,7 +14,7 @@ baseDir <- args[1] # should be the relative path to "balder/code" where this fil
 dbName <- args[2]
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240712")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ##########################
@@ -34,7 +34,7 @@ get_highest_level <- function(levels) {
 }
 
 ### load OncoKB annotator results - create summary columns
-inFile <- paste0(outDir,"/compiled_mutations_column_subset_all_studies.oncokb.txt")
+inFile <- paste0(outDir,"/compiled_mutations_all_studies.oncokb.txt")
 oncokbRes <- read.csv(inFile,sep="\t") %>%
   dplyr::mutate(IS_SENS_DX_PX_OR_RESISTANCE=!(HIGHEST_SENSITIVE_LEVEL == "") | 
                   !(HIGHEST_RESISTANCE_LEVEL == "") | 

@@ -25,8 +25,6 @@ combine_patient_table_and_oncokb <-
     
     ### join sample info to variant data
     svCompiledPrelim <- poVariants %>%
-      dplyr::inner_join(sampleInfoCompiled[,!colnames(sampleInfoCompiled)=="SourceStudy"],
-                        by=c("Tumor_Sample_Barcode"="SAMPLE_ID")) %>% # exclude samples that do not have any sample information
       dplyr::left_join(ot_code_full[,otCodeCols],by=c("ONCOTREE_CODE"="ot_code")) %>% # join ot_codes to annotation
       dplyr::filter(!SAMPLE_TYPE == "Cell line")
     print(dim(svCompiledPrelim))

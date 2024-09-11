@@ -132,7 +132,7 @@ workflow {
     sqldb = preprocess_data1(file("${params.base_dir}"))
     sqldb2 = preprocess_data2(file("${params.base_dir}"),sqldb)
     tmpVarTbl = oncokb_file_setup(file("${params.base_dir}"),sqldb2)
-    oncokbOut = run_oncokb(tmpVarTbl,file("${params.oncokbToken}"))
+    //oncokbOut = run_oncokb(tmpVarTbl,file("${params.oncokbToken}"))
     sqldb3 = load_oncokb_output(file("${params.base_dir}"),sqldb2)
     sqldb4 = clinical_annotation_matching(file("${params.base_dir}"),sqldb3)
 }
