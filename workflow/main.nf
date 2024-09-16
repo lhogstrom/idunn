@@ -111,7 +111,6 @@ process load_oncokb_output {
     """
 }
 
-
 process clinical_annotation_matching {
     publishDir params.results_dir, mode:'copy'
     
@@ -128,6 +127,22 @@ process clinical_annotation_matching {
     """
 }
 
+process annotation_matching_reporting {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    Rscript $params.scripts7 $base_dir $params.dbName
+    """
+}
+
 workflow {
     sqldb = preprocess_data1(file("${params.base_dir}"))
     sqldb2 = preprocess_data2(file("${params.base_dir}"),sqldb)
@@ -135,5 +150,6 @@ workflow {
     //oncokbOut = run_oncokb(tmpVarTbl,file("${params.oncokbToken}"))
     sqldb3 = load_oncokb_output(file("${params.base_dir}"),sqldb2)
     sqldb4 = clinical_annotation_matching(file("${params.base_dir}"),sqldb3)
+    sqldb5 = annotation_matching_reporting(file("${params.base_dir}"),sqldb4)
 }
 

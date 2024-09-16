@@ -23,9 +23,7 @@ outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ### connect to result DB and get variants
-#outDir <- "../../output/clinical_annotation_matching_20240503"
-#bDir <- "../../data/processed/balderResultsDb"
-#dbName <- paste0(bDir,"/balder-harmonized-biomarker-data-v20240412.sqlite")
+#dbName <- "../../output/actionability_db_curration_20240903/balder-harmonized-biomarker-data-v20240903.sqlite"
 
 # load clinical annotations
 dbRules <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM MoaCiVICRuleEntries') %>%
@@ -38,32 +36,45 @@ dbAlterations <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM actionableSNVs
 dbGenome <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM actionableSNVsByGenomicCoordinate')
 ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
 
+# patient observed variants
+poVariants<- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTable') %>%
+  dplyr::mutate(AAChangeObserved=stringr::str_replace(HGVSp_Short,"p.", ""),
+                MAF=100*(t_alt_count / (t_ref_count+t_alt_count)),
+                t_alt_plus_ref_count = t_ref_count+t_alt_count)
+poVariants$balderVariantID <- seq(1,dim(poVariants)[[1]])
+# replace MAF with TVAF for hartwig variants
+iHartwig <- poVariants$SourceStudy == "Hartwig-data"
+poVariants[iHartwig,"MAF"] <- poVariants[iHartwig,"TVAF"]*100
+
 # load sample info for observed variants
-sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo')
+sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') %>%
+  dplyr::rename(SUBJECT_CENTER = CENTER)
 sampleInfoCompiled[is.na(sampleInfoCompiled$SAMPLE_TYPE),"sampleInfoCompiled"] <- "Unspecified"
+
 #compile hartwig and genie seq or report to death
 sampleInfoCompiled$INT_Seq_or_Biopsy_To_Death <- sampleInfoCompiled$INT_Biopsy_To_Death
 iNonNullSeqDeath <- !is.na(sampleInfoCompiled[,"INT_SEQ_TO_DEATH"])
 sampleInfoCompiled[iNonNullSeqDeath,"INT_Seq_or_Biopsy_To_Death"] <- sampleInfoCompiled[iNonNullSeqDeath,"INT_SEQ_TO_DEATH"]
 
 # load patient observed variants
-poVariants<- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTable') %>%
+svCompiledPrelim <- poVariants %>%
   dplyr::inner_join(sampleInfoCompiled[,!colnames(sampleInfoCompiled)=="SourceStudy"],
                     by=c("Tumor_Sample_Barcode"="SAMPLE_ID")) %>% # exclude samples that do not have any sample information
+  dplyr::filter(!SAMPLE_TYPE == "Cell line") %>%
   dplyr::mutate(AAChangeObserved=stringr::str_replace(HGVSp_Short,"p.", ""),
                 MAF=100*(t_alt_count / (t_ref_count+t_alt_count)),
-                t_alt_plus_ref_count = t_ref_count+t_alt_count) %>%
-  dplyr::filter(!SAMPLE_TYPE == "Cell line")
-poVariants$balderVariantID <- seq(1,dim(poVariants)[[1]])
+                t_alt_plus_ref_count = t_ref_count+t_alt_count) 
+
+svCompiledPrelim$balderVariantID <- seq(1,dim(svCompiledPrelim)[[1]])
 # replace MAF with TVAF for hartwig variants
-iHartwig <- poVariants$SourceStudy == "Hartwig-data"
-poVariants[iHartwig,"MAF"] <- poVariants[iHartwig,"TVAF"]*100
+iHartwig <- svCompiledPrelim$SourceStudy == "Hartwig-data"
+svCompiledPrelim[iHartwig,"MAF"] <- svCompiledPrelim[iHartwig,"TVAF"]*100
 
 # add oncoKB results
 oncokbRes <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM oncoKBAnnotatedVariantTable')
 colnames(oncokbRes) <- paste0("ONCOKB_",colnames(oncokbRes))
 
-svCompiled <- combine_patient_table_and_oncokb(poVariants,
+svCompiled <- combine_patient_table_and_oncokb(svCompiledPrelim,
                                                sampleInfoCompiled,
                                                ot_code_full,
                                                oncokbRes)
@@ -88,3 +99,4 @@ write.csv(aa.genome.representative,
           row.names = F)
 # SQL write
 RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariants", aa.genome.representative,overwrite=T)
+

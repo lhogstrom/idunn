@@ -22,14 +22,61 @@ source(utilFile1)
 utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
-## load key data products
-#svCompiled
-#aa.genome.representative.oncokb
+### connect to result DB and get variants
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903/actionability_reporting")
+harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
+#############################################
+### descriptive analysis and QC reporting ###
+#############################################
+
+ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
+sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
+pV <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTable')
+
+#df <- pV
+df <- sampleInfoCompiled
+
+for (xCol in colnames(df)) {
+  print(xCol)
+  x <- df[,xCol]
+  print("data structure class:")
+  print(class(x))
+  xLength <- length(x)
+  iNullCnt <- is.na(x) | x==""
+  sumNull <- sum(iNullCnt)
+  propNull <- 100*(sumNull/xLength)
+  print("percent of null entries:")
+  print(paste0(round(propNull,2),"%"))
+  nUniqueValues <- length(unique(x))
+  print("null entry counts by source study:")
+  print(table(iNullCnt,df[,"SourceStudy"]))
+  print("number of total unique entries:")
+  print(nUniqueValues)
+  if (nUniqueValues <= 60) {
+    print("Entry counts:")
+    print(table(x))
+  }
+  # show exemplar entries
+  ddSumm <- df %>%
+    dplyr::filter(!iNullCnt) %>%
+    dplyr::group_by(SourceStudy) %>%
+    dplyr::filter(dplyr::row_number() %in% seq(1,10))
+  exemplarDf <- ddSumm[,c("SourceStudy",xCol)]
+  print("example entries by source study")
+  print(exemplarDf,n=40)
+  
+  print("============")
+}
 
 #################################
 ### summary of oncokb results ###
 #################################
+
+## load key data products
+svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') 
+aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants') 
+aa.genome.exahustive <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM exhaustiveClinicalAnnotatedPatientVariants') 
 
 ### find oncokb matched variants
 onckbAnnotated <- svCompiled %>%
@@ -41,9 +88,13 @@ table(aa.genome.representative$balderVariantID %in% onckbAnnotated$balderVariant
 ## which variants are onckb annotated but not annotated via MIA/CiVIC? 
 iOnckbOnlyGrp <- onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID
 okBID <- onckbAnnotated[!iOnckbOnlyGrp,"balderVariantID"]
-oncokbOnly <-svCompiled[svCompiled$balderVariantID %in% okBID,]
+selectCols <- colnames(svCompiled)[colnames(svCompiled) %in% colnames(aa.genome.representative)]
+oncokbOnly <- svCompiled[svCompiled$balderVariantID %in% okBID,selectCols]
+iNewCols <- colnames(aa.genome.representative)[!colnames(aa.genome.representative) %in% colnames(oncokbOnly)]
+oncokbOnly[,iNewCols] <- NA
 
-aa.genome.representative.oncokb <- rbind(aa.genome.representative,oncokbOnly)
+aa.genome.representative.oncokb <- rbind(aa.genome.representative,
+                                         oncokbOnly)
 RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariantsWithOncoKB", aa.genome.representative.oncokb, overwrite=T)
 ### Disconnect from SQL db ###
 RSQLite::dbDisconnect(harmonizedDb)
@@ -134,10 +185,12 @@ table(pxAnnotated$ONCOKB_HIGHEST_LEVEL_SUMMARY,pxAnnotated$actionability.summary
 ######################################
 
 ### non-annotated, background/control variants - 
-non.annotated.variants <- svCompiled %>%
-  dplyr::filter(!balderVariantID %in% aa.genome.representative$balderVariantID) %>%
-  dplyr::mutate(clinical_annotation_status="not annotated")
-annotated.and.non.annotated <- rbind(aa.genome.representative,non.annotated.variants) # same as svCompiled, but with annotation columns
+# non.annotated.variants <- svCompiled %>%
+#   dplyr::filter(!balderVariantID %in% aa.genome.representative$balderVariantID) %>%
+#   dplyr::mutate(clinical_annotation_status="not annotated")
+# iNewCols <- colnames(aa.genome.representative)[!colnames(aa.genome.representative) %in% colnames(non.annotated.variants)]
+# non.annotated.variants[,iNewCols] <- NA
+# annotated.and.non.annotated <- rbind(aa.genome.representative,non.annotated.variants) # same as svCompiled, but with annotation columns
 
 ### per-patient summary - from exhaustive table
 exhaustive.matched.patient.summary <- aa.genome.exahustive %>%
@@ -189,8 +242,8 @@ pairs_matrix <- rbind(c("number of starting subjects",length(unique(svCompiled$T
                       c("number of subjects with an exact OncoTree cancer type annotation match",sum(exhaustive.matched.patient.summary$exactOtCodeCancerTypeMatch==T)),
                       c("number of subjects with any OncoTree hierarchy cancer type annotation match",sum(exhaustive.matched.patient.summary$anyOtCodeCancerTypeMatch==T)))
 reportTable <- data.frame(pairs_matrix)
-write.csv(reportTable,"../../output/actionability_db_curration_20231220/actionability_exhaustive_representative_counts.csv")
-
+outF <- paste0(outDir,"/actionability_exhaustive_representative_counts.csv")
+write.csv(reportTable,outF)
 
 ### create an incidence table by cancer type
 cType.sample.counts <- svCompiled %>%
@@ -253,8 +306,8 @@ cTypeSummary <- cType.sample.counts %>%
                 patientsRestricted=paste0(n.patients.restricted.matched," (",percPatientsRestircted,"%)")) %>%
   dplyr::select(CANCER_TYPE, ONCOTREE_CODE, n.patients.total, patientsUnrestricted, patientsRestricted,
                 everything()) #re-order columns
-write.csv(cTypeSummary,"../../output/actionability_db_curration_20231220/test_cancer_type_match_summary_patient_sorted.csv")
-
+outF <- paste0(outDir,"/test_cancer_type_match_summary_patient_sorted.csv")
+write.csv(cTypeSummary,outF)
 
 
 #Columns of summary table:
@@ -373,8 +426,8 @@ cTypeSummaryPrimaryMetWide <- cTypeSummaryPrimaryMet[,c("SAMPLE_TYPE",
                                                         "n.patients.matched")] %>%
   dplyr::filter(!is.na(cancerTypeMatch)) %>%
   pivot_wider(names_from = cancerTypeMatch,values_from=n.patients.matched) %>%
-  dplyr::rename(restrictedMatchCount=`TRUE`,
-                UnrestrictedTmpCount=`FALSE`) %>%
+  dplyr::rename(restrictedMatchCount=`1`,
+                UnrestrictedTmpCount=`0`) %>%
   dplyr::mutate(restrictedMatchCount=replace(restrictedMatchCount, is.na(restrictedMatchCount), 0),
                 UnrestrictedTmpCount=replace(UnrestrictedTmpCount, is.na(UnrestrictedTmpCount), 0),
                 UnrestrictedMatchCount=UnrestrictedTmpCount+restrictedMatchCount,
@@ -429,12 +482,6 @@ chiSqTbl <- chiSqTbl %>%
 
 outF <- paste0(outDir,"/chi_sq_test_of_prim_met_match_rate.csv")
 write.csv(chiSqTbl,outF)
-
-### Plot chiSqTbl results
-
-
-
-
 
 ddBar <- cTypeSummaryPrimaryMetWide %>%
   dplyr::rename(restricted_cancer_type_match=PercMatchRestricted,
@@ -583,6 +630,14 @@ ggsave(outF,height = 6,width = 4)
 # 1) Unrestricted where no cancer type matching was imposed
 # 2) Restricted with raw cancer type string matching
 
+dbRules <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM MoaCiVICRuleEntries') %>%
+  dplyr::rename(oncotree_code_annotation=oncotree_code,
+                oncotree_term_annotation=oncotree_term,
+                chromosome_annotation=chromosome)
+dbRules$balderRuleID <- seq(1,dim(dbRules)[[1]])
+dbAlterations <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM actionableSNVsByAAChange')
+dbGenome <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM actionableSNVsByGenomicCoordinate')
+
 ###
 ### join with observed variant table with clinically annotated - by genome position
 genome.matched.unrestricted <- svCompiled %>%
@@ -664,6 +719,6 @@ c6 <- paste0(round(100*(c5/n.patients),1),"%")
 df <- data.frame(c1=c1, c2=c2, c3=c3, c5=c5, c6=c6)
 colnames(df) <- c("Cancer type match restriction", "Cancer type matching approach", "number of variants","number of patients","percent of patients")
 # Print the data frame
-#print(df)
-knitr::kable(df, )
-write.csv(df,"../../output/actionability_db_curration_20231220/actionability_restricted_unrestricted_counts.csv")
+#knitr::kable(df, )
+outF <- paste0(outDir,"/actionability_restricted_unrestricted_counts.csv")
+write.table(df,outF,row.names=F,quote=F,sep="\t")
