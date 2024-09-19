@@ -100,3 +100,28 @@ write.csv(aa.genome.representative,
 # SQL write
 RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariants", aa.genome.representative,overwrite=T)
 
+
+##########################################################################################
+### Create union of valid OncoKB annotated variants and those annotated with MOA/CIViC ###
+##########################################################################################
+
+### find oncokb matched variants
+onckbAnnotated <- svCompiled %>%
+  dplyr::filter(ONCOKB_IS_SENS_DX_PX_OR_RESISTANCE == T)
+
+table(onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID)
+table(aa.genome.representative$balderVariantID %in% onckbAnnotated$balderVariantID)
+
+## which variants are onckb annotated but not annotated via MIA/CiVIC? 
+iOnckbOnlyGrp <- onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID
+okBID <- onckbAnnotated[!iOnckbOnlyGrp,"balderVariantID"]
+selectCols <- colnames(svCompiled)[colnames(svCompiled) %in% colnames(aa.genome.representative)]
+oncokbOnly <- svCompiled[svCompiled$balderVariantID %in% okBID,selectCols]
+iNewCols <- colnames(aa.genome.representative)[!colnames(aa.genome.representative) %in% colnames(oncokbOnly)]
+oncokbOnly[,iNewCols] <- NA
+
+aa.genome.representative.oncokb <- rbind(aa.genome.representative,
+                                         oncokbOnly)
+RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariantsWithOncoKB", aa.genome.representative.oncokb, overwrite=T)
+### Disconnect from SQL db ###
+RSQLite::dbDisconnect(harmonizedDb)

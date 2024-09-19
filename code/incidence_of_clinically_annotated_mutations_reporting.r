@@ -2,8 +2,8 @@ library(dplyr)
 library(tidyr)
 library(DBI)
 library(RSQLite)
-#library(ggrepel)
 library(ggplot2)
+library(rlang)
 #library(ggalluvial)
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -26,9 +26,9 @@ source(utilFile1)
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903/actionability_reporting")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
-#############################################
-### descriptive analysis and QC reporting ###
-#############################################
+################################################################
+### descriptive analysis and QC reporting of compiled fields ###
+################################################################
 
 ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
 sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
@@ -56,7 +56,18 @@ for (xCol in colnames(df)) {
   if (nUniqueValues <= 60) {
     print("Entry counts:")
     print(table(x))
+    
+    if (class(x) == "character") {
+      outF <- paste0(outDir,"/clinical_data_",xCol,"_histogram_by_study.pdf")
+      ggplot(df, aes(x = .data[[xCol]])) +
+        geom_bar() + 
+        facet_grid(SourceStudy ~ .) + 
+        theme_bw()+
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+      ggsave(outF,height = 8,width = 10)
+    }
   }
+  
   # show exemplar entries
   ddSumm <- df %>%
     dplyr::filter(!iNullCnt) %>%
@@ -66,38 +77,32 @@ for (xCol in colnames(df)) {
   print("example entries by source study")
   print(exemplarDf,n=40)
   
+  # if numeric, make histogram plot by study type
+  if (class(x) == "numeric" | class(x) == "integer") {
+    outF <- paste0(outDir,"/clinical_data_",xCol,"_histogram_by_study.pdf")
+    #ggplot(df, aes(x = .data[[xCol]])) +
+    ggplot(df, aes(x = .data[[xCol]])) +
+      geom_histogram() + 
+      facet_grid(SourceStudy ~ .) +
+      theme_bw()
+    ggsave(outF,height = 8,width = 10)
+  }
+  
   print("============")
 }
+
+#####################################
+## load key variant data products ###
+#####################################
+
+svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') 
+aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants') 
+aa.genome.exahustive <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM exhaustiveClinicalAnnotatedPatientVariants') 
+aa.genome.representative.oncokb <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariantsWithOncoKB') 
 
 #################################
 ### summary of oncokb results ###
 #################################
-
-## load key data products
-svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') 
-aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants') 
-aa.genome.exahustive <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM exhaustiveClinicalAnnotatedPatientVariants') 
-
-### find oncokb matched variants
-onckbAnnotated <- svCompiled %>%
-  dplyr::filter(ONCOKB_IS_SENS_DX_PX_OR_RESISTANCE == T)
-
-table(onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID)
-table(aa.genome.representative$balderVariantID %in% onckbAnnotated$balderVariantID)
-
-## which variants are onckb annotated but not annotated via MIA/CiVIC? 
-iOnckbOnlyGrp <- onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID
-okBID <- onckbAnnotated[!iOnckbOnlyGrp,"balderVariantID"]
-selectCols <- colnames(svCompiled)[colnames(svCompiled) %in% colnames(aa.genome.representative)]
-oncokbOnly <- svCompiled[svCompiled$balderVariantID %in% okBID,selectCols]
-iNewCols <- colnames(aa.genome.representative)[!colnames(aa.genome.representative) %in% colnames(oncokbOnly)]
-oncokbOnly[,iNewCols] <- NA
-
-aa.genome.representative.oncokb <- rbind(aa.genome.representative,
-                                         oncokbOnly)
-RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariantsWithOncoKB", aa.genome.representative.oncokb, overwrite=T)
-### Disconnect from SQL db ###
-RSQLite::dbDisconnect(harmonizedDb)
 
 # what proportion of variants are in oncokb database? 
 table(svCompiled$ONCOKB_VARIANT_IN_ONCOKB)

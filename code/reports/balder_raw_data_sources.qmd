@@ -54,6 +54,9 @@ Tissue source sites for each sample can be found here:
 
 <https://stephenturner.github.io/tcga-codes/>
 
+A clinical data file, "combined_study_clinical_data.tsv", for samples was downloaded from cBioPortal on 9/19/24:
+https://www.cbioportal.org/datasets 
+
 ## AACR GENIE
 
 The data were downloaded as "Release v14.1 Public" from the Synapse website here:
