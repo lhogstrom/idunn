@@ -93,6 +93,7 @@ harmSampleCols <- c("SAMPLE_ID",
                     "CENTER")
 
 ### load hartwig data
+
 hartwigDir <- paste0(baseDir,"/../../data/Hartwig/data")
 inFile <- paste0(hartwigDir,"/samples.txt")
 sampleList <- read.csv(inFile,sep=",", header = F)
@@ -121,7 +122,7 @@ hSampleSubset$SourceStudyInfo <- "Hartwig_WGS_n4495"
 hSampleSubset$ONCOTREE_CODE <- NA # no code listed by authors
 hSampleSubset$SAMPLE_TYPE_DETAILED <- NA
 hSampleSubset$SEQ_ASSAY_ID <- NA
-hSampleSubset$DEAD <- NA
+hSampleSubset$DEAD <- "Unknown"
 hSampleSubset$STAGE <- NA_character_
 hSampleSubset$INT_SEQ_TO_DEATH <- NA
 hSampleSubset$INT_SEQ_TO_CONTACT <- NA
@@ -134,32 +135,19 @@ hSampleSubset[!iBirthBiopYearNull,"biopsyDateFormat"] <- format(tmpDate, "%Y")
 hSampleSubset$AGE_AT_SEQ_REPORT <- NA
 hSampleSubset[!iBirthBiopYearNull,"AGE_AT_SEQ_REPORT"] <- as.numeric(hSampleSubset[!iBirthBiopYearNull,"biopsyDateFormat"]) - as.numeric(hSampleSubset[!iBirthBiopYearNull,"birthYear"])
 
-hSampleSubset$RACE <- "White or unknown"
-hSampleSubset$ETHNICITY <- NA
+hSampleSubset$RACE <- "Unknown"
+hSampleSubset$ETHNICITY <- "Unknown"
 hSampleSubset$TUMOR_PLOIDY <- NA
 hSampleSubset$CENTER <- NA
 
-RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", hSampleSubset[,harmSampleCols],overwrite=T)
+iMale <- hSampleSubset$SEX=="male"
+hSampleSubset[iMale,"SEX"] <- "Male"
+iFemale <- hSampleSubset$SEX=="female"
+hSampleSubset[iFemale,"SEX"] <- "Female"
+ifmNull <- hSampleSubset$SEX=="null"
+hSampleSubset[ifmNull,"SEX"] <- "Unknown"
 
-###  MSK-IMPACT 2017
-# inFile <- paste0(baseDir,"/../../data/MSK_IMPACT/msk_impact_data_clinical_sample2.txt")
-# patient.msk <- read.csv(inFile,sep="\t")
-# RSQLite::dbWriteTable(rawDataDb, "mskMetadata", patient.msk, overwrite=T)
-# 
-# mskSampleSubset <- patient.msk[,c("SAMPLE_ID","CANCER_TYPE","CANCER_TYPE_DETAILED","ONCOTREE_CODE","SAMPLE_TYPE","TUMOR_PURITY")]
-# mskSampleSubset$SourceStudy <- "MSK-IMPACT-2017-data"
-# mskSampleSubset$SourceStudyInfo <- "MSK_IMPACT_TARGETED_n10129"
-# mskSampleSubset$TUMOR_PURITY <- mskSampleSubset$TUMOR_PURITY*0.01
-# mskSampleSubset$SAMPLE_TYPE_DETAILED <- NA
-# mskSampleSubset$SEQ_ASSAY_ID <- NA
-# mskSampleSubset$AGE_AT_SEQ_REPORT <- NA
-# mskSampleSubset$STAGE <- NA
-# mskSampleSubset$DEAD <- NA
-# mskSampleSubset$INT_Biopsy_To_Death <- NA
-# mskSampleSubset$INT_SEQ_TO_DEATH <- NA
-# mskSampleSubset$INT_SEQ_TO_CONTACT <- NA
-# 
-# RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", mskSampleSubset[,harmSampleCols],append=T)
+RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", hSampleSubset[,harmSampleCols],overwrite=T)
 
 ### PANCAN
 
@@ -197,15 +185,20 @@ pancanSampleSubset$TUMOR_PLOIDY <- pancanSampleSubset$PLOIDY
 pancanSampleSubset$SAMPLE_TYPE_DETAILED <- NA
 pancanSampleSubset$SEQ_ASSAY_ID <- NA
 pancanSampleSubset$AGE_AT_SEQ_REPORT <- pancanSampleSubset$AGE
-pancanSampleSubset$DEAD <- pancanSampleSubset$OS_STATUS
 pancanSampleSubset$INT_Biopsy_To_Death <- NA
 pancanSampleSubset$INT_SEQ_TO_DEATH <- as.numeric(pancanSampleSubset$OS_MONTHS) * 31
 pancanSampleSubset$INT_SEQ_TO_CONTACT <- NA
 
-pancanSampleSubset$RACE <- NA
-pancanSampleSubset$ETHNICITY <- NA
+pancanSampleSubset$RACE <- "Unknown"
+pancanSampleSubset$ETHNICITY <- "Unknown"
 pancanSampleSubset$CENTER <- NA
 
+pancanSampleSubset$DEAD <- "Unknown"
+iNotDead <- pancanSampleSubset$OS_STATUS=="0:LIVING" & !is.na(pancanSampleSubset$OS_STATUS)
+pancanSampleSubset[iNotDead,"DEAD"] <- "False"
+iDead <- pancanSampleSubset$OS_STATUS=="1:DECEASED" & !is.na(pancanSampleSubset$OS_STATUS)
+pancanSampleSubset[iDead,"DEAD"] <- "True"
+  
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", pancanSampleSubset[,harmSampleCols],append=T)
 
 ### AACR GENIE
@@ -262,9 +255,27 @@ genieSampleSubset$AGE <- as.numeric(genieSampleSubset$AGE_AT_SEQ_REPORT)
 genieSampleSubset$RACE <- genieSampleSubset$PRIMARY_RACE
 genieSampleSubset$TUMOR_PLOIDY <- NA
 
-RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", genieSampleSubset[,harmSampleCols],append=T)
+# harmonization steps
+iraceNa <- genieSampleSubset$RACE=="Not Applicable"
+genieSampleSubset[iraceNa,"RACE"] <- "Unknown"
+iraceNc <- genieSampleSubset$RACE=="Not Collected"
+genieSampleSubset[iraceNc,"RACE"] <- "Unknown"
 
-# to-do: compile minimal patient columns across data sets: age, gender, race, ethnicity
+iEthnicityNc <- genieSampleSubset$ETHNICITY=="Not Collected"
+genieSampleSubset[iEthnicityNc,"ETHNICITY"] <- "Unknown"
+
+iDeadNc <- genieSampleSubset$DEAD=="Not Collected"
+genieSampleSubset[iDeadNc,"DEAD"] <- "Unknown"
+iDeadNr <- genieSampleSubset$DEAD=="Not Released"
+genieSampleSubset[iDeadNr,"DEAD"] <- "Unknown"
+iDeadNa <- genieSampleSubset$DEAD==""
+genieSampleSubset[iDeadNa,"DEAD"] <- "Unknown"
+iDeadT <- genieSampleSubset$DEAD=="TRUE"
+genieSampleSubset[iDeadT,"DEAD"] <- "True"
+iDeadF <- genieSampleSubset$DEAD=="FALSE"
+genieSampleSubset[iDeadF,"DEAD"] <- "False"
+
+RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", genieSampleSubset[,harmSampleCols],append=T)
 
 ### MC3 TCGA
 # TCGA site codes
@@ -273,6 +284,57 @@ tss <- read.csv(inFile,sep=",")
 RSQLite::dbWriteTable(harmonizedDb, "Mc3TCGASiteCodes", tss, overwrite=T)
 # barcode naming convention: https://docs.gdc.cancer.gov/Encyclopedia/pages/TCGA_Barcode/
 # tissue site codes: https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tissue-source-site-codes
+
+
+inFile <- paste0(baseDir,"/../../data/mc3_tcga/clinical_data/combined_study_clinical_data.tsv")
+tcgaPatient <- read.csv(inFile,sep="\t")
+
+
+# tcga_in_cols <- c("Patient.ID,
+#                   Sample.ID",
+#                   "Cancer.Type",
+#                   "Cancer.Type.Detailed",
+#                   "",
+#                   "",
+#                   "",
+#                   "",
+#                   )
+# tcgaSubset <- tcgaPatient
+# # rename columns
+# tcga_cols_rename <- c("SAMPLE_ID",
+#                       "PATIENT_ID",
+#                       "CANCER_TYPE",
+#                       "CANCER_TYPE_DETAILED",
+#                       "SAMPLE_TYPE",
+#                       "",
+#                       "",
+#                       "",
+#                       "",)
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# SEQ_ASSAY_ID
+# STAGE
+# TUMOR_PURITY
+# INT_Biopsy_To_Death
+# AGE_AT_SEQ_REPORT
+# DEAD
+# INT_SEQ_TO_DEATH
+# INT_SEQ_TO_CONTACT
+# SourceStudy
+# SEX
+# RACE
+# ETHNICITY
+# TUMOR_PLOIDY
+# CENTER
+# 
+# ONCOTREE_CODE
+# SAMPLE_TYPE_DETAILED
 
 ## Review harmonized output
 #sRes <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo')
@@ -322,10 +384,13 @@ RSQLite::dbWriteTable(rawDataDb, "PancanPatientVarients", svPancan, overwrite=T)
 # RSQLite::dbWriteTable(rawDataDb, "Msk2017PatientVarients", msk, overwrite=T)
 
 ### MC3 TCGA
-inFile <- paste0(baseDir,"/../../data/mc3_tcga/scratch.sample.mc3.maf")
-#inFile <- "../../data/mc3_tcga/mc3.v0.2.8.PUBLIC.maf"
+#inFile <- paste0(baseDir,"/../../data/mc3_tcga/scratch.sample.mc3.maf")
+inFile <- "../../data/mc3_tcga/mc3.v0.2.8.PUBLIC.maf"
 mc3 <- read.csv(inFile,sep="\t") %>%
-  dplyr::rename(StrandPlusMinus=STRAND)
+  dplyr::rename(StrandPlusMinus=STRAND,
+                Tumor_Sample_Barcode_Full=Tumor_Sample_Barcode)
+mc3$Tumor_Sample_Barcode <- substr(mc3$Tumor_Sample_Barcode_Full,1,15)
+
 RSQLite::dbWriteTable(rawDataDb, "Mc3PatientVarients", mc3, overwrite=T)
 
 ### add label for assay used - what does each panel capture?
