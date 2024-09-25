@@ -19,7 +19,7 @@ utilFile <- paste0(baseDir,"/../code/R/snv_indel_annotation.R")
 source(utilFile)
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ### connect to result DB and get variants

@@ -26,6 +26,8 @@ dependencies:
   - r-tidyr
   - r-DBI
   - r-ggplot2
+  - r-ggalluvial
+  - r-ggrepel
     #postBuild:
     #  - R -e "devtools::install_github('sigven/phenOncoX')"
     #  - R -e "devtools::install_github('r-dbi/RSQLite')"
