@@ -2,7 +2,7 @@ library(dplyr)
 library(tidyr)
 library(DBI)
 library(RSQLite)
-library(phenOncoX)
+#library(phenOncoX)
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -124,7 +124,7 @@ hSampleSubset$SAMPLE_TYPE_DETAILED <- NA
 hSampleSubset$SEQ_ASSAY_ID <- NA
 hSampleSubset$DEAD <- "Unknown"
 hSampleSubset$STAGE <- NA_character_
-hSampleSubset$INT_SEQ_TO_DEATH <- NA
+hSampleSubset$INT_SEQ_TO_DEATH <- hSampleSubset$INT_Biopsy_To_Death
 hSampleSubset$INT_SEQ_TO_CONTACT <- NA
 
 # get age based on birth year and biopsy date field
@@ -285,56 +285,70 @@ RSQLite::dbWriteTable(harmonizedDb, "Mc3TCGASiteCodes", tss, overwrite=T)
 # barcode naming convention: https://docs.gdc.cancer.gov/Encyclopedia/pages/TCGA_Barcode/
 # tissue site codes: https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tissue-source-site-codes
 
-
 inFile <- paste0(baseDir,"/../../data/mc3_tcga/clinical_data/combined_study_clinical_data.tsv")
 tcgaPatient <- read.csv(inFile,sep="\t")
 
+tcga_in_cols <- c("Patient.ID",
+                  "Sample.ID",
+                  "Cancer.Type",
+                  "Cancer.Type.Detailed",
+                  "American.Joint.Committee.on.Cancer.Metastasis.Stage.Code",
+                  "Neoplasm.Disease.Stage.American.Joint.Committee.on.Cancer.Code",
+                  "Oncotree.Code",
+                  "Months.of.disease.specific.survival",
+                  "Diagnosis.Age",
+                  "Disease.specific.Survival.status",
+                  "Sex",
+                  "Race.Category",
+                  "Ethnicity.Category",
+                  "Tissue.Source.Site")
+tcgaSubset <- tcgaPatient[,tcga_in_cols]
+# rename columns
+tcga_cols_rename <- c("SAMPLE_ID",
+                      "PATIENT_ID",
+                      "CANCER_TYPE",
+                      "CANCER_TYPE_DETAILED",
+                      "SAMPLE_TYPE",
+                      "STAGE",
+                      "ONCOTREE_CODE",
+                      "Months.of.disease.specific.survival",
+                      "AGE_AT_SEQ_REPORT",
+                      "Disease.specific.Survival.status",
+                      "SEX",
+                      "RACE",
+                      "ETHNICITY",
+                      "CENTER")
+colnames(tcgaSubset) <- tcga_cols_rename
 
-# tcga_in_cols <- c("Patient.ID,
-#                   Sample.ID",
-#                   "Cancer.Type",
-#                   "Cancer.Type.Detailed",
-#                   "",
-#                   "",
-#                   "",
-#                   "",
-#                   )
-# tcgaSubset <- tcgaPatient
-# # rename columns
-# tcga_cols_rename <- c("SAMPLE_ID",
-#                       "PATIENT_ID",
-#                       "CANCER_TYPE",
-#                       "CANCER_TYPE_DETAILED",
-#                       "SAMPLE_TYPE",
-#                       "",
-#                       "",
-#                       "",
-#                       "",)
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# SEQ_ASSAY_ID
-# STAGE
-# TUMOR_PURITY
-# INT_Biopsy_To_Death
-# AGE_AT_SEQ_REPORT
-# DEAD
-# INT_SEQ_TO_DEATH
-# INT_SEQ_TO_CONTACT
-# SourceStudy
-# SEX
-# RACE
-# ETHNICITY
-# TUMOR_PLOIDY
-# CENTER
-# 
-# ONCOTREE_CODE
-# SAMPLE_TYPE_DETAILED
+# format needs adjustments
+tcgaSubset$SourceStudy <- "TCGA-MC3-data"
+tcgaSubset$INT_SEQ_TO_DEATH <- as.numeric(tcgaSubset$Months.of.disease.specific.survival) * 31
+
+iDeadF <- tcgaSubset$Disease.specific.Survival.status == "0:ALIVE OR DEAD TUMOR FREE" & !is.na(tcgaSubset$Disease.specific.Survival.status)
+tcgaSubset[iDeadF,"DEAD"] <- "False"
+iDeadT <- tcgaSubset$Disease.specific.Survival.status == "1:DEAD WITH TUMOR" & !is.na(tcgaSubset$Disease.specific.Survival.status)
+tcgaSubset[iDeadF,"DEAD"] <- "True"
+
+iBlack <- tcgaSubset$RACE =="Black or African American" & !is.na(tcgaSubset$RACE)
+tcgaSubset[iBlack,"RACE"] <- "Black"
+iNAm <- tcgaSubset$RACE =="American Indian or Alaska Native"  & !is.na(tcgaSubset$RACE)
+tcgaSubset[iNAm,"RACE"] <- "Native American"
+iPa <- tcgaSubset$RACE =="Native Hawaiian or Other Pacific Islander"  & !is.na(tcgaSubset$RACE)
+tcgaSubset[iPa,"RACE"] <- "Pacific Islander"
+
+# empty entries 
+tcgaSubset$SAMPLE_TYPE_DETAILED <- NA
+tcgaSubset$SEQ_ASSAY_ID <- NA
+tcgaSubset$TUMOR_PURITY <- NA
+tcgaSubset$INT_Biopsy_To_Death <- NA
+tcgaSubset$INT_SEQ_TO_CONTACT <- NA
+tcgaSubset$TUMOR_PLOIDY <- NA
+tcgaSubset$INT_Biopsy_To_Death <- NA
+
+print(harmSampleCols %in% colnames(tcgaSubset))
+print(harmSampleCols[!harmSampleCols %in% colnames(tcgaSubset)])
+
+RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", tcgaSubset[,harmSampleCols], append=T)
 
 ## Review harmonized output
 #sRes <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo')
@@ -384,14 +398,19 @@ RSQLite::dbWriteTable(rawDataDb, "PancanPatientVarients", svPancan, overwrite=T)
 # RSQLite::dbWriteTable(rawDataDb, "Msk2017PatientVarients", msk, overwrite=T)
 
 ### MC3 TCGA
+okbGeneList <- paste0(baseDir,"/../../data/oncokb/cancerGeneList.tsv") 
+oncokbGenes <- read.csv(okbGeneList,sep="\t")
+
 #inFile <- paste0(baseDir,"/../../data/mc3_tcga/scratch.sample.mc3.maf")
-inFile <- "../../data/mc3_tcga/mc3.v0.2.8.PUBLIC.maf"
+inFile <- paste0(baseDir,"/../../data/mc3_tcga/mc3.v0.2.8.PUBLIC.maf")
+genie <- read.csv(inFile,sep="\t")
 mc3 <- read.csv(inFile,sep="\t") %>%
   dplyr::rename(StrandPlusMinus=STRAND,
-                Tumor_Sample_Barcode_Full=Tumor_Sample_Barcode)
+                Tumor_Sample_Barcode_Full=Tumor_Sample_Barcode) %>%
+  dplyr::filter(Hugo_Symbol %in% oncokbGenes$Hugo.Symbol)
 mc3$Tumor_Sample_Barcode <- substr(mc3$Tumor_Sample_Barcode_Full,1,15)
 
-RSQLite::dbWriteTable(rawDataDb, "Mc3PatientVarients", mc3, overwrite=T)
+#RSQLite::dbWriteTable(rawDataDb, "Mc3PatientVarients", mc3, overwrite=T)
 
 ### add label for assay used - what does each panel capture?
 
