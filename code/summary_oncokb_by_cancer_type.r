@@ -3,19 +3,50 @@ library(tidyr)
 library(DBI)
 library(RSQLite)
 library(ggplot2)
-source("R/snv_indel_annotation.R")
-source("R/utils.R")
+library(corrplot)
+library(reshape2)
+library(rpart)
+library(rpart.plot)
+library(caret)
+
+library(circlize)
+#library(devtools)
+#install_github("jokergoo/ComplexHeatmap")
+#library(ComplexHeatmap)
+
+args <- commandArgs(trailingOnly = TRUE)
+
+# Check if the correct number of arguments are provided
+if (length(args) != 2) {
+  stop("Two arguments must be supplied", call. = FALSE)
+}
+
+# Assign Arguments to Variables
+baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
+dbName <- args[2]
+
+utilFile1 <- paste0(baseDir,"/../code/R/snv_indel_annotation.R")
+source(utilFile1)
+utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
+source(utilFile1)
 
 ### connect to result DB and get variants
-outDir <- "../../output/oncokb_cancer_type_summary_202400714"
-bDir <- "../../data/processed/balderResultsDb"
-dbName <- paste0(bDir,"/balder-harmonized-biomarker-data-v20240412.sqlite")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
+geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
+
+##########################
+### load data products ###
+##########################
+
+ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
+sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
 
 svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') %>%
   dplyr::mutate(isHemeCancer=grepl("LYMPH",ot_code_level_1) | grepl("MYELOID",ot_code_level_1))
-aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants')
-aa.genome.representative.oncokb <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariantsWithOncoKB')
+
+aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants') 
+aa.genome.representative.oncokb <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariantsWithOncoKB') 
 
 #################################
 ### summary of oncokb results ###
@@ -37,7 +68,7 @@ oncokbOnly <-svCompiled[svCompiled$balderVariantID %in% okBID,]
 ### oncokb level counts ###
 ###########################
 
-inF <- "../../data/AACR_Project_GENIE/Release_15p0_public/assay_information.txt"
+inF <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_15p0_public/assay_information.txt")
 assayInfo <- read.csv(inF,sep="\t") %>%
   dplyr::mutate(isHemePanel=grepl("HEME",SEQ_ASSAY_ID) | grepl("MYELOID",SEQ_ASSAY_ID))
 
@@ -444,8 +475,6 @@ write.table(seqTypeClinicalInfo,outF,row.names=F,quote=F,sep=",")
 
 # model which sequence facility factors have the biggest impact on proportion of level1 variants per cancer type
 
-library(rpart)
-library(rpart.plot)
 #library(mlflow)
 
 highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:15]
@@ -566,9 +595,6 @@ cat("Mean Squared Error (MSE):", mse, "\n")
 ###########################################
 
 # feature analysis 
-library(corrplot)
-library(ggplot2)
-library(reshape2)
 
 seqOtFull <- seqOtCTypeSummary[iHighest & iLevel1,] %>%
   dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID" )) 
@@ -616,7 +642,6 @@ ggsave(outF,height = 10, width = 10)
 ############################################
 ### corr structure of clinical variables ###
 ############################################
-library(corrplot)
 
 clin_train <- train_data[,clinical_cols]
 
@@ -764,7 +789,7 @@ cat("Mean Squared Error (MSE):", mse, "\n")
 ### assay info ###
 ##################
 
-inF <- "../../data/AACR_Project_GENIE/Release_15p0_public/genomic_information.txt"
+inF <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_15p0_public/genomic_information.txt")
 genomicInfo <- read.csv(inF,sep="\t")
 
 # SEQ_ASSAY_ID and SEQ_PIPELINE_ID
@@ -996,7 +1021,6 @@ if (runPairwiseCalc==1){
 geneList <- geneRank$Hugo_Symbol[1:16]
 
 posPanCntFull <- data.frame()
-geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
 for (gene in geneList) {
   print(gene)
   # hit info
@@ -1213,10 +1237,10 @@ top_n_cancer_types_cnts <- arbitrary_variant_per_subject %>%
                 cntrString = paste0(SourceStudy," ", Center))
 
 # make heatmap of cancer type percentages for top N cancers
-library(circlize)
-#library(devtools)
-#install_github("jokergoo/ComplexHeatmap")
-library(ComplexHeatmap)
+# library(circlize)
+# #library(devtools)
+# #install_github("jokergoo/ComplexHeatmap")
+# library(ComplexHeatmap)
 
 #### scratch circlize example code
 # set.seed(123)
@@ -1253,53 +1277,52 @@ library(ComplexHeatmap)
 #   }
 # }, bg.border = NA)
 
-###
+### Make circular plot of cancer type counts by study
 topNwide <- top_n_cancer_types_cnts[,c("cntrString","level_1_disease","percOfCenter")] %>%
   tidyr::pivot_wider(names_from = cntrString,values_from=percOfCenter) %>%
   dplyr::mutate(across(everything(), ~ replace_na(., 0))) %>%
   data.frame() 
 
-topNwideMtrx <- as.matrix(topNwide[,!colnames(topNwide) %in% c("level_1_disease")])
-orderStr <- gsub("[- ]", ".",  institution_summary$cntrString)
-topNwideMtrx <- topNwideMtrx[,head(orderStr,-1)]
+# topNwideMtrx <- as.matrix(topNwide[,!colnames(topNwide) %in% c("level_1_disease")])
+# orderStr <- gsub("[- ]", ".",  institution_summary$cntrString)
+# topNwideMtrx <- topNwideMtrx[,head(orderStr,-1)]
+# 
+# rownames(topNwideMtrx) <- topNwide$level_1_disease
 
-rownames(topNwideMtrx) <- topNwide$level_1_disease
-
-outF <-  paste0(outDir,"/cancer_type_by_institution_center.pdf")
-pdf(outF, width = 8, height = 6)
-ComplexHeatmap::Heatmap(topNwideMtrx) #, row_split = split)
-dev.off()
-
-
-outF <-  paste0(outDir,"/cancer_type_by_institution_center_circular.pdf")
-pdf(outF, width = 8, height = 8)
-col_fun1 = colorRamp2(c(0, 30, 60), c("snow2", "grey", "blue"))
-#circos.par(gap.after = c(2, 2, 2, 2, 10))
-#circos.heatmap(topNwideMtrx, col = col_fun1)
-#circos.par(gap.after = c(2, 2, 2, 2, 10))
-circos.par(gap.after = c(90))
-circos.heatmap(t(topNwideMtrx), col = col_fun1, track.height = 0.4, 
-               bg.lwd = 2, bg.lty = 2, show.sector.labels = TRUE,
-               cluster = F,
-               rownames.side = "outside")
-#circos.clear()
-
-#circos.heatmap(topNwideMtrx,col = col_fun1, track.height = 0.4)
-circos.track(track.index = get.current.track.index(), panel.fun = function(x, y) {
-  #if(CELL_META$sector.numeric.index == 5) { # the last sector
-    cn = rownames(topNwideMtrx)
-    n = length(cn)
-    circos.text(rep(CELL_META$cell.xlim[2], n) + convert_x(1, "mm"), 
-                1:n - 0.5, 
-                cn, 
-                cex = 0.5, 
-                adj = c(0, 0.5), 
-                facing = "inside")
-  #}
-}, bg.border = NA)
-circos.clear()
-dev.off()
-
+# outF <-  paste0(outDir,"/cancer_type_by_institution_center.pdf")
+# pdf(outF, width = 8, height = 6)
+# ComplexHeatmap::Heatmap(topNwideMtrx) #, row_split = split)
+# dev.off()
+# 
+# 
+# outF <-  paste0(outDir,"/cancer_type_by_institution_center_circular.pdf")
+# pdf(outF, width = 8, height = 8)
+# col_fun1 = colorRamp2(c(0, 30, 60), c("snow2", "grey", "blue"))
+# #circos.par(gap.after = c(2, 2, 2, 2, 10))
+# #circos.heatmap(topNwideMtrx, col = col_fun1)
+# #circos.par(gap.after = c(2, 2, 2, 2, 10))
+# circos.par(gap.after = c(90))
+# circos.heatmap(t(topNwideMtrx), col = col_fun1, track.height = 0.4,
+#                bg.lwd = 2, bg.lty = 2, show.sector.labels = TRUE,
+#                cluster = F,
+#                rownames.side = "outside")
+# #circos.clear()
+# 
+# #circos.heatmap(topNwideMtrx,col = col_fun1, track.height = 0.4)
+# circos.track(track.index = get.current.track.index(), panel.fun = function(x, y) {
+#   #if(CELL_META$sector.numeric.index == 5) { # the last sector
+#     cn = rownames(topNwideMtrx)
+#     n = length(cn)
+#     circos.text(rep(CELL_META$cell.xlim[2], n) + convert_x(1, "mm"),
+#                 1:n - 0.5,
+#                 cn,
+#                 cex = 0.5,
+#                 adj = c(0, 0.5),
+#                 facing = "inside")
+#   #}
+# }, bg.border = NA)
+# circos.clear()
+# dev.off()
 
 # bar chart for institution counts
 data <- institution_summary[,c("Center","n_subjects")]

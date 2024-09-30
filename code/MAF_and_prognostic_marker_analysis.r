@@ -25,6 +25,8 @@ source(utilFile1)
 
 ### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/MAF_prognostic_analysis")
+ProgOutDir <- paste0(outDir,"/prognostic_analysis_restricted_cancer_types")
+MafOutDir <- paste0(outDir,"/MAF_analysis_restricted_cancer_types")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ##########################
@@ -33,7 +35,6 @@ harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
 sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
-#pV <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTable')
 
 svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') 
 aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants') 
@@ -98,12 +99,10 @@ for (cType in TopPrimTissue) {
 
 ### select cancer type unrestricted data for evaluation
 #data_for_evaluation <- aa.genome.representative
-#MafOutDir <- paste0(outDir,"/MAF_analysis_unrestricted_cancer_types")
 
 ### select cancer type restricted data for evaluation
 data_for_evaluation <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T)
-MafOutDir <- paste0(outDir,"/MAF_analysis_restricted_cancer_types")
 
 outF <-  paste0(MafOutDir,"/MAF_distribution_clinically_actionable.pdf")
 ggplot(data_for_evaluation,aes(x=MAF,fill=actionability.summary))+
@@ -497,7 +496,6 @@ prognosticTypeCnts <- aa.genome.representative %>%
   dplyr::summarise(n=dplyr::n_distinct(Tumor_Sample_Barcode)) %>%
   dplyr::arrange(desc(n))
 
-ProgOutDir <- MafOutDir <- paste0(outDir,"/prognostic_analysis_restricted_cancer_types")
 ### create comparisons of distribution types
 testResProgDf <- data.frame()
 
@@ -629,8 +627,6 @@ testResProgDf <- testResProgDf %>%
                 c1_c2_median_MAF_difference = c1_median - c2_median)
 outF <- paste0(ProgOutDir,"/prognostic_markers_days_from_seq_to_death_wilcox_test.csv")
 write.csv(testResProgDf,outF)
-
-
 
 outF <-  paste0(outDir,"/prognostic_markers_int_to_death_qq_plot_raw_p_values.pdf")
 pdf(outF)

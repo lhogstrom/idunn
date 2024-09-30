@@ -20,6 +20,7 @@ params.scripts6 = file('../code/clinical_annotation_variant_matching.r')
 // scripts for reporting and analysis
 params.scripts7 = file('../code/incidence_of_clinically_annotated_mutations_reporting.r')
 params.scripts8 = file('../code/MAF_and_prognostic_marker_analysis.r')
+params.scripts9 = file('../code/summary_oncokb_by_cancer_type.r')
 
 log.info """\
     B A L D E R - N F   P I P E L I N E
@@ -160,6 +161,21 @@ process MAF_analysis {
     """
 }
 
+process analysis_oncokb_modeling {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    Rscript $params.scripts9 $base_dir $params.dbName
+    """
+}
 
 workflow {
     sqldb = preprocess_data1(file("${params.base_dir}"))
@@ -170,5 +186,6 @@ workflow {
     sqldb4 = clinical_annotation_matching(file("${params.base_dir}"),sqldb3)
     sqldb5 = annotation_matching_reporting(file("${params.base_dir}"),sqldb4)
     sqldb6 = MAF_analysis(file("${params.base_dir}"),sqldb5)
+    sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),sqldb6)
 }
 

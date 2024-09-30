@@ -28,6 +28,12 @@ dependencies:
   - r-ggplot2
   - r-ggalluvial
   - r-ggrepel
+  - r-rpart
+  - r-rpart.plot
+  - r-corrplot
+  - r-reshape2
+  - r-caret
+  - r-circlize
     #postBuild:
     #  - R -e "devtools::install_github('sigven/phenOncoX')"
     #  - R -e "devtools::install_github('r-dbi/RSQLite')"
