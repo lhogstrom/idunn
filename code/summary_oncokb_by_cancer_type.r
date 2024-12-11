@@ -33,6 +33,7 @@ source(utilFile1)
 ### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
 geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
+modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ##########################
@@ -681,9 +682,9 @@ na_proportions <- train_data[,clinical_cols] %>%
   summarise(dplyr::across(clinical_cols, ~ mean(is.na(.)))) %>%
   pivot_longer(cols = everything(), names_to = "column", values_to = "proportion")
 
-#####################################################
+##################################################### 
 ### perform per-patient modeling of level1 status ### 
-#####################################################
+##################################################### 
 
 # create representative variant per row per subject - choose level 1 variant if avaible 
 perPatientLevel1 <- svCompiled %>%
@@ -693,13 +694,28 @@ perPatientLevel1 <- svCompiled %>%
   dplyr::arrange(desc(isOncoKbLevel1)) %>%
   dplyr::filter(dplyr::row_number()==1) %>%
   dplyr::ungroup()
-  
+outF <- paste0(outDir,"/patient_level_OncoKB_status_for_modeling_head.txt")
+write.table(head(perPatientLevel1,1000),outF,row.names=F,quote=F,sep="\t")  
+
 # make data subset selections
 highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:5]
 iHighest <- perPatientLevel1$ONCOTREE_CODE %in% as.character(highest_c_counts)
 
+# cancer type and subtype name summary
+cTypeSubtypeCnts <- perPatientLevel1 %>% #[iHighest,]
+  dplyr::group_by(ONCOTREE_CODE,CANCER_TYPE,CANCER_TYPE_DETAILED) %>%
+  dplyr::summarise(nPatients=n()) %>%
+  dplyr::arrange(ONCOTREE_CODE,desc(nPatients))
+outF <- paste0(outDir,"/cancer_type_and_subtype_counts.txt")
+write.table(cTypeSubtypeCnts,outF,row.names=F,quote=F,sep="\t")  
+
+
 modelCols <- c("isOncoKbLevel1",
                "ONCOTREE_CODE",
+               "SAMPLE_TYPE",
+               "AGE_AT_SEQ_REPORT",
+               "RACE",
+               "ETHNICITY",
                "is_paired_end",
                "library_selection",
                "platform",
@@ -707,10 +723,11 @@ modelCols <- c("isOncoKbLevel1",
                "calling_strategy",
                "preservation_technique")
 
-
+# select top cancers and subset columns
 data <- perPatientLevel1[iHighest,] %>%
   dplyr::select(all_of(modelCols))
-iNull <- rowSums(!is.na(data[,modelCols])) != length(modelCols)
+# exclude patients if any data entry is null
+iNull <- rowSums(!is.na(data[,modelCols])) != length(modelCols) 
 data <- data[!iNull,]
 
 # Convert categorical variables to factors (if not already factors)
@@ -729,7 +746,7 @@ train_data <- data[train_index, ]
 test_data <- data[-train_index, ]
 
 # Define the formula for the model
-formula <- isOncoKbLevel1 ~ ONCOTREE_CODE + is_paired_end + library_selection + preservation_technique
+formula <- isOncoKbLevel1 ~ ONCOTREE_CODE + SAMPLE_TYPE + AGE_AT_SEQ_REPORT + RACE + ETHNICITY + is_paired_end + library_selection + preservation_technique
 
 # Train the Decision Tree Regressor
 tree_model <- rpart(formula, data = train_data, method = "class")
@@ -757,6 +774,159 @@ predictions <- predict(tree_model, newdata = test_data)
 # Evaluate the model performance
 mse <- mean((predictions - test_data$perc)^2)
 cat("Mean Squared Error (MSE):", mse, "\n")
+
+### repeat with logistic regression
+# library(Amelia)
+# missmap(train_data, main = "Missing values vs observed")
+
+model <- glm(isOncoKbLevel1 ~.,
+             family=binomial(link='logit'),
+             data=train_data)
+summary(model)
+
+library(broom)
+# Tidy and plot
+tidy_model <- tidy(model, conf.int = TRUE)
+ggplot(tidy_model, aes(x = term, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  coord_flip()
+
+# make roc curve
+library(pROC)
+
+# Fit model and predict probabilities
+prob <- predict(model, type = "response")
+
+# Plot ROC
+original_par <- par(no.readonly = TRUE)
+roc_curve <- roc(train_data$isOncoKbLevel1, prob)
+plot(roc_curve)
+par(original_par)
+
+#pred <- ifelse(prob > 0.5, 1, 0)
+pred <- ifelse(prob > 0.4, 1, 0)
+table(pred,train_data$isOncoKbLevel1)
+binLevel1 <- as.integer(train_data$isOncoKbLevel1) - 1 # convert boolean to 0/1
+cm <- confusionMatrix(factor(pred), factor(binLevel1))
+
+# Print the confusion matrix
+print(cm)
+
+
+# Assess the relationship between each predictor and the probability of the outcome using pdp package.
+# library(pdp)
+# # Partial dependence plot for predictor1
+# pdp_model <- pdp::partial(model, pred.var = "is_paired_end")
+# plotPartial(pdp_model)
+
+
+### try building model for individual cancer types. Control for subtypes
+modelResCtype <- data.frame()
+for (cType in unique(train_data$ONCOTREE_CODE)) {
+  print(cType)
+  cTypeModelCols <- modelCols[!modelCols %in% c("ONCOTREE_CODE")]
+  cTypeTrain <- train_data[train_data$ONCOTREE_CODE==cType,cTypeModelCols]
+  print(dim(cTypeTrain))
+  
+  model <- glm(isOncoKbLevel1 ~.,
+               family=binomial(link='logit'),
+               data=cTypeTrain)
+  print(summary(model))
+  
+  # Tidy and plot
+  tidy_model <- tidy(model, conf.int = TRUE)
+  tidy_model$ONCOTREE_CODE <- cType
+  modelResCtype <- rbind(modelResCtype,tidy_model)
+  
+  # plot
+  outF <-  paste0(outDir,"/","logit_model_by_cancer_type_LR_coef_",cType,".pdf")
+  ggplot(tidy_model, aes(x = term, y = estimate)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+    coord_flip()
+  ggsave(outF,height = 7, width = 10)
+  
+  # make roc curve
+  
+  # Fit model and predict probabilities
+  prob <- predict(model, type = "response")
+  
+  # Plot ROC
+  roc_curve <- roc(cTypeTrain$isOncoKbLevel1, prob)
+  
+  outF <-  paste0(outDir,"/","logit_model_by_cancer_type_ROC_curve_",cType,".pdf")
+  pdf(outF)
+  plot(roc_curve)
+  dev.off() 
+  
+  # plot underlying relationships
+  #
+  cTypeTrain$isOncoKbLevel1_string <- "Patient has Level1 mutation"
+  cTypeTrain[cTypeTrain$isOncoKbLevel1==F,"isOncoKbLevel1_string"] <- "No Level1 mutation"
+  for (f in colnames(cTypeTrain)) {
+    
+    outF <-  paste0(modelFeatureOutDir,"/",cType,"_tain_data_",f,"_by_actionable_status.pdf")
+    ggplot(cTypeTrain, aes(x = .data[[f]])) +
+      geom_bar()+
+      facet_grid(isOncoKbLevel1_string ~ .,scale="free_y")+
+      labs(title = paste0("training data\n",cType)) +
+      theme_minimal()+
+      theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+      theme(plot.title = element_text(hjust = 0.5))
+    ggsave(outF,height = 7, width = 7)
+    
+    # put bars side-by-side
+    outF <-  paste0(modelFeatureOutDir,"/",cType,"_tain_data_",f,"_by_actionable_status_side_by_side.pdf")
+    ggplot(cTypeTrain, aes(x = .data[[f]],fill=isOncoKbLevel1_string)) +
+      geom_bar(position = "dodge",alpha=.6)+
+      labs(title = paste0("training data\n",cType)) +
+      theme_minimal()+
+      theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+      theme(plot.title = element_text(hjust = 0.5))
+    ggsave(outF,height = 7, width = 7)
+    
+  }
+  
+}
+
+modelResCtype$pLessThanP01 <- modelResCtype$p.value <= 0.01
+outF <-  paste0(outDir,"/logit_model_by_cancer_type_LR_scores.pdf")
+#ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD",], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
+ggplot(modelResCtype[,], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
+  geom_point() +
+  labs(title = "logistic regression modeling of Level 1 actionability",
+       x = "LR score",
+       y = "covariate") +
+  #theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 7, width = 10)
+
+outF <-  paste0(outDir,"/logit_model_by_cancer_type_LR_scores_trimmed_LR.pdf")
+ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD",], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
+  geom_point() +
+  labs(title = "logistic regression modeling of Level 1 actionability \n trimmed LRs ",
+       x = "LR score",
+       y = "covariate") +
+  xlim(-3,3)+
+  #theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 7, width = 10)
+
+
+outF <-  paste0(outDir,"/logit_model_by_cancer_type_LR_scores_trimmed_LR_significant_only.pdf")
+ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD" & modelResCtype$pSignificant==T,], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
+  geom_point() +
+  labs(title = "logistic regression modeling of Level 1 actionability \n trimmed LRs ",
+       x = "LR score",
+       y = "covariate") +
+  xlim(-3,3)+
+  #theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 7, width = 10)
 
 
 ### Apply GLM model
@@ -1359,5 +1529,6 @@ ggplot(data, aes(x=as.factor(id), y=n_subjects)) +       # Note that id is a fac
               direction=1)
 ggsave(outF,height = 8,width = 8)
 
-outRFile <- paste0(outDir,"/work_space_20240711.RData")
+#outRFile <- paste0(outDir,"/work_space_20240711.RData")
+outRFile <- paste0(outDir,"/work_space_20241207.RData")
 save.image(file = outRFile)

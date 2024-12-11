@@ -23,7 +23,7 @@ utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240903/actionability_reporting")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/actionability_reporting")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ################################################################
@@ -31,11 +31,14 @@ harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 ################################################################
 
 ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
-sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
-pV <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTable')
 
-#df <- pV
+# load sample info
+sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
 df <- sampleInfoCompiled
+
+# load patient variants
+#pV <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTable')
+#df <- pV
 
 for (xCol in colnames(df)) {
   print(xCol)
@@ -44,6 +47,7 @@ for (xCol in colnames(df)) {
   print(class(x))
   xLength <- length(x)
   iNullCnt <- is.na(x) | x==""
+  iUnknown <- is.na(x) | x=="Unknown"
   sumNull <- sum(iNullCnt)
   propNull <- 100*(sumNull/xLength)
   print("percent of null entries:")
