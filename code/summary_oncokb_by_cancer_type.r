@@ -820,7 +820,6 @@ print(cm)
 # pdp_model <- pdp::partial(model, pred.var = "is_paired_end")
 # plotPartial(pdp_model)
 
-
 ### try building model for individual cancer types. Control for subtypes
 modelResCtype <- data.frame()
 for (cType in unique(train_data$ONCOTREE_CODE)) {
