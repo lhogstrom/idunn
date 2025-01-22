@@ -21,6 +21,8 @@ params.scripts6 = file('../code/clinical_annotation_variant_matching.r')
 params.scripts7 = file('../code/incidence_of_clinically_annotated_mutations_reporting.r')
 params.scripts8 = file('../code/MAF_and_prognostic_marker_analysis.r')
 params.scripts9 = file('../code/summary_oncokb_by_cancer_type.r')
+params.scripts10 = file('../code/model_oncokb_level1_hits.r')
+params.scripts11 = file('../code/clinical_technical_feature_description.R')
 
 log.info """\
     B A L D E R - N F   P I P E L I N E
@@ -177,6 +179,39 @@ process analysis_oncokb_modeling {
     """
 }
 
+process model_level1_oncokb_hits {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    Rscript $params.scripts10 $base_dir $params.dbName
+    """
+}
+
+
+process clinical_technical_feature_description {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    Rscript $params.scripts11 $base_dir $params.dbName
+    """
+}
+
 workflow {
     //sqldb = preprocess_data1(file("${params.base_dir}"))
     //sqldb2 = preprocess_data2(file("${params.base_dir}"),sqldb)
@@ -187,8 +222,11 @@ workflow {
     //sqldb5 = annotation_matching_reporting(file("${params.base_dir}"),sqldb4)
     //sqldb6 = MAF_analysis(file("${params.base_dir}"),sqldb5)
     //sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),sqldb6)
+    //sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),sqldb6)
     
     // run last script alone
     sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
+    sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
+    //sqldb9 = clinical_technical_feature_description(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
 }
 

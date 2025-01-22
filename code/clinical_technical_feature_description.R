@@ -1,7 +1,67 @@
-library(magick)
+library(dplyr)
+library(tidyr)
+library(DBI)
+library(RSQLite)
+library(ggplot2)
+library(reshape2)
+
+args <- commandArgs(trailingOnly = TRUE)
+
+# Check if the correct number of arguments are provided
+if (length(args) != 2) {
+  stop("Two arguments must be supplied", call. = FALSE)
+}
+
+# Assign Arguments to Variables
+baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
+dbName <- args[2]
+
+utilFile1 <- paste0(baseDir,"/../code/R/snv_indel_annotation.R")
+source(utilFile1)
+utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
+source(utilFile1)
+
+### connect to result DB and get variants
+#outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
+modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
+harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
+
+#seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 
+otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary') 
+perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel1') 
+
+##########################
+### examine features #####
+##########################
+
+
+# highest_c_counts <- unique(seqOtCTypeSummary$ONCOTREE_CODE)[1:15]
+# iHighest <- seqOtCTypeSummary$ONCOTREE_CODE %in% as.character(highest_c_counts)
+# iLevel1 <- grepl("LEVEL_1",seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY)
+# 
+# data <- seqOtCTypeSummary[iHighest & iLevel1,] %>%
+#   #dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID" )) %>%
+#   #dplyr::select(all_of(modelCols)) %>%
+#   dplyr::group_by(ONCOTREE_CODE) %>%
+#   dplyr::arrange(desc(perc)) %>% 
+#   dplyr::mutate(actionable_perc_rank=dplyr::row_number())
+
+highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:63] # select those OT codes with 500 or more samples
+highest_c_counts <- highest_c_counts[!is.na(highest_c_counts)]
+iHighest <- perPatientLevel1$ONCOTREE_CODE %in% as.character(highest_c_counts)
+
+data <- perPatientLevel1[iHighest,] %>%
+  dplyr::select(all_of(modelCols))
+# exclude patients if any data entry is null
+iNull <- rowSums(!is.na(data[,modelCols])) != length(modelCols) 
+data <- data[!iNull,]
+
+
+#library(magick)
 
 ### exploratory plots by relationship
-ctCnts <- train_data %>%
+ctCnts <- data %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::summarise(nSubjectOTcode=n()) %>%
   dplyr::arrange(desc(nSubjectOTcode))
@@ -16,7 +76,7 @@ ftrList <- c("SAMPLE_TYPE",
   "preservation_technique")
 
 for (ftr in ftrList) {
-  fCnts <- train_data %>%
+  fCnts <- data  %>%
     dplyr::group_by(.data[[ftr]],ONCOTREE_CODE,isOncoKbLevel1) %>%
     dplyr::summarise(n=n()) %>%
     dplyr::left_join(ctCnts, by="ONCOTREE_CODE") %>%
