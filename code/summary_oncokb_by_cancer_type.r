@@ -31,7 +31,8 @@ utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
+#outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
 geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
 modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
@@ -698,7 +699,9 @@ outF <- paste0(outDir,"/patient_level_OncoKB_status_for_modeling_head.txt")
 write.table(head(perPatientLevel1,1000),outF,row.names=F,quote=F,sep="\t")  
 
 # make data subset selections
-highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:5]
+#highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:5]
+highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:63] # select those OT codes with 500 or more samples
+highest_c_counts <- highest_c_counts[!is.na(highest_c_counts)]
 iHighest <- perPatientLevel1$ONCOTREE_CODE %in% as.character(highest_c_counts)
 
 # cancer type and subtype name summary
@@ -708,7 +711,6 @@ cTypeSubtypeCnts <- perPatientLevel1 %>% #[iHighest,]
   dplyr::arrange(ONCOTREE_CODE,desc(nPatients))
 outF <- paste0(outDir,"/cancer_type_and_subtype_counts.txt")
 write.table(cTypeSubtypeCnts,outF,row.names=F,quote=F,sep="\t")  
-
 
 modelCols <- c("isOncoKbLevel1",
                "ONCOTREE_CODE",
@@ -892,18 +894,19 @@ for (cType in unique(train_data$ONCOTREE_CODE)) {
 modelResCtype$pLessThanP01 <- modelResCtype$p.value <= 0.01
 outF <-  paste0(outDir,"/logit_model_by_cancer_type_LR_scores.pdf")
 #ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD",], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
-ggplot(modelResCtype[,], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
-  geom_point() +
+ggplot(modelResCtype[,], aes(x = estimate, y = term, shape=pLessThanP01,colour = ONCOTREE_CODE)) +
+  #geom_point() +
+  geom_jitter(height=.2)
   labs(title = "logistic regression modeling of Level 1 actionability",
        x = "LR score",
        y = "covariate") +
   #theme_minimal()+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(outF,height = 7, width = 10)
+ggsave(outF,height = 10, width = 15)
 
 outF <-  paste0(outDir,"/logit_model_by_cancer_type_LR_scores_trimmed_LR.pdf")
-ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD",], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
+ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD",], aes(x = estimate, y = term, shape=pLessThanP01,colour = ONCOTREE_CODE)) +
   geom_point() +
   labs(title = "logistic regression modeling of Level 1 actionability \n trimmed LRs ",
        x = "LR score",
@@ -912,11 +915,11 @@ ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD",], aes(x = estimate, y
   #theme_minimal()+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(outF,height = 7, width = 10)
+ggsave(outF,height = 10, width = 15)
 
 
 outF <-  paste0(outDir,"/logit_model_by_cancer_type_LR_scores_trimmed_LR_significant_only.pdf")
-ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD" & modelResCtype$pSignificant==T,], aes(x = estimate, y = term, shape=pSignificant,colour = ONCOTREE_CODE)) +
+ggplot(modelResCtype[!modelResCtype$ONCOTREE_CODE=="PAAD" & modelResCtype$pLessThanP01==T,], aes(x = estimate, y = term, shape=pLessThanP01,colour = ONCOTREE_CODE)) +
   geom_point() +
   labs(title = "logistic regression modeling of Level 1 actionability \n trimmed LRs ",
        x = "LR score",
