@@ -4,6 +4,8 @@ library(DBI)
 library(RSQLite)
 library(ggplot2)
 library(reshape2)
+library(RColorBrewer)
+#library(ComplexHeatmap)
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -35,7 +37,6 @@ perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientL
 ### examine features #####
 ##########################
 
-
 # highest_c_counts <- unique(seqOtCTypeSummary$ONCOTREE_CODE)[1:15]
 # iHighest <- seqOtCTypeSummary$ONCOTREE_CODE %in% as.character(highest_c_counts)
 # iLevel1 <- grepl("LEVEL_1",seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY)
@@ -50,6 +51,54 @@ perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientL
 highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:63] # select those OT codes with 500 or more samples
 highest_c_counts <- highest_c_counts[!is.na(highest_c_counts)]
 iHighest <- perPatientLevel1$ONCOTREE_CODE %in% as.character(highest_c_counts)
+
+# clinical_cols <- c("median_age",
+#                    "met_to_primary_ratio",
+#                    "meanTumorPurity",
+#                    "anyTumorPurityInfo",
+#                    "perc_LocalRecurrence",
+#                    "perc_NaHeme",
+#                    "perc_dead",
+#                    "perc_StageI",
+#                    "perc_StageII",
+#                    "perc_StageIII",
+#                    "perc_StageIV",
+#                    "median_IntSeqToDeath")
+# technical_cols <- c("is_paired_end",
+#                     "library_selection",
+#                     "platform",
+#                     "number_of_genes",
+#                     "calling_strategy",
+#                     "preservation_technique")
+# 
+# modelCols <- c("ONCOTREE_CODE",
+#                "SEQ_ASSAY_ID_mod",
+#                "ONCOKB_HIGHEST_LEVEL_SUMMARY",
+#                clinical_cols,
+#                technical_cols)
+
+# modelCols <- c("SAMPLE_TYPE",
+#              "RACE",
+#              "ETHNICITY",
+#              "is_paired_end",
+#              "library_selection",
+#              "platform",
+#              "calling_strategy",
+#              "preservation_technique")
+
+baseCols <- c("isOncoKbLevel1",
+              "ONCOTREE_CODE")
+selectCols <- c("SAMPLE_TYPE",
+               "AGE_AT_SEQ_REPORT",
+               "RACE",
+               "ETHNICITY",
+               "is_paired_end",
+               "library_selection",
+               "platform",
+               "number_of_genes",
+               "calling_strategy",
+               "preservation_technique")
+modelCols <- c(baseCols,selectCols)
 
 data <- perPatientLevel1[iHighest,] %>%
   dplyr::select(all_of(modelCols))
@@ -66,16 +115,9 @@ ctCnts <- data %>%
   dplyr::summarise(nSubjectOTcode=n()) %>%
   dplyr::arrange(desc(nSubjectOTcode))
 
-ftrList <- c("SAMPLE_TYPE",
-  "RACE",
-  "ETHNICITY",
-  "is_paired_end",
-  "library_selection",
-  "platform",
-  "calling_strategy",
-  "preservation_technique")
 
-for (ftr in ftrList) {
+
+for (ftr in selectCols) {
   fCnts <- data  %>%
     dplyr::group_by(.data[[ftr]],ONCOTREE_CODE,isOncoKbLevel1) %>%
     dplyr::summarise(n=n()) %>%
@@ -120,31 +162,13 @@ for (ftr in ftrList) {
     dplyr::mutate(strFull="",
                   str1=paste0("p=",round(pValue,4)),
                   str2=paste0("p=",round(pValue,4),
-                              " p-adjusted=",round(pFDR,4))) 
+                              " p-adjusted=",round(pFDR,4))) %>%
+    dplyr::arrange(pValue)
   iMatch <- fCntsWideJ$pValue <= 0.05 & ! is.na(fCntsWideJ$pValue)
   fCntsWideJ[iMatch,"strFull"] <- fCntsWideJ[iMatch,"str2"]
+  fCntsWideJ$ONCOTREE_CODE <- factor(fCntsWideJ$ONCOTREE_CODE, levels=unique(fCntsWideJ$ONCOTREE_CODE))
   
-  
-  # Create the plot of patient counts
-  outF1 <-  paste0(modelFeatureOutDir,"/","sample_counts_with_Level1_action_",ftr,".pdf")
-  ggplot(fCnts, aes(x = isOncoKbLevel1)) +
-    geom_bar(aes(y = n,fill=isOncoKbLevel1), stat = "identity", alpha = 0.7) +
-    #facet_wrap(~ONCOTREE_CODE,scale="free_y") +
-    #facet_grid(SAMPLE_TYPE~ONCOTREE_CODE,scale="free_y") +
-    facet_grid(ONCOTREE_CODE~.data[[ftr]],scale="free_y") +
-    scale_y_continuous(
-      name = "Raw Counts",
-      sec.axis = sec_axis(~ . / scale_factor, name = "Percent of patients") # Secondary y-axis
-    ) +
-    labs(
-      title = " ",
-      x = " "
-    ) +
-    scale_fill_brewer(palette="Set2",drop=FALSE)
-    theme_minimal() #+
-  ggsave(outF1,height = 49, width = 12)
-  
-  # plot of ratios
+  # plot percent actionable
   outF2 <-  paste0(modelFeatureOutDir,"/","sample_counts_with_Level1_action_",ftr,"_perc_actionable.pdf")
   ggplot(fCntsWideJ, aes(x = .data[[ftr]],y = percent_actionable)) +
     geom_bar(aes(), stat = "identity", alpha = 0.7) +
@@ -161,9 +185,30 @@ for (ftr in ftrList) {
       title = " ",
       x = " "
     ) +
-    scale_fill_brewer(palette="Set2",drop=FALSE)
-  theme_minimal() #+
+    #scale_fill_brewer(palette="Set2",drop=FALSE) + 
+    theme_minimal() #+
   ggsave(outF2,height = 49, width = 12)
+  
+  
+  fCnts$ONCOTREE_CODE <- factor(fCnts$ONCOTREE_CODE, levels=unique(fCntsWideJ$ONCOTREE_CODE))
+  # Create the plot of patient counts
+  outF1 <-  paste0(modelFeatureOutDir,"/","sample_counts_with_Level1_action_",ftr,".pdf")
+  ggplot(fCnts, aes(x = isOncoKbLevel1)) +
+    geom_bar(aes(y = n,fill=isOncoKbLevel1), stat = "identity", alpha = 0.7) +
+    #facet_wrap(~ONCOTREE_CODE,scale="free_y") +
+    #facet_grid(SAMPLE_TYPE~ONCOTREE_CODE,scale="free_y") +
+    facet_grid(ONCOTREE_CODE~.data[[ftr]],scale="free_y") +
+    scale_y_continuous(
+      name = "Raw Counts",
+      sec.axis = sec_axis(~ . / scale_factor, name = "Percent of patients") # Secondary y-axis
+    ) +
+    labs(
+      title = " ",
+      x = " "
+    ) +
+    #scale_fill_brewer(palette="Set2",drop=FALSE) +
+    theme_minimal() #+
+  ggsave(outF1,height = 49, width = 12)
   
 # 
 #   # # # Load the PDF images
@@ -184,4 +229,125 @@ for (ftr in ftrList) {
 #   image_write(combined_image, path = outF3, format = "pdf")
   # 
 }
+
+##############################################################################
+### plot genes that contribute most to actionability for each cancer type ###
+##############################################################################
+
+### perc of gene by cancer type
+otCntsAction <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1==T) %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::summarise(nOtSubjLevel1=n()) %>%
+  dplyr::arrange(desc(nOtSubjLevel1))
+
+otGeneCntsAction <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1==T) %>%
+  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol) %>%
+  dplyr::summarise(nLevel1Actionable=n()) %>%
+  dplyr::left_join(otCntsAction,by="ONCOTREE_CODE") %>%
+  dplyr::mutate(perc=100*nLevel1Actionable/nOtSubjLevel1)
+
+# create a table of 25 most common genes and 15 most common OT codes
+topOtCodes <- otCntsAction$ONCOTREE_CODE[1:15] 
   
+### perc of gene by cancer type
+geneMutCnts <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1==T,
+                ONCOTREE_CODE %in% topOtCodes) %>%
+  dplyr::group_by(Hugo_Symbol) %>%
+  dplyr::summarise(nGeneMut=n()) %>%
+  dplyr::arrange(desc(nGeneMut))
+
+topGeneMuts <- geneMutCnts$Hugo_Symbol[1:25] 
+
+otGeneCntsActionSubset <- otGeneCntsAction %>%
+  dplyr::filter(Hugo_Symbol %in% topGeneMuts,
+                ONCOTREE_CODE %in% topOtCodes)
+
+outF1 <-  paste0(modelFeatureOutDir,"/","perc_of_OT_code_by_gene_level1_oncokb_events.pdf")
+ggplot(otGeneCntsActionSubset, aes(x=ONCOTREE_CODE,size=perc,y = Hugo_Symbol)) +
+  geom_point(alpha=.6) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF1,height = 8, width = 8)
+
+# for a given OT code, look at the breakdown of commmon genes - where are there differences between centers? 
+cntrOtCntsAction <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1==T) %>%
+  dplyr::group_by(ONCOTREE_CODE,CENTER) %>%
+  dplyr::summarise(nOtSubjLevel1=n()) %>%
+  dplyr::arrange(desc(nOtSubjLevel1))
+
+otCntrCntsFull <- data.frame()
+for (otCode in topOtCodes) {
+  cntrOtCntsActionSubset <- cntrOtCntsAction[cntrOtCntsAction$ONCOTREE_CODE==otCode,]
+  
+  otCntrCntsAction <- perPatientLevel1 %>%
+    dplyr::filter(isOncoKbLevel1==T,
+                  ONCOTREE_CODE==otCode) %>%
+    dplyr::group_by(CENTER,Hugo_Symbol) %>%
+    dplyr::summarise(nLevel1Actionable=n()) %>%
+    dplyr::left_join(cntrOtCntsActionSubset,by="CENTER") %>%
+    dplyr::mutate(perc=100*nLevel1Actionable/nOtSubjLevel1)
+  otCntrCntsAction$ONCOTREE_CODE <- otCode
+  otCntrCntsFull <- rbind(otCntrCntsFull,otCntrCntsAction)
+  
+  outF1 <-  paste0(modelFeatureOutDir,"/gene_percent_breakdown_Level1_action_",otCode,".pdf")
+  ggplot(otCntrCntsAction, aes(x=Hugo_Symbol,size=perc,y = CENTER)) +
+    geom_point(alpha=.6) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    theme(plot.title = element_text(hjust = 0.5))
+  ggsave(outF1,height = 8, width = 8)
+  
+  # make matrix for heatma
+  library(ComplexHeatmap)
+  otCntWide <- otCntrCntsAction[,!colnames(otCntrCntsAction)=="nLevel1Actionable"] %>%
+    tidyr::pivot_wider(names_from = Hugo_Symbol,values_from=perc) %>%
+    mutate(across(everything(), ~ replace_na(., 0)))
+    #dplyr::mutate(isOncoKbLevel1_TRUE = replace_na(isOncoKbLevel1_TRUE, 0),
+    
+  geneSubset <- unique(otCntrCntsAction$Hugo_Symbol)  
+  dfMtrx <- data.frame(otCntWide[,geneSubset])
+  rownames(dfMtrx) <- replace_na(otCntWide$CENTER,"Unknownn")
+  mmtrx <- as.matrix(dfMtrx)
+  
+  outF <-  paste0(modelFeatureOutDir,"/gene_percent_breakdown_Level1_action_",otCode,"_heatmap.pdf")
+  pdf(outF, width = 8, height = 8)
+  cHeatmap <- ComplexHeatmap::Heatmap(dfMtrx, 
+                                      name = "percent of Level1 events", 
+                                      cluster_columns = TRUE,
+                                      cluster_rows = TRUE)
+  draw(cHeatmap)
+  dev.off()
+    
+}
+
+
+### make mtrx of full data
+iCols <- !colnames(otCntrCntsAction) %in% c("nLevel1Actionable","nOtSubjLevel1")
+otCntWideFull <- otCntrCntsFull[,iCols] %>%
+  tidyr::pivot_wider(names_from = Hugo_Symbol,values_from=perc) %>%
+  mutate(across(everything(), ~ replace_na(., 0)))
+
+geneSubset <- unique(otCntrCntsFull$Hugo_Symbol)
+dfMtrx <- data.frame(otCntWideFull[,geneSubset])
+rownames(dfMtrx) <- paste0(otCntWideFull$ONCOTREE_CODE,
+                           "-",
+                           replace_na(otCntWideFull$CENTER,"Unknownn"))
+mmtrx <- as.matrix(dfMtrx)
+
+outF <-  paste0(modelFeatureOutDir,"/gene_percent_breakdown_Level1_action_all_cTypes_heatmap.pdf")
+pdf(outF, width = 10, height = 20)
+cHeatmap <- ComplexHeatmap::Heatmap(dfMtrx, 
+                                    name = "percent of Level1 events", 
+                                    cluster_columns = TRUE,
+                                    cluster_rows = FALSE)
+draw(cHeatmap)
+dev.off()
+
+# 
+# ht_list = ht1 %v% ht2 %v% ht3
+# draw(ht_list)

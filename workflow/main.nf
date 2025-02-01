@@ -225,8 +225,8 @@ workflow {
     //sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),sqldb6)
     
     // run last script alone
-    sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
-    sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
-    //sqldb9 = clinical_technical_feature_description(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
+    //sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
+    //sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
+    sqldb9 = clinical_technical_feature_description(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
 }
 
