@@ -454,11 +454,90 @@ cm <- confusionMatrix(factor(pred), factor(binLevel1))
 print(cm)
 
 
+### regularization model
+#library(glmnet)
+x <- train_data[,!colnames(train_data) %in% c("isOncoKbLevel1")]
+y <- train_data$isOncoKbLevel1
+lasso_model <- glmnet(x, y, family = "binomial", alpha = 1)
+summary(lasso_model)
+plot(lasso_model, label = TRUE)
+coef(lasso_model, , s = 0.1)
+# Xpred <- predict(lasso_model, x) 
+
+# #predictions <- predict(lasso_model, newx = as.matrix(x, type = "response")
+# trainPred <- glmnet::predict.glmnet(lasso_model, newx = as.matrix(x), type = "response")
+
+
 # Assess the relationship between each predictor and the probability of the outcome using pdp package.
 # library(pdp)
 # # Partial dependence plot for predictor1
 # pdp_model <- pdp::partial(model, pred.var = "is_paired_end")
 # plotPartial(pdp_model)
+
+
+### regularization model - by cancer type,
+#library(glmnet)
+#df <- data.frame(category = c("A", "B", "A", "C", "B"))
+
+# One-hot encoding
+oneHotCols <- colnames(train_data)[!colnames(train_data) %in% c("ONCOTREE_CODE","AGE_AT_SEQ_REPORT","number_of_genes","isOncoKbLevel1")]
+train_encoded <- dummy_cols(train_data, select_columns = oneHotCols, remove_first_dummy = FALSE, remove_selected_columns = TRUE)
+
+modelResCtype <- data.frame()
+columns_dict <- list()
+for (cType in unique(train_data$ONCOTREE_CODE)) {
+  print(cType)
+  
+  cTypeModelCols <- colnames(train_encoded)[!colnames(train_encoded) %in% c("ONCOTREE_CODE")]
+  cTypeTrain <- train_encoded[train_encoded$ONCOTREE_CODE==cType,cTypeModelCols]
+  x <- data.frame(cTypeTrain[,!colnames(cTypeTrain) %in% c("isOncoKbLevel1")])
+  y <- as.numeric(as.logical(cTypeTrain$isOncoKbLevel1))
+  
+  #cTypeModelCols <- modelCols[!modelCols %in% c("ONCOTREE_CODE")]
+  #cTypeTrain <- train_data[train_data$ONCOTREE_CODE==cType,cTypeModelCols]
+  #x <- data.frame(cTypeTrain[,!colnames(cTypeTrain) %in% c("isOncoKbLevel1")])
+  #y <- cTypeTrain$isOncoKbLevel1
+  
+  print(dim(cTypeTrain))
+  if (sum(as.numeric(y)) > 5) {
+    lasso_model <- glmnet(x, y, family = "binomial", alpha = 1)
+    summary(lasso_model)
+    plot(lasso_model, label = TRUE)
+    cTCoef <- coef(lasso_model, , s = 0.01)
+    #rownames(modelResCtype) <- rownames(cTCoef)
+    #modelResCtype[,cType] <- as.numeric(cTCoef)
+    #modelResCtype <- cbind(modelResCtype,cType=as.numeric(cTCoef))
+    columns_dict[[cType]] <- as.numeric(cTCoef)
+  }
+}
+
+modelResCtype <- data.frame(columns_dict)
+rownames(modelResCtype) <- rownames(cTCoef)
+mResLong <- modelResCtype %>% 
+  dplyr::mutate(factor=rownames(modelResCtype)) %>%
+  tidyr::pivot_longer(!factor, names_to = "OTCODE", values_to = "coef") 
+
+outF <-  paste0(outDir,"/logit_L1_regularization_model_by_cancer_type_LR_scores_trimmed_LR.pdf")
+ggplot(mResLong[!mResLong$factor=="(Intercept)",], aes(x = coef, y = factor)) +
+  #geom_point() +
+  geom_jitter(size=3,alpha=.4,height=.2)+
+  labs(title = "logistic regression modeling of Level 1 actionability",
+       x = "LR score",
+       y = "covariate") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 10, width = 10)
+
+outF <-  paste0(outDir,"/logit_L1_regularization_model_by_cancer_type_LR_scores_trimmed_LR_panel.pdf")
+ggplot(mResLong[!mResLong$factor=="(Intercept)",], aes(x = coef, y = factor)) +
+  geom_point()+
+  facet_wrap(~OTCODE)+
+  labs(title = "logistic regression modeling of Level 1 actionability",
+       x = "LR score",
+       y = "covariate") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 30, width = 30)
 
 ### try building model for individual cancer types. Control for subtypes
 modelResCtype <- data.frame()
