@@ -5,6 +5,7 @@ import shap
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gaussian_kde
+import seaborn as sns
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestClassifier
@@ -162,6 +163,81 @@ def make_age_dist_plot(df,cType,outF):
     plt.savefig(outF, format="pdf", bbox_inches='tight')
     plt.close()
 
+def make_age_gender_dist_plot(df,cType,outF,excludeUnknown=True): 
+    
+    # Ensure correct data types and labels
+    df['isOncoKbLevel1'] = df['isOncoKbLevel1'].astype(bool)
+    
+    mutation_labels = [False, True]  # False = No event (top), True = Actionable (bottom)
+    if excludeUnknown:
+        sex_labels = ['Female', 'Male']  # Columns
+    else:
+        sex_labels = ['Female', 'Male', 'Unknown']  # Columns
+    
+    # Binning and KDE setup
+    bins = range(10, 105, 5)
+    x_grid = np.linspace(10, 105, 300)
+    
+    # Set up 2x3 subplot grid
+    fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(15, 8), sharex=True, sharey=True)
+    
+    # Loop through mutation status and sex
+    for i, mutated in enumerate(mutation_labels):
+        for j, sex in enumerate(sex_labels):
+            ax = axes[i, j]
+            label = 'Level 1 actionable event' if mutated else 'No Level 1 actionable event'
+    
+            # Subset and drop NA
+            subset = df[(df['isOncoKbLevel1'] == mutated) & (df['SEX'] == sex)]
+            ages = subset['AGE_AT_SEQ_REPORT'].dropna()
+    
+            # Plot histogram
+            ax.hist(ages, bins=bins, density=True,
+                    color='skyblue' if not mutated else 'salmon',
+                    edgecolor='black', alpha=0.6)
+    
+            # Plot KDE if enough points
+            if len(ages) > 1:
+                kde = gaussian_kde(ages)
+                ax.plot(x_grid, kde(x_grid),
+                        color='blue' if not mutated else 'red',
+                        lw=2, label='Smoothed KDE')
+    
+            # Titles and labels
+            ax.set_title(f"{sex}")
+            if j == 0:
+                ax.set_ylabel(f"{label}\n\nDensity")
+            else:
+                ax.set_ylabel("")
+    
+            if i == 1:
+                ax.set_xlabel("Age at Report")
+            else:
+                ax.set_xlabel("")
+    
+            ax.grid(True)
+            ax.legend()    
+    # Overall plot formatting
+    fig.suptitle("Age Distribution by OncoKB Level 1 Status and Gender", fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # leave room for title
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()    
+
+def gender_grouped_bar(df,cType,outF):     
+    # Create a summary table
+    plot_df = df.groupby(['isOncoKbLevel1', 'SEX']).size().reset_index(name='Count')
+    plot_df['isOncoKbLevel1'] = plot_df['isOncoKbLevel1'].map({False: 'No Level 1 Event', True: 'Level 1 Event'})
+    
+    # Plot
+    plt.figure(figsize=(8, 6))
+    sns.barplot(data=plot_df, x='isOncoKbLevel1', y='Count', hue='SEX')
+    plt.title('Counts by Gender and Mutation Status')
+    plt.xlabel('Mutation Status')
+    plt.ylabel('Number of Subjects')
+    plt.legend(title='Sex')
+    plt.tight_layout()
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()  
 
 def main():
     outDir = '/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/ml_modeling_python'
@@ -183,17 +259,20 @@ def main():
     dfThresh = df[df['ONCOTREE_CODE'].isin(cTypes_to_test.ONCOTREE_CODE)]
     print("patients in OT code with required Level 1 events: " + str(dfThresh.shape[0]))
     
-    
-    for cType in cTypes_to_test['ONCOTREE_CODE'][5:10]: 
-        #cType = 'LUAD'
+    # make age plots
+    for cType in cTypes_to_test['ONCOTREE_CODE'][5:17]: 
         print(cType)
         subsetDf = subset_patient_data(df,cType)
         outF = os.path.join(outDir, cType+"_age_distribution.pdf")
         make_age_dist_plot(subsetDf,cType,outF)
+        outF = os.path.join(outDir, cType+"_age_gender_distribution.pdf")
+        make_age_gender_dist_plot(subsetDf,cType,outF,excludeUnknown=True)
+        outF = os.path.join(outDir, cType+"_gender_grouped_bar.pdf")
+        gender_grouped_bar(subsetDf,cType,outF)
     
     model_metrics = []
     all_shaps = []
-    for cType in cTypes_to_test['ONCOTREE_CODE'][5:10]: 
+    for cType in cTypes_to_test['ONCOTREE_CODE'][5:17]: 
         #cType = 'LUAD'
         print(cType)
         subsetDf = subset_patient_data(df,cType)
@@ -346,15 +425,44 @@ def main():
             'mean_abs_shap': mean_abs_shap
         })
         
-        # 3. Sort by importance
+        # Sort by importance
         importance_df = importance_df.sort_values(by='mean_abs_shap', ascending=False).reset_index(drop=True)
+        importance_df['feature_rank'] = range(1, len(importance_df) + 1)
         feature_ranks.append(importance_df)
         
         # Optional: view top N
         print(importance_df.head(10))
 
-
+    featureRanksDf = pd.concat(feature_ranks, ignore_index=True)
+    outF = os.path.join(outDir, "shap_feature_ranks.csv")
+    featureRanksDf.to_csv(outF, index=False)
     
+    # order features for bump plot
+    topFeatures = featureRanksDf[featureRanksDf['feature_rank']<8]
+    ftTopCnts = topFeatures['feature'].value_counts()
+    topHits = ftTopCnts.index[:5]
+    
+    rankBump = topFeatures[topFeatures['feature'].isin(topHits)]
+    
+    # bump rank plot
+    plt.figure(figsize=(8, 6))
+
+    # Plot each item's rank trajectory
+    for ft in rankBump['feature'].unique():
+        item_data = rankBump[rankBump['feature'] == ft]
+        plt.plot(item_data['ONCOTREE_CODE'], item_data['feature_rank'], marker='o', label=ft)
+    
+    plt.gca().invert_yaxis()  # Lower ranks (1) at top
+    plt.title('SHAP Feature ranking to predict Level 1 mutation status')
+    plt.xlabel('Cancer type')
+    plt.ylabel('freature rank')
+    plt.legend(title='Item')
+    plt.grid(True)
+    plt.tight_layout()
+    outF = os.path.join(outDir,"shap_feature_rank_bump_plot.pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()
+        
 if __name__ == '__main__':
     main()
     
