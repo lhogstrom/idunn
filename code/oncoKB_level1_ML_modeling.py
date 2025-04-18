@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 import os
 import shap
 import matplotlib.pyplot as plt
-
+import numpy as np
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestClassifier
@@ -27,29 +27,29 @@ engine = create_engine(f"sqlite:///{db_path}")
 table_name = 'perPatientLevel1'   
 df = pd.read_sql_table(table_name, con=engine)
 
-
-
+# demographic columns
 demographic_list = [
-#'PATIENT_ID',
-#'CANCER_TYPE',
-#'CANCER_TYPE_DETAILED',
-#'ONCOTREE_CODE',
 'SAMPLE_TYPE',
 'SAMPLE_TYPE_DETAILED',
 'STAGE',
-#'INT_Biopsy_To_Death',
-#'DEAD',
-#'INT_SEQ_TO_DEATH',
-#'INT_SEQ_TO_CONTACT',
 'SEX',
 'RACE',
 'ETHNICITY',
-#'INT_Seq_or_Biopsy_To_Death',
 'AGE_AT_SEQ_REPORT',
 'TUMOR_PURITY',
 'TUMOR_PLOIDY'
 ]
-
+###excluded columns:
+#'PATIENT_ID',
+#'CANCER_TYPE',
+#'CANCER_TYPE_DETAILED',
+#'ONCOTREE_CODE',
+#'INT_Biopsy_To_Death',
+#'DEAD',
+#'INT_SEQ_TO_DEATH',
+#'INT_SEQ_TO_CONTACT',    
+#'INT_Seq_or_Biopsy_To_Death',
+    
 techinical_list = [
  'SUBJECT_CENTER',
 'SEQ_ASSAY_ID',
@@ -311,5 +311,61 @@ plt.close()
 # #plt.show()
 
 
+#### model to predict gene of actionable events ####
+#iCtype = df['ONCOTREE_CODE'] == cType
+#iActionable = df['isOncoKbLevel1'] == True
+#actionable_subset = df[iActionable & iCtype]
+#actionableDf = actionable_subset[column_subset]
 
 
+iActionable = df['isOncoKbLevel1'] == True
+actionable_subset = df[iActionable]
+#pair_counts = actionable_subset.groupby(['Hugo_Symbol', 'ONCOTREE_CODE']).size()
+# Display the result
+#print(pair_counts)
+
+countsCtype = actionable_subset.groupby('ONCOTREE_CODE').unique()
+unique_gene_counts = actionable_subset.groupby('ONCOTREE_CODE')['Hugo_Symbol'].nunique().reset_index(name='UniqueGenes')
+
+
+cancer_counts = df.groupby('ONCOTREE_CODE').size().reset_index(name='SampleCount')
+
+ctype_gene_cnts = pd.merge(unique_gene_counts, cancer_counts, on='ONCOTREE_CODE', how='left')
+print("\nMerged DataFrame:")
+print(ctype_gene_cnts)
+
+# create jitter for plot
+y_jitter = np.random.normal(0, 0.2, size=ctype_gene_cnts.shape[0])
+ctype_gene_cnts['JitterUniqueGenes'] = ctype_gene_cnts['UniqueGenes'] + y_jitter
+
+plt.figure(figsize=(10, 12))
+plt.scatter(ctype_gene_cnts['SampleCount'], ctype_gene_cnts['JitterUniqueGenes'], s=100)
+plt.xscale('log')
+
+#Add labels next to each point 
+for idx, row in ctype_gene_cnts.iterrows():
+    plt.text(row['SampleCount'] + 0.05, row['JitterUniqueGenes'] + 0.05, 
+             row['ONCOTREE_CODE'], fontsize=6)
+
+# Add axis labels and title
+plt.xlabel('Cancer Sample Count')
+plt.ylabel('Unique Genes Mutated')
+plt.title('Patient count with actionable mutaitons & unique genes mutated by Cancer Type')
+#plt.grid(True)
+plt.ylim(top=7)
+plt.grid(True, which="both", ls="--", linewidth=0.5)
+#plt.ylim(0, 7)
+
+#plt.show()
+#plt.tight_layout()
+plt.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
+
+outF = os.path.join(outDir, "cancer_type_unique_gene_counts.pdf")
+plt.savefig(outF, format="pdf", bbox_inches='tight')
+plt.close()
+
+
+
+
+
+# %%

@@ -16,3 +16,5 @@ dependencies:
   - scikit-learn
   - lime
   - shap
+  - graphviz
+  - python-graphviz

@@ -1,0 +1,22 @@
+// Mind Map Example
+digraph {
+	rankdir=LR size="8,5"
+	node [color=lightblue2 fontname=Helvetica shape=ellipse style=filled]
+	A [label="Main Topic"]
+	B [label="Idea 1"]
+	A -> B
+	C [label="Idea 2"]
+	A -> C
+	D [label="Idea 3"]
+	A -> D
+	B1 [label="Detail A"]
+	B -> B1
+	C1 [label="Example X"]
+	C2 [label="Example Y"]
+	C -> C1
+	C -> C2
+	D1 [label="Aspect M"]
+	D2 [label="Aspect N"]
+	D -> D1
+	D -> D2
+}

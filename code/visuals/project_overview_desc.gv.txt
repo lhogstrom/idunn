@@ -1,0 +1,52 @@
+digraph {
+    rankdir=LR
+    size="10,6"
+    bgcolor="#f9f9f9"
+    node [fontname="Helvetica" shape=ellipse style=filled fillcolor=lightblue2]
+
+    // Central node
+    A [label="Clinical Actionability", shape=box, fillcolor=lightgoldenrod1, style="filled,bold"]
+
+    // Cluster: Biomarker Discovery
+    subgraph cluster_biomarker {
+        label = "Biomarker Discovery"
+        style = "rounded,filled"
+        color = lightblue
+        fillcolor = "#e6f2ff"
+        B [label="Biomarker Discovery", shape=box, fillcolor="#cce5ff"]
+        B1 [label="Knowledge Management", shape=ellipse, fillcolor="#f0f8ff"]
+        B -> B1
+    }
+    A -> B
+
+    // Cluster: Biomarker Robustness
+    subgraph cluster_robustness {
+        label = "Biomarker Robustness"
+        style = "rounded,filled"
+        color = lightgreen
+        fillcolor = "#eaffea"
+        C [label="Biomarker Robustness", shape=box, fillcolor="#c6f7c6"]
+        C1 [label="Assay/Technology Impact"]
+        C2 [label="Transcript Representation"]
+        C -> C1
+        C -> C2
+    }
+    A -> C
+
+    // Cluster: Biomarker Utility
+    subgraph cluster_utility {
+        label = "Biomarker Utility"
+        style = "rounded,filled"
+        color = lightcoral
+        fillcolor = "#ffe6e6"
+        D [label="Biomarker Utility", shape=box, fillcolor="#ffd6d6"]
+        D1 [label="Demographic Associations"]
+        D2 [label="Clinical Associations"]
+        D -> D1
+        D -> D2
+    }
+    A -> D
+
+    // Edge styles (optional enhancements)
+    edge [color=gray50, arrowsize=0.8]
+}	

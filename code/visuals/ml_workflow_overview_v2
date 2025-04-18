@@ -1,0 +1,55 @@
+digraph ML_Feature_Model_Workflow {
+    rankdir=LR
+    size="11,7"
+    bgcolor="#ffffff"
+    node [shape=box style=filled fontname="Helvetica" color=black fillcolor=lightgray]
+
+    // Stage: Feature Engineering
+    Start [label="Start with Input Data", fillcolor="#d5e8d4"]
+    FeatureEng [label="Feature Engineering\n(one-hot encoding,\nscaling, feature selection)", fillcolor="#e1f0d4"]
+    CorrExam [label="Examine Correlation\n(clinical & technical features)", fillcolor="#e1f0d4"]
+    ReduceFeatures [label="Reduce Feature Space\n(based on correlation)", fillcolor="#f8cecc"]
+
+    // Stage: Splitting and Validation
+    TrainTestSplit [label="Train/Test Split\n(70%/30%)", fillcolor="#fff2cc"]
+    CrossVal [label="N-fold Cross Validation\n(on training set)", fillcolor="#dae8fc"]
+    DropFeatCV [label="Drop Features If Needed", fillcolor="#f8cecc"]
+
+    // Stage: Model Selection & Training
+    ModelSelect [label="Model Selection\n(Decision Tree, RF, GLM, SVM)", fillcolor="#dae8fc"]
+    Regularize [label="Apply Regularization\n(L1/L2 as needed)", fillcolor="#dae8fc"]
+    TrainModel [label="Train Models", fillcolor="#dae8fc"]
+
+    // Evaluation
+    EvalTrain [label="Evaluate Performance\n(on training set)", fillcolor="#fff2cc"]
+    PerfMetrics [label="Generate Evaluation Metrics", fillcolor="#fff2cc"]
+    FeatImportance [label="Create Feature Importance\n(for applicable models)", fillcolor="#fce5cd"]
+
+    // Comparison
+    CompareModes [label="Compare Predictions:\n(a) Clinical only\n(b) Tech only\n(c) Combined", fillcolor="#e1f0f8"]
+
+    // Final Evaluation
+    ModelLock [label="Model Lock", fillcolor="#d9d2e9"]
+    EvalTest [label="Evaluate on Test Set", fillcolor="#f8cecc"]
+
+    // Edges
+    Start -> FeatureEng
+    FeatureEng -> CorrExam
+    CorrExam -> ReduceFeatures
+    ReduceFeatures -> TrainTestSplit
+    TrainTestSplit -> CrossVal
+    CrossVal -> DropFeatCV
+    DropFeatCV -> ModelSelect
+    ModelSelect -> Regularize
+    Regularize -> TrainModel
+    TrainModel -> EvalTrain
+    EvalTrain -> PerfMetrics
+    EvalTrain -> FeatImportance
+    EvalTrain -> CompareModes
+    CompareModes -> ModelLock
+    ModelLock -> EvalTest
+
+    // Optional: Add dashed edges for iterative steps
+    EvalTrain -> DropFeatCV [style=dashed, color=gray]
+    CompareModes -> ModelSelect [style=dashed, color=gray, label="re-tune?"]
+}
