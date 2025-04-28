@@ -4,8 +4,11 @@ from graphviz import Source
 #input_path = 'project_overview_desc.gv.txt'  # Replace with your actual file path
 #output_path = 'project_overview_desc'
 
-input_path = 'ml_workflow_overview_v2.gv.txt'  # Replace with your actual file path
-output_path = 'ml_workflow_overview_v2'
+#input_path = 'ml_workflow_overview_v2.gv.txt'  # Replace with your actual file path
+#output_path = 'ml_workflow_overview_v2'
+
+input_path = 'project_overview_outline.gv.txt'  # Replace with your actual file path
+output_path = 'project_overview_outline'
 
 
 # Choose your format: 'pdf', 'png', 'svg', etc.

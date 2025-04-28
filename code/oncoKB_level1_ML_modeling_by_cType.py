@@ -4,7 +4,7 @@ import os
 import shap
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, ks_2samp
 import seaborn as sns
 
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -82,9 +82,14 @@ def subset_patient_data(df,cType):
     all_present = set(column_subset).issubset(df.columns)
     print("All columns present?", all_present)
 
-    df['ONCOTREE_CODE'].value_counts()
+    #df['ONCOTREE_CODE'].value_counts()
+    
 
     cType_df = df[df['ONCOTREE_CODE'] == cType]
+    
+    cList = cType_df.loc[cType_df["isOncoKbLevel1"]==1,"Hugo_Symbol"]
+    print("unique Level1 genes: " + str(cList.unique()))
+    
     subsetDf = cType_df[column_subset]
     return subsetDf
 
@@ -117,13 +122,84 @@ def build_ml_pipeline(X_train):
     # Create a pipeline that includes preprocessing and the classifier
     pipeline = Pipeline(steps=[
         ('preprocessor', preprocessor),
-        ('classifier', RandomForestClassifier(n_estimators=100, random_state=42))
+        ('classifier', RandomForestClassifier(n_estimators=100, 
+                                              random_state=42,
+                                              max_depth=10,
+                                              class_weight='balanced'))
     ])
     return pipeline, preprocessor
 
 #def make_shap_explainer(pipeline,X_train,X_test):
     
 #    return explainer
+def get_distribution_diff_metrics(df,cType):
+    # Subset data
+    ages_mutated = df[df['isOncoKbLevel1'] == 1]['AGE_AT_SEQ_REPORT']
+    ages_not_mutated = df[df['isOncoKbLevel1'] == 0]['AGE_AT_SEQ_REPORT']
+    
+    # --- 1. Cohen's d ---
+    def cohens_d(x, y):
+        nx, ny = len(x), len(y)
+        pooled_std = np.sqrt(((nx - 1)*np.var(x, ddof=1) + (ny - 1)*np.var(y, ddof=1)) / (nx + ny - 2))
+        d = (np.mean(x) - np.mean(y)) / pooled_std
+        return d
+    
+    # --- 2. Cliff's delta ---
+    def cliffs_delta(x, y):
+        n_x = len(x)
+        n_y = len(y)
+        more = sum(i > j for i in x for j in y)
+        less = sum(i < j for i in x for j in y)
+        delta = (more - less) / (n_x * n_y)
+        return delta
+    
+    # --- 3. Kolmogorov-Smirnov statistic ---
+    ks_statistic, ks_pvalue = ks_2samp(ages_mutated, ages_not_mutated)
+    
+    # --- 4. Common Language Effect Size (CLES) ---
+    def common_language_effect_size(x, y):
+        """Probability that a randomly selected x is greater than a randomly selected y"""
+        n_x = len(x)
+        n_y = len(y)
+        more = sum(i > j for i in x for j in y)
+        ties = sum(i == j for i in x for j in y)
+        cles = (more + 0.5 * ties) / (n_x * n_y)
+        return cles
+    
+    # sex-based differences
+    contingency_table = pd.crosstab(df['SEX'], df['isOncoKbLevel1'])
+    
+    if (('Male' in contingency_table.index) & ('Female' in contingency_table.index)):
+        # Extract counts
+        male_mutated = contingency_table.loc['Male', 1]
+        male_not_mutated = contingency_table.loc['Male', 0]
+        female_mutated = contingency_table.loc['Female', 1]
+        female_not_mutated = contingency_table.loc['Female', 0]
+        
+        # --- 1. Odds Ratio ---
+        odds_male = male_mutated / male_not_mutated
+        odds_female = female_mutated / female_not_mutated
+        odds_ratio = odds_male / odds_female
+        
+        # --- 2. Risk Ratio (Relative Risk) ---
+        risk_male = male_mutated / (male_mutated + male_not_mutated)
+        risk_female = female_mutated / (female_mutated + female_not_mutated)
+        risk_ratio = risk_male / risk_female
+    else:
+        odds_ratio = np.nan
+        risk_ratio = np.nan
+
+    results = {
+        "ONCOTREE_CODE": cType,
+        "Age Cohen's d": cohens_d(ages_mutated, ages_not_mutated),
+        "Age Cliff's delta": cliffs_delta(ages_mutated, ages_not_mutated),
+        "Age KS statistic": ks_statistic,
+        "Age KS p-value": ks_pvalue,
+        "Age Common Language Effect Size (CLES)": common_language_effect_size(ages_mutated, ages_not_mutated),
+        "Sex odds ratio": odds_ratio,
+        "Sex risk ratio": risk_ratio        
+    }
+    return(results)
 
 def make_age_dist_plot(df,cType,outF): 
     # Split data
@@ -239,6 +315,152 @@ def gender_grouped_bar(df,cType,outF):
     plt.savefig(outF, format="pdf", bbox_inches='tight')
     plt.close()  
 
+def plot_class_imbalance(metrics_extended,outDir):
+    ### class imbalance with F1 performance
+    plt.figure(figsize=(8, 6))
+    plt.scatter(metrics_extended['proportion_actionable'], metrics_extended['F1'], s=100)
+    
+    # Label axes
+    plt.xlabel('Proportion Actionable', fontsize=14)
+    plt.ylabel('F1 Score', fontsize=14)
+    plt.title('Proportion Actionable vs F1 Score', fontsize=16)
+    
+    ## Optional: add cancer type labels next to each point
+    for i in range(len(metrics_extended)):
+        plt.text(metrics_extended['proportion_actionable'][i] + 0.01, metrics_extended['F1'][i], 
+                 metrics_extended['CANCER_TYPE_DETAILED'][i], fontsize=8)
+    
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    outF = os.path.join(outDir, "ml_rf_metrics_proportion_actionable_F1.pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()  
+
+    ### class imbalance with AUC performance
+    plt.figure(figsize=(8, 6))
+    plt.scatter(metrics_extended['proportion_actionable'], metrics_extended['AUC'], s=100)
+    
+    # Label axes
+    plt.xlabel('Proportion Actionable', fontsize=14)
+    plt.ylabel('AUC', fontsize=14)
+    plt.title('Proportion Actionable vs AUC Score', fontsize=16)
+    
+    ## Optional: add cancer type labels next to each point
+    for i in range(len(metrics_extended)):
+        plt.text(metrics_extended['proportion_actionable'][i] + 0.01, metrics_extended['AUC'][i], 
+                 metrics_extended['CANCER_TYPE_DETAILED'][i], fontsize=8)
+    
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    outF = os.path.join(outDir, "ml_rf_metrics_proportion_actionable_AUC.pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()      
+
+def make_feature_bump_rank_plot(rankBumpExtended,desired_order,nRankFeatures,outDir):
+    
+    # bump rank plot
+    # plt.figure(figsize=(8, 6))
+
+    # # Plot each item's rank trajectory
+    # for ft in rankBump['feature'].unique():
+    #     item_data = rankBump[rankBump['feature'] == ft]
+    #     plt.plot(item_data['ONCOTREE_CODE'], item_data['feature_rank'], marker='o', label=ft)
+    
+    # plt.gca().invert_yaxis()  # Lower ranks (1) at top
+    # plt.title('SHAP Feature ranking to predict Level 1 mutation status')
+    # plt.xlabel('Cancer type')
+    # plt.ylabel('freature rank')
+    # plt.legend(title='Item')
+    # plt.grid(True)
+    # plt.tight_layout()
+    # outF = os.path.join(outDir,"shap_feature_rank_bump_plot.pdf")
+    # plt.savefig(outF, format="pdf", bbox_inches='tight')
+    # plt.close()
+
+    plt.figure(figsize=(12, 12))
+    # Plot each item's rank trajectory
+    for ft in rankBumpExtended['feature'].unique():
+        item_data = rankBumpExtended[rankBumpExtended['feature'] == ft].copy()
+    
+        # Set ONCOTREE_CODE as an ordered categorical
+        item_data['CANCER_TYPE_DETAILED'] = pd.Categorical(
+            item_data['CANCER_TYPE_DETAILED'],
+            categories=desired_order,
+            ordered=True
+        )
+    
+        # Sort by your specified order
+        item_data = item_data.sort_values('CANCER_TYPE_DETAILED')
+    
+        plt.plot(item_data['CANCER_TYPE_DETAILED'], item_data['feature_rank'], marker='o', label=ft)
+    
+    plt.gca().invert_yaxis()  # Lower ranks (1) at top
+    plt.xticks(rotation=90)
+    plt.title('SHAP Feature ranking to predict Level 1 mutation status')
+    plt.xlabel('Cancer type')
+    plt.ylabel('Feature rank')
+    plt.legend(title='Item')
+    plt.grid(True)
+    plt.tight_layout()
+    
+    outF = os.path.join(outDir, "shap_feature_rank_bump_plot_N_Features_" + str(nRankFeatures) + ".pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()
+
+def plot_model_metrics(metrics_extended,outDir):
+    #### model metrics plot
+    metrics_extended = metrics_extended.sort_values('AUC', ascending=False)
+    metrics = ['AUC', 'Accuracy', 'Precision', 'Recall', 'F1']
+    plt.figure(figsize=(14, 8))
+    x = np.arange(len(metrics_extended['AUC']))
+    width = 0.15
+    
+    # Plot bars for each metric
+    for i, metric in enumerate(metrics):
+        plt.bar(x + i * width, metrics_extended[metric], width, label=metric)
+    
+    # Annotate bars with their corresponding values
+    #for i, metric in enumerate(metrics):
+    #    for j, value in enumerate(metrics_df[metric]):
+    #        plt.text(j + i * width, value + 0.01, f"{value:.2f}", 
+    #                 ha='center', va='bottom', fontsize=8)
+    
+    plt.xlabel('Cancer Type', fontsize=14)
+    plt.ylabel('Metric Value', fontsize=14)
+    plt.title('Model Performance Metrics by Cancer Type', fontsize=16)
+    plt.xticks(x + width * 2, metrics_extended['CANCER_TYPE_DETAILED'], rotation=45, ha='right')
+    plt.ylim(0, 1.1)
+
+    plt.legend(title='Metrics')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    outF = os.path.join(outDir, "ml_rf_metrics.pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()  
+    
+    ### repeat for AUC only
+    metrics = ['AUC']
+    plt.figure(figsize=(14, 8))
+    x = np.arange(len(metrics_extended['AUC']))
+    width = 0.15
+    
+    # Plot bars for each metric
+    for i, metric in enumerate(metrics):
+        plt.bar(x + i * width, metrics_extended[metric], width, label=metric)
+    
+    plt.xlabel('Cancer Type', fontsize=14)
+    plt.ylabel('Metric Value', fontsize=14)
+    plt.title('Model Performance Metrics by Cancer Type', fontsize=16)
+    plt.xticks(x + width * 2, metrics_extended['CANCER_TYPE_DETAILED'], rotation=45, ha='right')
+    plt.ylim(0.5, 0.8)
+
+    plt.legend(title='Metrics')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    outF = os.path.join(outDir, "ml_rf_metrics_auc.pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()  
+
 def main():
     outDir = '/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/ml_modeling_python'
     db_path = os.path.expanduser("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite")
@@ -260,7 +482,7 @@ def main():
     print("patients in OT code with required Level 1 events: " + str(dfThresh.shape[0]))
     
     # make age plots
-    for cType in cTypes_to_test['ONCOTREE_CODE'][5:17]: 
+    for cType in cTypes_to_test['ONCOTREE_CODE']: 
         print(cType)
         subsetDf = subset_patient_data(df,cType)
         outF = os.path.join(outDir, cType+"_age_distribution.pdf")
@@ -272,7 +494,8 @@ def main():
     
     model_metrics = []
     all_shaps = []
-    for cType in cTypes_to_test['ONCOTREE_CODE'][5:17]: 
+    distribution_metrics = []
+    for cType in cTypes_to_test['ONCOTREE_CODE']: 
         #cType = 'LUAD'
         print(cType)
         subsetDf = subset_patient_data(df,cType)
@@ -340,6 +563,9 @@ def main():
             'Recall': recall,
             'F1': f1
         })
+        
+        disMetrics = get_distribution_diff_metrics(subsetDf,cType)
+        distribution_metrics.append(disMetrics)
 
         # Plot the ROC curve
         plt.figure(figsize=(8, 6))
@@ -370,8 +596,7 @@ def main():
         # Compute SHAP values for the test set (for a binary classifier, this returns a list)
         shap_values = explainer.shap_values(X_test_trans, check_additivity=False)
         
-        
-        
+
         # Optionally, get feature names if available
         try:
             feature_names = fitted_preprocessor.get_feature_names_out()
@@ -403,6 +628,14 @@ def main():
     outF = os.path.join(outDir, "ml_rf_metrics.csv")
     metrics_extended.to_csv(outF, index=False)
     print(metrics_df)
+
+    distributions_df = pd.DataFrame(distribution_metrics)
+    #metrics_extended = pd.merge(cTypes_to_test, metrics_df, on='ONCOTREE_CODE', how='left')
+    outF = os.path.join(outDir, "age_gender_distribution_metrics.csv")
+    distributions_df.to_csv(outF, index=False)
+    
+    plot_model_metrics(metrics_extended,outDir)
+    plot_class_imbalance(metrics_extended,outDir)
     
     #shapsDf = pd.DataFrame(all_shaps)
     shapsDf = pd.concat(all_shaps, ignore_index=True)
@@ -440,29 +673,69 @@ def main():
     # order features for bump plot
     topFeatures = featureRanksDf[featureRanksDf['feature_rank']<8]
     ftTopCnts = topFeatures['feature'].value_counts()
-    topHits = ftTopCnts.index[:5]
+    nRankFeatures = 7
+    topHits = ftTopCnts.index[:nRankFeatures]
     
     rankBump = topFeatures[topFeatures['feature'].isin(topHits)]
+    rankBumpExtended = pd.merge(rankBump, metrics_extended, on='ONCOTREE_CODE', how='left')
     
-    # bump rank plot
-    plt.figure(figsize=(8, 6))
+    # order cancer types according to best performing models
+    rankBumpExtended = rankBumpExtended.sort_values('AUC', ascending=False) 
+    desired_order = rankBumpExtended['CANCER_TYPE_DETAILED'].unique()
 
-    # Plot each item's rank trajectory
-    for ft in rankBump['feature'].unique():
-        item_data = rankBump[rankBump['feature'] == ft]
-        plt.plot(item_data['ONCOTREE_CODE'], item_data['feature_rank'], marker='o', label=ft)
+    make_feature_bump_rank_plot(rankBumpExtended,desired_order,nRankFeatures,outDir)
     
-    plt.gca().invert_yaxis()  # Lower ranks (1) at top
-    plt.title('SHAP Feature ranking to predict Level 1 mutation status')
-    plt.xlabel('Cancer type')
-    plt.ylabel('freature rank')
-    plt.legend(title='Item')
-    plt.grid(True)
+
+
+    # plot age and gender distribution
+    distributionsExtended = pd.merge(distributions_df, metrics_extended, on='ONCOTREE_CODE', how='left')
+    distributionsExtended = distributionsExtended.sort_values('AUC', ascending=False) 
+    
+    plt.figure(figsize=(8, 8))
+    metrics = ['Sex odds ratio']
+    x = np.arange(len(distributionsExtended['Sex odds ratio']))
+    width = 0.15
+    
+    # Plot bars for each metric
+    for i, metric in enumerate(metrics):
+        plt.bar(x + i * width, distributionsExtended[metric], width, label=metric,color='green')
+    
+    plt.xlabel('Cancer Type', fontsize=14)
+    plt.ylabel('odds ratio', fontsize=14)
+    plt.title('Sex distribution difference with and without Level 1 mutation\n odds ratio', fontsize=16)
+    plt.xticks(x + width * 2, metrics_extended['CANCER_TYPE_DETAILED'], rotation=45, ha='right')
+    plt.ylim(0, 1.2)
+
+    plt.legend(title='Metric')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
-    outF = os.path.join(outDir,"shap_feature_rank_bump_plot.pdf")
+    outF = os.path.join(outDir, "sex_distribution_metrics.pdf")
     plt.savefig(outF, format="pdf", bbox_inches='tight')
-    plt.close()
-        
+    plt.close()  
+    
+    # plot age dist metric value
+    plt.figure(figsize=(8, 8))
+    metrics = ['Age Cohen\'s d']
+    x = np.arange(len(distributionsExtended['Age Cohen\'s d']))
+    width = 0.15
+    
+    # Plot bars for each metric
+    for i, metric in enumerate(metrics):
+        plt.bar(x + i * width, distributionsExtended[metric], width, label=metric,color='purple')
+    
+    plt.xlabel('Cancer Type', fontsize=14)
+    plt.ylabel('Cohen\'s d', fontsize=14)
+    plt.title('Age distribution difference with and without Level 1 mutation\n Cohen\'s d', fontsize=16)
+    plt.xticks(x + width * 2, metrics_extended['CANCER_TYPE_DETAILED'], rotation=45, ha='right')
+    plt.ylim(-1.1, 1.2)
+
+    plt.legend(title='Metric')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    outF = os.path.join(outDir, "age_distribution_metrics.pdf")
+    plt.savefig(outF, format="pdf", bbox_inches='tight')
+    plt.close()      
+    
 if __name__ == '__main__':
     main()
     
