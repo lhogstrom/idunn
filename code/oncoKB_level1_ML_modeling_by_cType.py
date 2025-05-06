@@ -9,17 +9,12 @@ import seaborn as sns
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestClassifier
-#from sklearn.metrics import accuracy_score
-
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
-
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import roc_curve, auc
-
-
 
 def get_patient_level_data(db_path):
     # Create the engine for SQLite
@@ -29,7 +24,7 @@ def get_patient_level_data(db_path):
     df = pd.read_sql_table(table_name, con=engine)
     return df
 
-def subset_patient_data(df,cType):
+def subset_patient_data(df,cType,topGeneOnly=False):
     # demographic columns
     demographic_list = [
     'SAMPLE_TYPE',
@@ -88,10 +83,18 @@ def subset_patient_data(df,cType):
     cType_df = df[df['ONCOTREE_CODE'] == cType]
     
     cList = cType_df.loc[cType_df["isOncoKbLevel1"]==1,"Hugo_Symbol"]
+    cListValueCount = cList.value_counts()
     print("unique Level1 genes: " + str(cList.unique()))
+    print(cListValueCount)
     
-    subsetDf = cType_df[column_subset]
-    return subsetDf
+    if topGeneOnly:
+        topGene = cListValueCount.index[0]
+        cType_gene_df = cType_df[(cType_df['Hugo_Symbol'] == topGene) | (cType_df['isOncoKbLevel1'] == 0)]
+        subsetDf = cType_gene_df[column_subset]
+    else:
+        subsetDf = cType_df[column_subset]
+    
+    return subsetDf, cListValueCount
 
 def build_ml_pipeline(X_train):
     # Identify categorical and numeric columns
@@ -377,7 +380,7 @@ def make_feature_bump_rank_plot(rankBumpExtended,desired_order,nRankFeatures,out
     # plt.savefig(outF, format="pdf", bbox_inches='tight')
     # plt.close()
 
-    plt.figure(figsize=(12, 12))
+    plt.figure(figsize=(12, 9))
     # Plot each item's rank trajectory
     for ft in rankBumpExtended['feature'].unique():
         item_data = rankBumpExtended[rankBumpExtended['feature'] == ft].copy()
@@ -463,6 +466,7 @@ def plot_model_metrics(metrics_extended,outDir):
 
 def main():
     outDir = '/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/ml_modeling_python'
+    outDirGenePlots = os.path.join(outDir,"cancer_type_top_gene_plots")
     db_path = os.path.expanduser("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite")
     df = get_patient_level_data(db_path)
     
@@ -481,16 +485,43 @@ def main():
     dfThresh = df[df['ONCOTREE_CODE'].isin(cTypes_to_test.ONCOTREE_CODE)]
     print("patients in OT code with required Level 1 events: " + str(dfThresh.shape[0]))
     
-    # make age plots
+    # make age + sex plots
     for cType in cTypes_to_test['ONCOTREE_CODE']: 
         print(cType)
-        subsetDf = subset_patient_data(df,cType)
+        subsetDf, cListValueCount = subset_patient_data(df,cType,topGeneOnly=False)
         outF = os.path.join(outDir, cType+"_age_distribution.pdf")
         make_age_dist_plot(subsetDf,cType,outF)
         outF = os.path.join(outDir, cType+"_age_gender_distribution.pdf")
         make_age_gender_dist_plot(subsetDf,cType,outF,excludeUnknown=True)
         outF = os.path.join(outDir, cType+"_gender_grouped_bar.pdf")
         gender_grouped_bar(subsetDf,cType,outF)
+
+    # make age + sex plots for top gene
+    topGeneList = []
+    topGeneDistMetrics = []
+    for cType in cTypes_to_test['ONCOTREE_CODE']: 
+        print(cType)
+        subsetDf, cListValueCount = subset_patient_data(df,cType,topGeneOnly=True)
+        topGeneInfo = {
+            "ONCOTREE_CODE": cType,
+            "Hugo_symbol": cListValueCount.index[0],
+            "n": cListValueCount.iloc[0]
+        }
+        topGeneList.append(topGeneInfo)
+        disMetrics = get_distribution_diff_metrics(subsetDf,cType)
+        topGeneDistMetrics.append(disMetrics)
+        outF = os.path.join(outDirGenePlots, cType+"_age_distribution.pdf")
+        make_age_dist_plot(subsetDf,cType,outF)
+        outF = os.path.join(outDirGenePlots, cType+"_age_gender_distribution.pdf")
+        make_age_gender_dist_plot(subsetDf,cType,outF,excludeUnknown=True)
+        outF = os.path.join(outDirGenePlots, cType+"_gender_grouped_bar.pdf")
+        gender_grouped_bar(subsetDf,cType,outF)
+    topGeneDf = pd.DataFrame(topGeneList)
+    outF = os.path.join(outDirGenePlots, "top_genes_by_cancer_type.csv")
+    topGeneDf.to_csv(outF, index=False)
+    topGeneDistMetricsDf = pd.DataFrame(topGeneDistMetrics)
+    outF = os.path.join(outDirGenePlots, "top_genes_by_cancer_type_dist_metrics.csv")
+    topGeneDistMetricsDf.to_csv(outF, index=False)
     
     model_metrics = []
     all_shaps = []
@@ -498,7 +529,7 @@ def main():
     for cType in cTypes_to_test['ONCOTREE_CODE']: 
         #cType = 'LUAD'
         print(cType)
-        subsetDf = subset_patient_data(df,cType)
+        subsetDf, cListValueCount = subset_patient_data(df,cType,topGeneOnly=False)
 
         #### model
 
@@ -622,7 +653,6 @@ def main():
         plt.savefig(outF, format="pdf", bbox_inches='tight')
         plt.close()
         
-  
     metrics_df = pd.DataFrame(model_metrics)
     metrics_extended = pd.merge(cTypes_to_test, metrics_df, on='ONCOTREE_CODE', how='left')
     outF = os.path.join(outDir, "ml_rf_metrics.csv")
@@ -685,56 +715,13 @@ def main():
 
     make_feature_bump_rank_plot(rankBumpExtended,desired_order,nRankFeatures,outDir)
     
-
-
     # plot age and gender distribution
     distributionsExtended = pd.merge(distributions_df, metrics_extended, on='ONCOTREE_CODE', how='left')
     distributionsExtended = distributionsExtended.sort_values('AUC', ascending=False) 
+    plot_model_metrics(metrics_extended,outDir)
+    outF = os.path.join(outDirGenePlots, "ml_rf_metrics_extended.csv")
+    distributionsExtended.to_csv(outF, index=False)
     
-    plt.figure(figsize=(8, 8))
-    metrics = ['Sex odds ratio']
-    x = np.arange(len(distributionsExtended['Sex odds ratio']))
-    width = 0.15
-    
-    # Plot bars for each metric
-    for i, metric in enumerate(metrics):
-        plt.bar(x + i * width, distributionsExtended[metric], width, label=metric,color='green')
-    
-    plt.xlabel('Cancer Type', fontsize=14)
-    plt.ylabel('odds ratio', fontsize=14)
-    plt.title('Sex distribution difference with and without Level 1 mutation\n odds ratio', fontsize=16)
-    plt.xticks(x + width * 2, metrics_extended['CANCER_TYPE_DETAILED'], rotation=45, ha='right')
-    plt.ylim(0, 1.2)
-
-    plt.legend(title='Metric')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    outF = os.path.join(outDir, "sex_distribution_metrics.pdf")
-    plt.savefig(outF, format="pdf", bbox_inches='tight')
-    plt.close()  
-    
-    # plot age dist metric value
-    plt.figure(figsize=(8, 8))
-    metrics = ['Age Cohen\'s d']
-    x = np.arange(len(distributionsExtended['Age Cohen\'s d']))
-    width = 0.15
-    
-    # Plot bars for each metric
-    for i, metric in enumerate(metrics):
-        plt.bar(x + i * width, distributionsExtended[metric], width, label=metric,color='purple')
-    
-    plt.xlabel('Cancer Type', fontsize=14)
-    plt.ylabel('Cohen\'s d', fontsize=14)
-    plt.title('Age distribution difference with and without Level 1 mutation\n Cohen\'s d', fontsize=16)
-    plt.xticks(x + width * 2, metrics_extended['CANCER_TYPE_DETAILED'], rotation=45, ha='right')
-    plt.ylim(-1.1, 1.2)
-
-    plt.legend(title='Metric')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    outF = os.path.join(outDir, "age_distribution_metrics.pdf")
-    plt.savefig(outF, format="pdf", bbox_inches='tight')
-    plt.close()      
     
 if __name__ == '__main__':
     main()
