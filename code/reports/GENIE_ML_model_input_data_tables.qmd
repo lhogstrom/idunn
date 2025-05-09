@@ -1,0 +1,94 @@
+---
+title: "Patient demographics tables for Balder ML modeling"
+format: pdf
+editor: visual
+page-width: 14
+---
+
+## Overview
+
+This document presents tables on patient demographics used for ML modeling. It primarily reports on GENIE data.
+
+## Loading data
+
+```{r}
+#| echo: false
+#| include: false
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+library(DBI)
+library(RSQLite)
+
+source("../R/utils.R")
+```
+
+```{r}
+#| echo: false
+#| include: false
+dbName <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"
+baseDir <- "/Users/larsonhogstrom/Documents/balder_analysis/balder/code"
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
+modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
+harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
+
+#seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 
+otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary') 
+perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel1') 
+
+```
+
+# Aggregation of data by cancer type
+
+Data split by OncoTree codes
+
+```{r}
+#| echo: false
+#| include: false
+cTypeLvl1Cnts <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1 == 1) %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::summarise(n_Level1_patients=n()) %>%
+  dplyr::arrange(desc(n_Level1_patients))
+lvl1Thresh <- 250
+cTypeThresh <- cTypeLvl1Cnts[cTypeLvl1Cnts$n_Level1_patients >= lvl1Thresh,]
+
+cTypeRep <- perPatientLevel1 %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::filter(dplyr::row_number()==1)
+
+cTypeCnts <- perPatientLevel1 %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::summarise(n_patients=n(),
+                   ) %>%
+  dplyr::arrange(desc(n_patients))
+
+
+cTypeCntTbl <- cTypeThresh %>%
+  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::mutate(percActionable = 100*n_Level1_patients/n_patients,
+                percActionableStr = paste0(n_patients, " (", round(percActionable, 1), "%)"))
+
+#cTypeCntTblPerc <- two_group_count_percentage(cTypeCntTbl,"n_patients","n_Level1_patients")
+
+
+outCntTbl <- cTypeCntTbl[,c("ONCOTREE_CODE",
+               "CANCER_TYPE",
+               "CANCER_TYPE_DETAILED",
+               "n_patients",
+               "n_Level1_patients")]
+knitr::kable(outCntTbl, )
+```
+
+```{r}
+knitr::kable(outCntTbl, )
+```
+
+\`\`\`{# {r} \# #\| echo: false \# #\| echo: false \# #knitr::kable(mtcars\[1:5, \], ) \# n.patients \<- length(unique(msk$PATIENT_ID))
+# n.variants <- length(unique(dbAlteration$AAChange)) \#\
+\# c1 \<- c("Raw string match","Ontology-based match","N/A") \# c2 \<- c("Restricted","Restricted","Unestricted") \# c3 \<- c(dim(msk.protein.restricted.raw.cancer.cnt)\[\[1\]\], \# dim(msk.protein.restricted.ontology.cnt)\[\[1\]\], \# dim(msk.protein.unrestricted.cnt)\[\[1\]\]) \# c4 \<- paste0(round(100*(c3/n.variants),1),"%") \# c5 \<- c(sum(msk.protein.restricted.raw.cancer.cnt*$n.patients.mutated),
+#         sum(msk.protein.restricted.ontology.cnt$n.patients.mutated), \# sum(msk.protein.unrestricted.cnt\$n.patients.mutated)) \# c6 \<- paste0(round(100(c5/n.patients),1),"%") \# \# Create a data frame \# df \<- data.frame(c1=c1, c2=c2, c3=c3, c4=c4, c5=c5, c6=c6) \# colnames(df) \<- c("Cancer type matching approach", "Cancer type match restriction","number of variants","percent of actionable mutations","number of patients","percent of patients") \# \# Print the data frame \# #print(df) \# knitr::kable(df, )
+
+\`\`\`
