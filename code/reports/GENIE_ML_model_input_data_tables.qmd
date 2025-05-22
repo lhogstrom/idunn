@@ -1,9 +1,15 @@
----
-title: "Patient demographics tables for Balder ML modeling"
-format: pdf
-editor: visual
-page-width: 14
----
+-   <div>
+
+    ---
+    title: "Patient demographics tables for Balder ML modeling"
+    #format: pdf
+    format: pdf
+    fontsize: 6pt
+    editor: visual
+    page-width: 14
+    ---
+
+    </div>
 
 ## Overview
 
@@ -69,7 +75,7 @@ cTypeCntTbl <- cTypeThresh %>%
   dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
   dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
   dplyr::mutate(percActionable = 100*n_Level1_patients/n_patients,
-                percActionableStr = paste0(n_patients, " (", round(percActionable, 1), "%)"))
+                actionableEvents = paste0(n_Level1_patients, " (", round(percActionable, 1), "%)"))
 
 #cTypeCntTblPerc <- two_group_count_percentage(cTypeCntTbl,"n_patients","n_Level1_patients")
 
@@ -78,7 +84,12 @@ outCntTbl <- cTypeCntTbl[,c("ONCOTREE_CODE",
                "CANCER_TYPE",
                "CANCER_TYPE_DETAILED",
                "n_patients",
-               "n_Level1_patients")]
+               "actionableEvents")]
+colnames(outCntTbl) <- c("OT code",
+               "cancer type",
+               "cancer type detailed",
+               "number of patients",
+               "actionable events")
 knitr::kable(outCntTbl, )
 ```
 
@@ -86,9 +97,166 @@ knitr::kable(outCntTbl, )
 knitr::kable(outCntTbl, )
 ```
 
-\`\`\`{# {r} \# #\| echo: false \# #\| echo: false \# #knitr::kable(mtcars\[1:5, \], ) \# n.patients \<- length(unique(msk$PATIENT_ID))
-# n.variants <- length(unique(dbAlteration$AAChange)) \#\
-\# c1 \<- c("Raw string match","Ontology-based match","N/A") \# c2 \<- c("Restricted","Restricted","Unestricted") \# c3 \<- c(dim(msk.protein.restricted.raw.cancer.cnt)\[\[1\]\], \# dim(msk.protein.restricted.ontology.cnt)\[\[1\]\], \# dim(msk.protein.unrestricted.cnt)\[\[1\]\]) \# c4 \<- paste0(round(100*(c3/n.variants),1),"%") \# c5 \<- c(sum(msk.protein.restricted.raw.cancer.cnt*$n.patients.mutated),
-#         sum(msk.protein.restricted.ontology.cnt$n.patients.mutated), \# sum(msk.protein.unrestricted.cnt\$n.patients.mutated)) \# c6 \<- paste0(round(100(c5/n.patients),1),"%") \# \# Create a data frame \# df \<- data.frame(c1=c1, c2=c2, c3=c3, c4=c4, c5=c5, c6=c6) \# colnames(df) \<- c("Cancer type matching approach", "Cancer type match restriction","number of variants","percent of actionable mutations","number of patients","percent of patients") \# \# Print the data frame \# #print(df) \# knitr::kable(df, )
+# Aggregation by sex and age
 
-\`\`\`
+Data split by sex codes
+
+```{r}
+#| echo: false
+#| include: false
+sexCnts <- perPatientLevel1 %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::summarise(n_patients_total = n(),
+                   n_male=sum(SEX=="Male"),
+                   percMale = 100*n_male/n_patients_total,
+                   maleCntStr = paste0(n_male, " (", round(percMale, 1), "%)"),
+                   n_female=sum(SEX=="Female"),
+                   percFemale = 100*n_female/n_patients_total,
+                   femaleCntStr = paste0(n_female, " (", round(percFemale, 1), "%)"),
+                   n_unknown=sum(!(SEX=="Male" | SEX=="Female")),
+                   percUnknown = 100*n_unknown/n_patients_total,
+                   unknownCntStr = paste0(n_unknown, " (", round(percUnknown, 1), "%)"),
+                   mean_age=mean(AGE_AT_SEQ_REPORT))
+
+
+cTypeCntTbl <- cTypeThresh %>%
+  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(sexCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::mutate(percActionable = 100*n_Level1_patients/n_patients,
+                actionableEvents = paste0(n_Level1_patients, " (", round(percActionable, 1), "%)"))
+
+outSexTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
+                            "maleCntStr",
+                            "femaleCntStr",
+                            "unknownCntStr")]
+colnames(outSexTbl) <- c("cancer type detailed",
+                         "male",
+                         "female",
+                         "uknown sex")
+
+
+```
+
+```{r}
+knitr::kable(outSexTbl, )
+```
+
+# Cancer type counts by study source
+
+```{r}
+# #| echo: false
+# #| include: false
+# studyCnts <- perPatientLevel1 %>%
+#   dplyr::group_by(ONCOTREE_CODE) %>%
+#   dplyr::summarise(n_patients_total = n(),
+#                    n_male=sum(SEX=="Male"),
+#                    percMale = 100*n_male/n_patients_total,
+#                    maleCntStr = paste0(n_male, " (", round(percMale, 1), "%)"),
+#                    n_female=sum(SEX=="Female"),
+#                    percFemale = 100*n_female/n_patients_total,
+#                    femaleCntStr = paste0(n_female, " (", round(percFemale, 1), "%)"),
+#                    n_unknown=sum(!(SEX=="Male" | SEX=="Female")),
+#                    percUnknown = 100*n_unknown/n_patients_total,
+#                    unknownCntStr = paste0(n_unknown, " (", round(percUnknown, 1), "%)"),
+#                    mean_age=mean(AGE_AT_SEQ_REPORT))
+# 
+# 
+# cTypeCntTbl <- cTypeThresh %>%
+#   dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
+#   dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
+#   dplyr::left_join(sexCnts,by=c("ONCOTREE_CODE")) %>%
+#   dplyr::mutate(percActionable = 100*n_Level1_patients/n_patients,
+#                 actionableEvents = paste0(n_Level1_patients, " (", round(percActionable, 1), "%)"))
+# 
+# outSexTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
+#                             "maleCntStr",
+#                             "femaleCntStr",
+#                             "unknownCntStr")]
+# colnames(outSexTbl) <- c("cancer type detailed",
+#                          "male",
+#                          "female",
+#                          "uknown sex")
+
+```
+
+# 
+
+# Aggregation by Ancestry
+
+```{r}
+raceByEthn <- data.frame(table(perPatientLevel1$RACE,perPatientLevel1$ETHNICITY))
+
+```
+
+# Most common mutated genes for each cancer type
+
+top five actionable genes for each cancer type
+
+```{r}
+#| echo: false
+#| include: false
+
+geneCnts <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1==1) %>%
+  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol) %>%
+  dplyr::summarise(n_gene_mutated = n()) %>%
+  dplyr::arrange(ONCOTREE_CODE,desc(n_gene_mutated)) %>%
+  dplyr::filter(dplyr::row_number() < 6)
+
+cTypeCntTbl <- cTypeThresh %>%
+  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(geneCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::mutate(percActionable = 100*n_gene_mutated/n_Level1_patients,
+                geneOfactionableEvents = paste0(n_gene_mutated, " (", round(percActionable, 1), "%)"))
+
+outGeneTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
+                            "Hugo_Symbol",
+                            "geneOfactionableEvents")]
+colnames(outGeneTbl) <- c("cancer type detailed",
+                         "gene",
+                         "count and perc of actionable events")
+```
+
+```{r}
+knitr::kable(outGeneTbl, )
+```
+
+# Most coding mutations for each cancer type
+
+Ten most common mutations for each cancer type
+
+```{r}
+#| echo: false
+#| include: false
+
+mutCnts <- perPatientLevel1 %>%
+  dplyr::filter(isOncoKbLevel1==1) %>%
+  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol,HGVSp_Short) %>%
+  dplyr::summarise(n_mutated = n()) %>%
+  dplyr::arrange(ONCOTREE_CODE,desc(n_mutated)) %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::filter(dplyr::row_number() < 11)
+
+cTypeCntTbl <- cTypeThresh %>%
+  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(mutCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::mutate(percActionable = 100*n_mutated/n_Level1_patients,
+                mutOfactionableEvents = paste0(n_mutated, " (", round(percActionable, 1), "%)"))
+
+outMutTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
+                            "Hugo_Symbol",
+                            "HGVSp_Short",
+                            "mutOfactionableEvents")]
+colnames(outMutTbl) <- c("cancer type detailed",
+                         "gene",
+                         "protein mutation",
+                         "count and perc of actionable events")
+```
+
+```{r}
+knitr::kable(outMutTbl, )
+
+```
