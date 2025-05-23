@@ -22,7 +22,7 @@ print(getwd())
 print("base dir:")
 print(baseDir)
 
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522")
 #outDbName <- paste0(baseDir,"/../../data/processed/balderResultsDb/balder-harmonized-biomarker-data-v20240712.sqlite")
 
 print("file for db connection:")

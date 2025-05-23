@@ -24,7 +24,7 @@ utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/MAF_prognostic_analysis")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/MAF_prognostic_analysis")
 ProgOutDir <- paste0(outDir,"/prognostic_analysis_restricted_cancer_types")
 MafOutDir <- paste0(outDir,"/MAF_analysis_restricted_cancer_types")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)

@@ -23,7 +23,8 @@ print(getwd())
 print("base dir:")
 print(baseDir)
 
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522")
+#outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924")
 #outDbName <- paste0(baseDir,"/../../data/processed/balderResultsDb/balder-harmonized-biomarker-data-v20240712.sqlite")
 
 print("file for db connection:")
@@ -202,11 +203,11 @@ pancanSampleSubset[iDead,"DEAD"] <- "True"
 RSQLite::dbWriteTable(harmonizedDb, "harmonizedSampleInfo", pancanSampleSubset[,harmSampleCols],append=T)
 
 ### AACR GENIE
-inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_14p1_public/data_clinical_patient.txt")
+inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_17p0_public/data_clinical_patient.txt")
 patient.genie <- read.csv(inFile,sep="\t",skip=4)
 RSQLite::dbWriteTable(rawDataDb, "GeniePatientData", patient.genie, overwrite=T)
 
-inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_14p1_public/data_clinical_sample.txt")
+inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_17p0_public/data_clinical_sample.txt")
 sample.genie <- read.csv(inFile,sep="\t",skip=4)
 RSQLite::dbWriteTable(rawDataDb, "GenieClinicalSampleData", sample.genie, overwrite=T)
 
@@ -415,7 +416,8 @@ mc3$Tumor_Sample_Barcode <- substr(mc3$Tumor_Sample_Barcode_Full,1,15)
 ### add label for assay used - what does each panel capture?
 
 ### AACR GENIE
-inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_14p1_public/data_mutations_extended.txt")
+#inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_14p1_public/data_mutations_extended.txt")
+inFile <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_17p0_public/data_mutations_extended.txt")
 genie <- read.csv(inFile,sep="\t")
 RSQLite::dbWriteTable(rawDataDb, "GeniePatientVarients", genie, overwrite=T)
 

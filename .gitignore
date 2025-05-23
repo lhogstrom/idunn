@@ -2,3 +2,5 @@ workflow/work
 workflow/.nextflow/
 workflow/*.log*
 code/.nextflow.log
+.nextflow*
+work/

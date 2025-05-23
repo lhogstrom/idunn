@@ -14,7 +14,7 @@ baseDir <- args[1] # should be the relative path to "balder/code" where this fil
 dbName <- args[2]
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ##########################

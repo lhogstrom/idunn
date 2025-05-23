@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+
+#on mac, submit with caffeinate like this: caffeinate bash  run_oncokb_annotator.sh
 ONCKBPATH=/Users/larsonhogstrom/Documents/code/oncokb-annotator
 
 IMAF=$1
-TFILE=$2
-OMAF=$3
+OMAF=$2
 
 # subset of columns, all HGVSp variants
 #IMAF="../../output/clinical_annotation_matching_20240412/compiled_mutations_column_subset_all_studies.txt"
