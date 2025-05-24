@@ -465,9 +465,11 @@ def plot_model_metrics(metrics_extended,outDir):
     plt.close()  
 
 def main():
-    outDir = '/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/ml_modeling_python'
+    baseDir = '/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522' 
+    outDir = os.path.join(baseDir,"demographic_technical_ml_modeling")
     outDirGenePlots = os.path.join(outDir,"cancer_type_top_gene_plots")
-    db_path = os.path.expanduser("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite")
+    #db_path = os.path.expanduser("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite")
+    db_path = os.path.expanduser(os.path.join(baseDir,"balder-harmonized-biomarker-data-v20250522.sqlite"))
     df = get_patient_level_data(db_path)
     
     otCodeNames = df.groupby('ONCOTREE_CODE')['CANCER_TYPE_DETAILED'].first().reset_index()

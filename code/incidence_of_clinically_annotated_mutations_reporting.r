@@ -24,6 +24,9 @@ source(utilFile1)
 
 ### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/actionability_reporting")
+if (!dir.exists(outDir)) {
+  dir.create(outDir, recursive = TRUE)
+}
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ################################################################

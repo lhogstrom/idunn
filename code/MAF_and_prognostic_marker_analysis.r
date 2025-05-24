@@ -25,8 +25,17 @@ source(utilFile1)
 
 ### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/MAF_prognostic_analysis")
+if (!dir.exists(outDir)) {
+    dir.create(outDir, recursive = TRUE)
+}
 ProgOutDir <- paste0(outDir,"/prognostic_analysis_restricted_cancer_types")
+if (!dir.exists(ProgOutDir)) {
+    dir.create(ProgOutDir, recursive = TRUE)
+}
 MafOutDir <- paste0(outDir,"/MAF_analysis_restricted_cancer_types")
+if (!dir.exists(MafOutDir)) {
+    dir.create(MafOutDir, recursive = TRUE)
+}
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ##########################

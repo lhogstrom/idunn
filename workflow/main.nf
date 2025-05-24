@@ -23,6 +23,7 @@ params.scripts8 = file('../code/MAF_and_prognostic_marker_analysis.r')
 params.scripts9 = file('../code/summary_oncokb_by_cancer_type.r')
 params.scripts10 = file('../code/model_oncokb_level1_hits.r')
 params.scripts11 = file('../code/clinical_technical_feature_description.R')
+params.scripts12 = file('../code/oncoKB_level1_ML_modeling_by_cType.py')
 
 log.info """\
     B A L D E R - N F   P I P E L I N E
@@ -212,17 +213,40 @@ process clinical_technical_feature_description {
     """
 }
 
+process demographic_technical_factor_ml_modeling {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    python $params.scripts12
+    """
+}
+
+
 workflow {
-    sqldb = preprocess_data1(file("${params.base_dir}"))
-    sqldb2 = preprocess_data2(file("${params.base_dir}"),sqldb)
-    tmpVarTbl = oncokb_file_setup(file("${params.base_dir}"),sqldb2)
+    //sqldb = preprocess_data1(file("${params.base_dir}"))
+    //sqldb2 = preprocess_data2(file("${params.base_dir}"),sqldb)
+    //tmpVarTbl = oncokb_file_setup(file("${params.base_dir}"),sqldb2)
     ////oncokbOut = run_oncokb(tmpVarTbl,file("${params.oncokbToken}"))
     //sqldb3 = load_oncokb_output(file("${params.base_dir}"),sqldb2)
     //sqldb4 = clinical_annotation_matching(file("${params.base_dir}"),sqldb3)
-    //sqldb5 = annotation_matching_reporting(file("${params.base_dir}"),sqldb4)
-    //sqldb6 = MAF_analysis(file("${params.base_dir}"),sqldb5)
-    //sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),sqldb6)
-    //sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),sqldb6)
+    
+    // start with cashed db
+    sqldb4 = clinical_annotation_matching(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"))
+
+    sqldb5 = annotation_matching_reporting(file("${params.base_dir}"),sqldb4)
+    sqldb6 = MAF_analysis(file("${params.base_dir}"),sqldb5)
+    sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),sqldb6)
+    sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),sqldb7)
+    //sqldb9 = clinical_technical_feature_description(file("${params.base_dir}"),sqldb8)
+    sqldb9 = demographic_technical_factor_ml_modeling(file("${params.base_dir}"),sqldb8)
     
     // run last script alone
     //sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))

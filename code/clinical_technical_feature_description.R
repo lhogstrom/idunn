@@ -25,8 +25,9 @@ source(utilFile1)
 
 ### connect to result DB and get variants
 #outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
-modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
+#outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/oncokb_summary_and_modeling")
+modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots_v2")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 #seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 

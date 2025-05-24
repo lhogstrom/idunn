@@ -33,16 +33,17 @@ source("../R/utils.R")
 ```{r}
 #| echo: false
 #| include: false
-dbName <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"
+#dbName <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"
+dbName <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
 baseDir <- "/Users/larsonhogstrom/Documents/balder_analysis/balder/code"
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
-modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
+outDir <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/underlying_feature_model_plots_v2" 
+#modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 #seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 
 otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary') 
 perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel1') 
-
+perPatientLevel2andLevl1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel2andLevl1')
 ```
 
 # Aggregation of data by cancer type
@@ -258,5 +259,40 @@ colnames(outMutTbl) <- c("cancer type detailed",
 
 ```{r}
 knitr::kable(outMutTbl, )
+
+```
+
+# Age distributions actionable vs non-actionable
+
+```{r}
+print("subjects without an age value:")
+print(table(is.na(perPatientLevel1$AGE_AT_SEQ_REPORT)))
+
+iMatchCtype <- perPatientLevel1$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
+lvlEvents <- perPatientLevel1[iMatchCtype & !is.na(perPatientLevel1$AGE_AT_SEQ_REPORT),]
+lvlEvents$actionabilityStr <- "no Level 1 event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr"] <- "Level 1 event"
+lvlEvents$actionabilityStr2 <- "Level1Event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr2"] <- "NoLevel1Event"
+
+
+lvlCenter <- lvlEvents %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2) %>%
+  #dplyr::summarise(median_age=median(AGE_AT_SEQ_REPORT))
+  dplyr::summarise(mean_age=mean(AGE_AT_SEQ_REPORT)) 
+
+lvlMediansLong <- lvlCenter %>%
+  tidyr::pivot_wider(names_from = actionabilityStr2,values_from=mean_age) %>%
+  dplyr::mutate(ageDiff=abs(Level1Event-NoLevel1Event)) %>%
+  dplyr::arrange(desc(ageDiff))
+
+lvlEvents$ONCOTREE_CODE <- factor(lvlEvents$ONCOTREE_CODE,levels=lvlMediansLong$ONCOTREE_CODE)
+
+outF <-  paste0(outDir,"/age_difference_distribution_by_actionability.pdf")
+ggplot(lvlEvents, aes(x = AGE_AT_SEQ_REPORT, color=actionabilityStr)) +
+  geom_density(alpha=.4)+
+  #geom_vline(lvlMedians,aes())+
+  facet_grid(ONCOTREE_CODE~.,scale="free")
+ggsave(outF,height = 15, width = 6)  
 
 ```
