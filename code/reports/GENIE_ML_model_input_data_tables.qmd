@@ -43,7 +43,7 @@ harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 #seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 
 otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary') 
 perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel1') 
-perPatientLevel2andLevl1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel2andLevl1')
+#perPatientLevel2andLevl1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel2andLevl1')
 ```
 
 # Aggregation of data by cancer type
@@ -278,21 +278,82 @@ lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr2"] <- "NoLevel1Event"
 
 lvlCenter <- lvlEvents %>%
   dplyr::group_by(ONCOTREE_CODE,actionabilityStr2) %>%
-  #dplyr::summarise(median_age=median(AGE_AT_SEQ_REPORT))
-  dplyr::summarise(mean_age=mean(AGE_AT_SEQ_REPORT)) 
+  dplyr::summarise(median_age=median(AGE_AT_SEQ_REPORT))
+  #dplyr::summarise(mean_age=mean(AGE_AT_SEQ_REPORT)) 
 
-lvlMediansLong <- lvlCenter %>%
-  tidyr::pivot_wider(names_from = actionabilityStr2,values_from=mean_age) %>%
-  dplyr::mutate(ageDiff=abs(Level1Event-NoLevel1Event)) %>%
+lvlCenterLong <- lvlCenter %>%
+  tidyr::pivot_wider(names_from = actionabilityStr2,values_from=median_age) %>%
+  dplyr::mutate(ageDiff=abs(Level1Event-NoLevel1Event),
+                diffString=paste0("median difference = ",round(ageDiff,1)),
+                x=105,
+                y=0.02) %>%
   dplyr::arrange(desc(ageDiff))
 
-lvlEvents$ONCOTREE_CODE <- factor(lvlEvents$ONCOTREE_CODE,levels=lvlMediansLong$ONCOTREE_CODE)
+lvlEvents$ONCOTREE_CODE <- factor(lvlEvents$ONCOTREE_CODE,levels=lvlCenterLong$ONCOTREE_CODE)
+lvlCenterLong$ONCOTREE_CODE <- factor(lvlCenterLong$ONCOTREE_CODE,levels=lvlCenterLong$ONCOTREE_CODE)
 
 outF <-  paste0(outDir,"/age_difference_distribution_by_actionability.pdf")
 ggplot(lvlEvents, aes(x = AGE_AT_SEQ_REPORT, color=actionabilityStr)) +
   geom_density(alpha=.4)+
-  #geom_vline(lvlMedians,aes())+
-  facet_grid(ONCOTREE_CODE~.,scale="free")
+  geom_vline(data = lvlCenterLong, aes(xintercept = Level1Event), color = "blue", linetype = "solid") +
+  geom_vline(data = lvlCenterLong, aes(xintercept = NoLevel1Event), color = "red", linetype = "solid") +
+  geom_text(data = lvlCenterLong, aes(x = x, y = y, label = diffString), 
+            inherit.aes = FALSE, hjust = 1, size = 4) +
+  facet_grid(ONCOTREE_CODE~.,scale="free") +
+    theme_minimal() +
+  theme(
+    strip.background = element_blank(),
+    panel.grid = element_blank()
+  )
+ggsave(outF,height = 15, width = 9)  
+
+```
+
+# Sex differences among actionable vs non-actionable 
+
+```{r}
+{r}
+print("subjects without an age value:")
+print(table(is.na(perPatientLevel1$SEX)))
+
+print(table(perPatientLevel1$SEX))
+
+iMatchCtype <- perPatientLevel1$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
+iUnknown <- perPatientLevel1$SEX == "Unknown" | perPatientLevel1$SEX == "Other"
+lvlEvents <- perPatientLevel1[iMatchCtype & !iUnknown,]
+lvlEvents$actionabilityStr <- "no Level 1 event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr"] <- "Level 1 event"
+lvlEvents$actionabilityStr2 <- "Level1Event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr2"] <- "NoLevel1Event"
+
+
+# lvlCenter <- lvlEvents %>%
+#   dplyr::group_by(ONCOTREE_CODE,actionabilityStr2) %>%
+#   dplyr::summarise(male=sum(SEX=="Male"),
+#                    female=sum(SEX=="Female"))
+
+lvlCenter <- lvlEvents %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2,SEX) %>%
+  dplyr::summarise(n=n())
+
+
+outF <-  paste0(outDir,"/sex_difference_distribution_by_actionability.pdf")
+ggplot(lvlCenter,aes(x=actionabilityStr2,y=n,fill=SEX))+
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  facet_grid(ONCOTREE_CODE~.,scale="free") 
+ggsave(outF,height = 15, width = 9)  
+
+lvlProportion <- lvlCenter %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2) %>%
+  dplyr::mutate(proportion=n/sum(n))
+
+outF <-  paste0(outDir,"/sex_difference_proportion_by_actionability.pdf")
+ggplot(lvlProportion,aes(x=actionabilityStr2,y=proportion,fill=SEX))+
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  facet_grid(ONCOTREE_CODE~.,scale="free") 
 ggsave(outF,height = 15, width = 6)  
+
 
 ```
