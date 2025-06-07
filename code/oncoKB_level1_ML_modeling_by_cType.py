@@ -20,7 +20,7 @@ def get_patient_level_data(db_path):
     # Create the engine for SQLite
     engine = create_engine(f"sqlite:///{db_path}")
     # Name of the table you want to load
-    table_name = 'perPatientLevel1'   
+    table_name = 'perPatientOncoKBLevelSorted'
     df = pd.read_sql_table(table_name, con=engine)
     return df
 

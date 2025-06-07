@@ -32,7 +32,7 @@ harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 #seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 
 otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary') 
-perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel1') 
+perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientOncoKBLevelSorted') 
 
 ##########################
 ### examine features #####
@@ -51,7 +51,7 @@ perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientL
 
 highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:63] # select those OT codes with 500 or more samples
 highest_c_counts <- highest_c_counts[!is.na(highest_c_counts)]
-iHighest <- perPatientLevel1$ONCOTREE_CODE %in% as.character(highest_c_counts)
+iHighest <- perPatientOncoKBLevelSorted$ONCOTREE_CODE %in% as.character(highest_c_counts)
 
 # clinical_cols <- c("median_age",
 #                    "met_to_primary_ratio",
@@ -101,7 +101,7 @@ selectCols <- c("SAMPLE_TYPE",
                "preservation_technique")
 modelCols <- c(baseCols,selectCols)
 
-data <- perPatientLevel1[iHighest,] %>%
+data <- perPatientOncoKBLevelSorted[iHighest,] %>%
   dplyr::select(all_of(modelCols))
 # exclude patients if any data entry is null
 iNull <- rowSums(!is.na(data[,modelCols])) != length(modelCols) 
@@ -236,13 +236,13 @@ for (ftr in selectCols) {
 ##############################################################################
 
 ### perc of gene by cancer type
-otCntsAction <- perPatientLevel1 %>%
+otCntsAction <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1==T) %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::summarise(nOtSubjLevel1=n()) %>%
   dplyr::arrange(desc(nOtSubjLevel1))
 
-otGeneCntsAction <- perPatientLevel1 %>%
+otGeneCntsAction <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1==T) %>%
   dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol) %>%
   dplyr::summarise(nLevel1Actionable=n()) %>%
@@ -253,7 +253,7 @@ otGeneCntsAction <- perPatientLevel1 %>%
 topOtCodes <- otCntsAction$ONCOTREE_CODE[1:15] 
   
 ### perc of gene by cancer type
-geneMutCnts <- perPatientLevel1 %>%
+geneMutCnts <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1==T,
                 ONCOTREE_CODE %in% topOtCodes) %>%
   dplyr::group_by(Hugo_Symbol) %>%
@@ -275,7 +275,7 @@ ggplot(otGeneCntsActionSubset, aes(x=ONCOTREE_CODE,size=perc,y = Hugo_Symbol)) +
 ggsave(outF1,height = 8, width = 8)
 
 # for a given OT code, look at the breakdown of commmon genes - where are there differences between centers? 
-cntrOtCntsAction <- perPatientLevel1 %>%
+cntrOtCntsAction <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1==T) %>%
   dplyr::group_by(ONCOTREE_CODE,CENTER) %>%
   dplyr::summarise(nOtSubjLevel1=n()) %>%
@@ -285,7 +285,7 @@ otCntrCntsFull <- data.frame()
 for (otCode in topOtCodes) {
   cntrOtCntsActionSubset <- cntrOtCntsAction[cntrOtCntsAction$ONCOTREE_CODE==otCode,]
   
-  otCntrCntsAction <- perPatientLevel1 %>%
+  otCntrCntsAction <- perPatientOncoKBLevelSorted %>%
     dplyr::filter(isOncoKbLevel1==T,
                   ONCOTREE_CODE==otCode) %>%
     dplyr::group_by(CENTER,Hugo_Symbol) %>%

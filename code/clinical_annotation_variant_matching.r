@@ -23,7 +23,7 @@ outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 ### connect to result DB and get variants
-#dbName <- "../../output/actionability_db_curration_20240903/balder-harmonized-biomarker-data-v20240903.sqlite"
+#dbName <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
 
 # load clinical annotations
 dbRules <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM MoaCiVICRuleEntries') %>%
@@ -77,7 +77,11 @@ colnames(oncokbRes) <- paste0("ONCOKB_",colnames(oncokbRes))
 svCompiled <- combine_patient_table_and_oncokb(svCompiledPrelim,
                                                sampleInfoCompiled,
                                                ot_code_full,
-                                               oncokbRes)
+                                               oncokbRes) %>%
+               dplyr::mutate(isHemeCancer=grepl("LYMPH",ot_code_level_1) | grepl("MYELOID",ot_code_level_1))
+svCompiled$SEQ_ASSAY_ID_mod <- svCompiled$SEQ_ASSAY_ID
+svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SEQ_ASSAY_ID_mod"] <- svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SourceStudy"]
+
 RSQLite::dbWriteTable(harmonizedDb, "patientObservedVariantTableWithSampleInfoOncokb", svCompiled,overwrite=T)
 
 ##########################################################
@@ -99,7 +103,6 @@ write.csv(aa.genome.representative,
           row.names = F)
 # SQL write
 RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariants", aa.genome.representative,overwrite=T)
-
 
 ##########################################################################################
 ### Create union of valid OncoKB annotated variants and those annotated with MOA/CIViC ###
@@ -123,5 +126,43 @@ oncokbOnly[,iNewCols] <- NA
 aa.genome.representative.oncokb <- rbind(aa.genome.representative,
                                          oncokbOnly)
 RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariantsWithOncoKB", aa.genome.representative.oncokb, overwrite=T)
+
+#############################################################
+###  per-patient data product of level1 and level2 status ###
+#############################################################
+
+# load genie info
+assayInfo <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM assayInfoGENIE')
+
+# create representative variant per row per subject - choose level 1 variant if available
+perPatientOncoKBLevelSorted <- svCompiled %>%
+  dplyr::rename(SequenceCenter = Center) %>%
+  dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
+  dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
+                isOncoKbLevel2=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
+                isOncoKbLevel3=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_3" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
+                isOncoKbLevelAny=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
+                isOncoKbLevel2or1=(ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" | ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2") & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
+  dplyr::group_by(Tumor_Sample_Barcode) %>%
+  dplyr::arrange(desc(isOncoKbLevel1),desc(isOncoKbLevel2or1),desc(isOncoKbLevelAny)) %>%
+  dplyr::filter(dplyr::row_number()==1) %>%
+  dplyr::ungroup()
+outF <- paste0(outDir,"/patient_level2_OncoKB_status_for_modeling_head.txt")
+write.table(head(perPatientOncoKBLevelSorted,1000),outF,row.names=F,quote=F,sep="\t")
+RSQLite::dbWriteTable(harmonizedDb, "perPatientOncoKBLevelSorted", perPatientOncoKBLevelSorted, overwrite =T)
+
+# # create representative variant per row per subject - choose level 1 variant if avaible
+# perPatientLevel1 <- svCompiled %>%
+#   dplyr::rename(SequenceCenter = Center) %>%
+#   dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
+#   dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
+#   dplyr::group_by(Tumor_Sample_Barcode) %>%
+#   dplyr::arrange(desc(isOncoKbLevel1)) %>%
+#   dplyr::filter(dplyr::row_number()==1) %>%
+#   dplyr::ungroup()
+# outF <- paste0(outDir,"/patient_level_OncoKB_status_for_modeling_head.txt")
+# write.table(head(perPatientLevel1,1000),outF,row.names=F,quote=F,sep="\t")
+# RSQLite::dbWriteTable(harmonizedDb, "perPatientLevel1", perPatientLevel1, overwrite =T)
+
 ### Disconnect from SQL db ###
 RSQLite::dbDisconnect(harmonizedDb)

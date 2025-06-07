@@ -42,7 +42,7 @@ harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 #seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary') 
 otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary') 
-perPatientLevel1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel1') 
+perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientOncoKBLevelSorted') 
 #perPatientLevel2andLevl1 <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientLevel2andLevl1')
 ```
 
@@ -53,7 +53,7 @@ Data split by OncoTree codes
 ```{r}
 #| echo: false
 #| include: false
-cTypeLvl1Cnts <- perPatientLevel1 %>%
+cTypeLvl1Cnts <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1 == 1) %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::summarise(n_Level1_patients=n()) %>%
@@ -61,11 +61,11 @@ cTypeLvl1Cnts <- perPatientLevel1 %>%
 lvl1Thresh <- 250
 cTypeThresh <- cTypeLvl1Cnts[cTypeLvl1Cnts$n_Level1_patients >= lvl1Thresh,]
 
-cTypeRep <- perPatientLevel1 %>%
+cTypeRep <- perPatientOncoKBLevelSorted %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::filter(dplyr::row_number()==1)
 
-cTypeCnts <- perPatientLevel1 %>%
+cTypeCnts <- perPatientOncoKBLevelSorted %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::summarise(n_patients=n(),
                    ) %>%
@@ -91,7 +91,6 @@ colnames(outCntTbl) <- c("OT code",
                "cancer type detailed",
                "number of patients",
                "actionable events")
-knitr::kable(outCntTbl, )
 ```
 
 ```{r}
@@ -105,7 +104,7 @@ Data split by sex codes
 ```{r}
 #| echo: false
 #| include: false
-sexCnts <- perPatientLevel1 %>%
+sexCnts <- perPatientOncoKBLevelSorted %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::summarise(n_patients_total = n(),
                    n_male=sum(SEX=="Male"),
@@ -148,7 +147,7 @@ knitr::kable(outSexTbl, )
 ```{r}
 # #| echo: false
 # #| include: false
-# studyCnts <- perPatientLevel1 %>%
+# studyCnts <- perPatientOncoKBLevelSorted %>%
 #   dplyr::group_by(ONCOTREE_CODE) %>%
 #   dplyr::summarise(n_patients_total = n(),
 #                    n_male=sum(SEX=="Male"),
@@ -186,7 +185,7 @@ knitr::kable(outSexTbl, )
 # Aggregation by Ancestry
 
 ```{r}
-raceByEthn <- data.frame(table(perPatientLevel1$RACE,perPatientLevel1$ETHNICITY))
+raceByEthn <- data.frame(table(perPatientOncoKBLevelSorted$RACE,perPatientOncoKBLevelSorted$ETHNICITY))
 
 ```
 
@@ -198,7 +197,7 @@ top five actionable genes for each cancer type
 #| echo: false
 #| include: false
 
-geneCnts <- perPatientLevel1 %>%
+geneCnts <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1==1) %>%
   dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol) %>%
   dplyr::summarise(n_gene_mutated = n()) %>%
@@ -210,7 +209,8 @@ cTypeCntTbl <- cTypeThresh %>%
   dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
   dplyr::left_join(geneCnts,by=c("ONCOTREE_CODE")) %>%
   dplyr::mutate(percActionable = 100*n_gene_mutated/n_Level1_patients,
-                geneOfactionableEvents = paste0(n_gene_mutated, " (", round(percActionable, 1), "%)"))
+                geneOfactionableEvents = paste0(n_gene_mutated, " (", round(percActionable, 1), "%)")) %>%
+  dplyr::arrange(desc(n_gene_mutated))
 
 outGeneTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
                             "Hugo_Symbol",
@@ -220,11 +220,52 @@ colnames(outGeneTbl) <- c("cancer type detailed",
                          "count and perc of actionable events")
 ```
 
+Top 20 most common actionable events by gene
+
 ```{r}
-knitr::kable(outGeneTbl, )
+knitr::kable(outGeneTbl[1:20,], )
 ```
 
-# Most coding mutations for each cancer type
+Cumulative sum of mutations across the subset of cancer types
+
+```{r}
+### calculate cumulative sum of mutations across 
+cTypeCntTbl$mutated_cumsum <- cumsum(cTypeCntTbl$n_gene_mutated)
+cTypeCntTbl$perc_of_total <- 100* cTypeCntTbl$mutated_cumsum / sum(cTypeCntTbl$n_gene_mutated)
+cTypeCntTbl$pair_str <- paste0(cTypeCntTbl$ONCOTREE_CODE, " - ", cTypeCntTbl$Hugo_Symbol)
+cTypeCntTbl$pair_str <- factor(cTypeCntTbl$pair_str, levels=cTypeCntTbl$pair_str)
+cMax <- max(cTypeCntTbl$mutated_cumsum)
+
+outF <-  paste0(outDir,"/cumulative_mutation_counts_of_actionable_events.pdf")
+#outF <-  paste0(outDir,"/cumulative_mutation_counts_of_actionable_events.png")
+ggplot(cTypeCntTbl,aes(x=pair_str,y=mutated_cumsum))+
+  geom_point() + 
+    labs(title = "Count of patients with actionable mutations",
+       x = "cancer type & gene",
+       y = "cumulative patients count") +
+  ylim(0,cMax) + 
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  #theme(axis.text.x = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 6, width = 11)
+
+```
+
+```{r}
+print("portion of mutations acounted by ranked events")
+print("top 10 events:")
+print(cTypeCntTbl[10,c("perc_of_total")])
+print("top 20 events:")
+print(cTypeCntTbl[20,c("perc_of_total")])
+print("top 30 events:")
+print(cTypeCntTbl[30,c("perc_of_total")])
+print("top 40 events:")
+print(cTypeCntTbl[40,c("perc_of_total")])
+
+```
+
+# Most common coding mutations for each cancer type
 
 Ten most common mutations for each cancer type
 
@@ -232,7 +273,7 @@ Ten most common mutations for each cancer type
 #| echo: false
 #| include: false
 
-mutCnts <- perPatientLevel1 %>%
+mutCnts <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1==1) %>%
   dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol,HGVSp_Short) %>%
   dplyr::summarise(n_mutated = n()) %>%
@@ -266,10 +307,10 @@ knitr::kable(outMutTbl, )
 
 ```{r}
 print("subjects without an age value:")
-print(table(is.na(perPatientLevel1$AGE_AT_SEQ_REPORT)))
+print(table(is.na(perPatientOncoKBLevelSorted$AGE_AT_SEQ_REPORT)))
 
-iMatchCtype <- perPatientLevel1$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
-lvlEvents <- perPatientLevel1[iMatchCtype & !is.na(perPatientLevel1$AGE_AT_SEQ_REPORT),]
+iMatchCtype <- perPatientOncoKBLevelSorted$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
+lvlEvents <- perPatientOncoKBLevelSorted[iMatchCtype & !is.na(perPatientOncoKBLevelSorted$AGE_AT_SEQ_REPORT),]
 lvlEvents$actionabilityStr <- "no Level 1 event"
 lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr"] <- "Level 1 event"
 lvlEvents$actionabilityStr2 <- "Level1Event"
@@ -312,15 +353,14 @@ ggsave(outF,height = 15, width = 9)
 # Sex differences among actionable vs non-actionable 
 
 ```{r}
-{r}
-print("subjects without an age value:")
-print(table(is.na(perPatientLevel1$SEX)))
+print("subjects without an sex value:")
+print(table(is.na(perPatientOncoKBLevelSorted$SEX)))
 
-print(table(perPatientLevel1$SEX))
+print(table(perPatientOncoKBLevelSorted$SEX))
 
-iMatchCtype <- perPatientLevel1$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
-iUnknown <- perPatientLevel1$SEX == "Unknown" | perPatientLevel1$SEX == "Other"
-lvlEvents <- perPatientLevel1[iMatchCtype & !iUnknown,]
+iMatchCtype <- perPatientOncoKBLevelSorted$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
+iUnknown <- perPatientOncoKBLevelSorted$SEX == "Unknown" | perPatientOncoKBLevelSorted$SEX == "Other"
+lvlEvents <- perPatientOncoKBLevelSorted[iMatchCtype & !iUnknown,]
 lvlEvents$actionabilityStr <- "no Level 1 event"
 lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr"] <- "Level 1 event"
 lvlEvents$actionabilityStr2 <- "Level1Event"
@@ -350,6 +390,52 @@ lvlProportion <- lvlCenter %>%
 
 outF <-  paste0(outDir,"/sex_difference_proportion_by_actionability.pdf")
 ggplot(lvlProportion,aes(x=actionabilityStr2,y=proportion,fill=SEX))+
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  facet_grid(ONCOTREE_CODE~.,scale="free") 
+ggsave(outF,height = 15, width = 6)  
+
+
+```
+
+# Sample type differences among actionable vs non-actionable 
+
+```{r}
+print("subjects without an sample type value:")
+print(table(is.na(perPatientOncoKBLevelSorted$SAMPLE_TYPE)))
+
+print(table(perPatientOncoKBLevelSorted$SAMPLE_TYPE))
+
+iMatchCtype <- perPatientOncoKBLevelSorted$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
+lvlEvents <- perPatientOncoKBLevelSorted[iMatchCtype,]
+
+
+# iUnknown <- perPatientOncoKBLevelSorted$SEX == "Unknown" | perPatientOncoKBLevelSorted$SEX == "Other"
+# lvlEvents <- perPatientOncoKBLevelSorted[iMatchCtype & !iUnknown,]
+
+lvlEvents$actionabilityStr <- "no Level 1 event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr"] <- "Level 1 event"
+lvlEvents$actionabilityStr2 <- "Level1Event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr2"] <- "NoLevel1Event"
+
+lvlCenter <- lvlEvents %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2,SAMPLE_TYPE) %>%
+  dplyr::summarise(n=n())
+
+
+outF <-  paste0(outDir,"/sample_type_difference_distribution_by_actionability.pdf")
+ggplot(lvlCenter,aes(x=actionabilityStr2,y=n,fill=SAMPLE_TYPE))+
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  facet_grid(ONCOTREE_CODE~.,scale="free") 
+ggsave(outF,height = 15, width = 9)  
+
+lvlProportion <- lvlCenter %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2) %>%
+  dplyr::mutate(proportion=n/sum(n))
+
+outF <-  paste0(outDir,"/sample_type_difference_proportion_by_actionability.pdf")
+ggplot(lvlProportion,aes(x=actionabilityStr2,y=proportion,fill=SAMPLE_TYPE))+
   geom_bar(stat = "identity") + 
   coord_flip() +
   facet_grid(ONCOTREE_CODE~.,scale="free") 

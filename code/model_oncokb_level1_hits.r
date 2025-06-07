@@ -332,40 +332,17 @@ na_proportions <- train_data[,clinical_cols] %>%
 ### perform per-patient modeling of level1 status ### 
 ##################################################### 
 
-# create representative variant per row per subject - choose level 1 variant if avaible 
-perPatientLevel1 <- svCompiled %>%
-  dplyr::rename(SequenceCenter = Center) %>%
-  dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
-  dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
-  dplyr::group_by(Tumor_Sample_Barcode) %>%
-  dplyr::arrange(desc(isOncoKbLevel1)) %>%
-  dplyr::filter(dplyr::row_number()==1) %>%
-  dplyr::ungroup()
-outF <- paste0(outDir,"/patient_level_OncoKB_status_for_modeling_head.txt")
-write.table(head(perPatientLevel1,1000),outF,row.names=F,quote=F,sep="\t")  
-RSQLite::dbWriteTable(harmonizedDb, "perPatientLevel1", perPatientLevel1, overwrite =T)
-
-perPatientLevel2andLevl1 <- svCompiled %>%
-  dplyr::rename(SequenceCenter = Center) %>%
-  dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
-  dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
-                isOncoKbLevel2or1=(ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" | ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2") & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
-  dplyr::group_by(Tumor_Sample_Barcode) %>%
-  dplyr::arrange(desc(isOncoKbLevel1),desc(isOncoKbLevel2or1)) %>%
-  dplyr::filter(dplyr::row_number()==1) %>%
-  dplyr::ungroup()
-outF <- paste0(outDir,"/patient_level2_OncoKB_status_for_modeling_head.txt")
-write.table(head(perPatientLevel2andLevl1,1000),outF,row.names=F,quote=F,sep="\t")  
-RSQLite::dbWriteTable(harmonizedDb, "perPatientLevel2orLevel1", perPatientLevel2andLevl1, overwrite =T)
+# load pre-calculated per-patient data
+perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientOncoKBLevelSorted')
 
 # make data subset selections
 #highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:5]
 highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:63] # select those OT codes with 500 or more samples
 highest_c_counts <- highest_c_counts[!is.na(highest_c_counts)]
-iHighest <- perPatientLevel1$ONCOTREE_CODE %in% as.character(highest_c_counts)
+iHighest <- perPatientOncoKBLevelSorted$ONCOTREE_CODE %in% as.character(highest_c_counts)
 
 # cancer type and subtype name summary
-cTypeSubtypeCnts <- perPatientLevel1 %>% #[iHighest,]
+cTypeSubtypeCnts <- perPatientOncoKBLevelSorted %>% #[iHighest,]
   dplyr::group_by(ONCOTREE_CODE,CANCER_TYPE,CANCER_TYPE_DETAILED) %>%
   dplyr::summarise(nPatients=n()) %>%
   dplyr::arrange(ONCOTREE_CODE,desc(nPatients))
@@ -386,7 +363,7 @@ modelCols <- c("isOncoKbLevel1",
                "preservation_technique")
 
 # select top cancers and subset columns
-data <- perPatientLevel1[iHighest,] %>%
+data <- perPatientOncoKBLevelSorted[iHighest,] %>%
   dplyr::select(all_of(modelCols))
 # exclude patients if any data entry is null
 iNull <- rowSums(!is.na(data[,modelCols])) != length(modelCols) 

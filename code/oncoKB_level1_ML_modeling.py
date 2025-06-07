@@ -24,7 +24,7 @@ outDir = '/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_d
 engine = create_engine(f"sqlite:///{db_path}")
 
 # Name of the table you want to load
-table_name = 'perPatientLevel1'   
+table_name = 'perPatientOncoKBLevelSorted'
 df = pd.read_sql_table(table_name, con=engine)
 
 # demographic columns
