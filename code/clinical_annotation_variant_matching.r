@@ -151,18 +151,5 @@ outF <- paste0(outDir,"/patient_level2_OncoKB_status_for_modeling_head.txt")
 write.table(head(perPatientOncoKBLevelSorted,1000),outF,row.names=F,quote=F,sep="\t")
 RSQLite::dbWriteTable(harmonizedDb, "perPatientOncoKBLevelSorted", perPatientOncoKBLevelSorted, overwrite =T)
 
-# # create representative variant per row per subject - choose level 1 variant if avaible
-# perPatientLevel1 <- svCompiled %>%
-#   dplyr::rename(SequenceCenter = Center) %>%
-#   dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
-#   dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
-#   dplyr::group_by(Tumor_Sample_Barcode) %>%
-#   dplyr::arrange(desc(isOncoKbLevel1)) %>%
-#   dplyr::filter(dplyr::row_number()==1) %>%
-#   dplyr::ungroup()
-# outF <- paste0(outDir,"/patient_level_OncoKB_status_for_modeling_head.txt")
-# write.table(head(perPatientLevel1,1000),outF,row.names=F,quote=F,sep="\t")
-# RSQLite::dbWriteTable(harmonizedDb, "perPatientLevel1", perPatientLevel1, overwrite =T)
-
 ### Disconnect from SQL db ###
 RSQLite::dbDisconnect(harmonizedDb)
