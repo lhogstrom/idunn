@@ -443,3 +443,84 @@ ggsave(outF,height = 15, width = 6)
 
 
 ```
+
+# Race differences among actionable vs non-actionable 
+
+```{r}
+print("subjects without an race value:")
+print(table(is.na(perPatientOncoKBLevelSorted$RACE)))
+
+print(table(perPatientOncoKBLevelSorted$RACE))
+
+iMatchCtype <- perPatientOncoKBLevelSorted$ONCOTREE_CODE %in% cTypeThresh$ONCOTREE_CODE
+lvlEvents <- perPatientOncoKBLevelSorted[iMatchCtype,]
+
+
+# iUnknown <- perPatientOncoKBLevelSorted$SEX == "Unknown" | perPatientOncoKBLevelSorted$SEX == "Other"
+# lvlEvents <- perPatientOncoKBLevelSorted[iMatchCtype & !iUnknown,]
+
+lvlEvents$actionabilityStr <- "no Level 1 event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr"] <- "Level 1 event"
+lvlEvents$actionabilityStr2 <- "Level1Event"
+lvlEvents[lvlEvents$isOncoKbLevel1==1,"actionabilityStr2"] <- "NoLevel1Event"
+
+lvlCenter <- lvlEvents %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2,RACE) %>%
+  dplyr::summarise(n=n())
+
+outF <-  paste0(outDir,"/race_difference_distribution_by_actionability.pdf")
+ggplot(lvlCenter,aes(x=actionabilityStr2,y=n,fill=RACE))+
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  facet_grid(ONCOTREE_CODE~.,scale="free") 
+ggsave(outF,height = 15, width = 9)  
+
+lvlProportion <- lvlCenter %>%
+  dplyr::group_by(ONCOTREE_CODE,actionabilityStr2) %>%
+  dplyr::mutate(proportion=n/sum(n))
+
+outF <-  paste0(outDir,"/race_difference_proportion_by_actionability.pdf")
+ggplot(lvlProportion,aes(x=actionabilityStr2,y=proportion,fill=RACE))+
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  facet_grid(ONCOTREE_CODE~.,scale="free") 
+ggsave(outF,height = 15, width = 6)  
+
+```
+
+## Most common Level 2 events for each cancer type by gene 
+
+```{r}
+#| echo: false
+#| include: false
+
+mutCnts <- perPatientOncoKBLevelSorted %>%
+  dplyr::filter(isOncoKbLevel2==1) %>%
+  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol,HGVSp_Short) %>%
+  dplyr::summarise(n_mutated = n()) %>%
+  dplyr::arrange(ONCOTREE_CODE,desc(n_mutated)) %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  #dplyr::filter(dplyr::row_number() < 5) %>%
+  dplyr::arrange(desc(n_mutated))
+
+cTypeCntTbl <- cTypeThresh %>%
+  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::left_join(mutCnts,by=c("ONCOTREE_CODE")) %>%
+  dplyr::mutate(percActionable = 100*n_mutated/n_Level1_patients,
+                mutOfactionableEvents = paste0(n_mutated, " (", round(percActionable, 1), "%)")) %>%
+  dplyr::arrange(desc(n_mutated))
+
+outMutTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
+                            "Hugo_Symbol",
+                            "HGVSp_Short",
+                            "mutOfactionableEvents")]
+colnames(outMutTbl) <- c("cancer type detailed",
+                         "gene",
+                         "protein mutation",
+                         "count and perc of actionable events")
+```
+
+```{r}
+knitr::kable(outMutTbl[1:15], )
+```
