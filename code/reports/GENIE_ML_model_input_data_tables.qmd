@@ -522,5 +522,5 @@ colnames(outMutTbl) <- c("cancer type detailed",
 ```
 
 ```{r}
-knitr::kable(outMutTbl[1:15], )
+knitr::kable(outMutTbl[1:15,], )
 ```
