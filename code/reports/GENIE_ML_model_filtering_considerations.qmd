@@ -19,8 +19,6 @@ This document presents data to inform decisions on filtering and aggregating cli
 
 Results are restricted to a subset of cancer types that have 250 or more patients with actionable events.
 
-## Loading data
-
 ```{r}
 #| echo: false
 #| include: false
@@ -37,6 +35,9 @@ source("../R/utils.R")
 ```{r}
 #| echo: false
 #| include: false
+
+
+# Loading data
 dbName <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
 baseDir <- "/Users/larsonhogstrom/Documents/balder_analysis/balder/code"
 outDir <- "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/underlying_feature_model_plots_v2" 
@@ -49,13 +50,13 @@ perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM 
 svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') 
 ```
 
-# Aggregation of data by cancer type
-
-Data split by OncoTree codes
-
 ```{r}
 #| echo: false
 #| include: false
+
+# Aggregation of data by cancer type
+#Data split by OncoTree codes
+
 cTypeLvl1Cnts <- perPatientOncoKBLevelSorted %>%
   dplyr::filter(isOncoKbLevel1 == 1) %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
@@ -96,84 +97,7 @@ colnames(outCntTbl) <- c("OT code",
                "actionable events")
 ```
 
-```{r}
-knitr::kable(outCntTbl, )
-```
-
-# Most common mutated genes for each cancer type
-
-top five actionable genes for each cancer type
-
-```{r}
-#| echo: false
-#| include: false
-
-geneCnts <- perPatientOncoKBLevelSorted %>%
-  dplyr::filter(isOncoKbLevel1==1) %>%
-  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol) %>%
-  dplyr::summarise(n_gene_mutated = n()) %>%
-  dplyr::arrange(ONCOTREE_CODE,desc(n_gene_mutated)) %>%
-  dplyr::filter(dplyr::row_number() < 6)
-
-cTypeCntTbl <- cTypeThresh %>%
-  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
-  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
-  dplyr::left_join(geneCnts,by=c("ONCOTREE_CODE")) %>%
-  dplyr::mutate(percActionable = 100*n_gene_mutated/n_Level1_patients,
-                geneOfactionableEvents = paste0(n_gene_mutated, " (", round(percActionable, 1), "%)")) %>%
-  dplyr::arrange(desc(n_gene_mutated))
-
-outGeneTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
-                            "Hugo_Symbol",
-                            "geneOfactionableEvents")]
-colnames(outGeneTbl) <- c("cancer type detailed",
-                         "gene",
-                         "count and perc of actionable events")
-```
-
-Top 20 most common actionable events by gene
-
-```{r}
-knitr::kable(outGeneTbl[1:20,], )
-```
-
-# Most common coding mutations for each cancer type
-
-Ten most common mutations for each cancer type
-
-```{r}
-#| echo: false
-#| include: false
-
-mutCnts <- perPatientOncoKBLevelSorted %>%
-  dplyr::filter(isOncoKbLevel1==1) %>%
-  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol,HGVSp_Short) %>%
-  dplyr::summarise(n_mutated = n()) %>%
-  dplyr::arrange(ONCOTREE_CODE,desc(n_mutated)) %>%
-  dplyr::group_by(ONCOTREE_CODE) %>%
-  dplyr::filter(dplyr::row_number() < 11)
-
-cTypeCntTbl <- cTypeThresh %>%
-  dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
-  dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
-  dplyr::left_join(mutCnts,by=c("ONCOTREE_CODE")) %>%
-  dplyr::mutate(percActionable = 100*n_mutated/n_Level1_patients,
-                mutOfactionableEvents = paste0(n_mutated, " (", round(percActionable, 1), "%)"))
-
-outMutTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
-                            "Hugo_Symbol",
-                            "HGVSp_Short",
-                            "mutOfactionableEvents")]
-colnames(outMutTbl) <- c("cancer type detailed",
-                         "gene",
-                         "protein mutation",
-                         "count and perc of actionable events")
-```
-
-```{r}
-#knitr::kable(outMutTbl, )
-
-```
+# Part 1: Count of OncoKB Level 2 actionable events
 
 ## Most common Level 2 events by cancer type
 
@@ -194,6 +118,10 @@ cTypeCntTbl <- cTypeThresh %>%
   dplyr::mutate(percActionable = 100*n_mutated/n_Level1_patients,
                 mutOfactionableEvents = paste0(n_mutated, " (", round(percActionable, 1), "%)")) %>%
   dplyr::arrange(desc(percActionable))
+outF <- paste0(outDir,"/level_2_event_counts_by_cancer_type.txt")
+write.table(cTypeCntTbl,outF,row.names=F,quote=F,sep="\t")
+
+
 
 outMutTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
                             "mutOfactionableEvents")]
@@ -201,8 +129,12 @@ colnames(outMutTbl) <- c("cancer type detailed",
                          "count and perc of actionable events")
 ```
 
+Cancer subtypes included in ML modeling ordered by most frequent level 2 events.
+
 ```{r}
-knitr::kable(outMutTbl[1:15,], )
+#| echo: false
+#| include: true
+knitr::kable(outMutTbl, )
 ```
 
 ## Most common Level 2 events for each cancer type & gene
@@ -227,6 +159,8 @@ cTypeCntTbl <- cTypeThresh %>%
   dplyr::mutate(percActionable = 100*n_mutated/n_Level1_patients,
                 mutOfactionableEvents = paste0(n_mutated, " (", round(percActionable, 1), "%)")) %>%
   dplyr::arrange(desc(percActionable))
+outF <- paste0(outDir,"/level_2_event_counts_by_cancer_type_gene.txt")
+write.table(cTypeCntTbl,outF,row.names=F,quote=F,sep="\t")
 
 outMutTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
                             "Hugo_Symbol",
@@ -236,7 +170,11 @@ colnames(outMutTbl) <- c("cancer type detailed",
                          "count and perc of actionable events")
 ```
 
+Top 15 most common Level 2 events by gene and cancer type:
+
 ```{r}
+#| echo: false
+#| include: true
 knitr::kable(outMutTbl[1:15,], )
 ```
 
@@ -262,6 +200,8 @@ cTypeCntTbl <- cTypeThresh %>%
   dplyr::mutate(percActionable = 100*n_mutated/n_Level1_patients,
                 mutOfactionableEvents = paste0(n_mutated, " (", round(percActionable, 1), "%)")) %>%
   dplyr::arrange(desc(n_mutated))
+outF <- paste0(outDir,"/level_2_event_counts_by_cancer_type_gene_hgvsp.txt")
+write.table(cTypeCntTbl,outF,row.names=F,quote=F,sep="\t")
 
 outMutTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
                             "Hugo_Symbol",
@@ -273,13 +213,22 @@ colnames(outMutTbl) <- c("cancer type detailed",
                          "count and perc of actionable events")
 ```
 
+Top 15 most common Level 2 events by gene, cancer type and amino acid change.
+
 ```{r}
+#| echo: false
+#| include: true
 knitr::kable(outMutTbl[1:15,], )
 ```
 
-## Actionable mutation co-occurrence across OncoKB levles
+# Part 2: Actionable mutation co-occurrence across OncoKB levles
+
+To investigate the rate of co-occurrence events in AACR GENIE, we tabulate the number of patients across all cancer types that had actionable events at different OncoKB Levels. Any entry with a value \>1 or a row with more than one positive value represents a actionable mutation co-occurrence found in a given patient.
 
 ```{r}
+#| echo: false
+#| include: false
+
 perOncoKBEvntCnts <- svCompiled %>%
   dplyr::rename(SequenceCenter = Center) %>%
   #dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
@@ -301,26 +250,43 @@ oncoKBEventCnts <- perOncoKBEvntCnts %>%
                    percent_total=100*n_patients/dim(perOncoKBEvntCnts)[1],
                    event_counts = paste0(n_patients, " (", round(percent_total, 1), "%)")) %>%
   dplyr::arrange(desc(n_patients))
+
+outF <- paste0(outDir,"/oncokb_co_occurence_counts_across_cancer_types.txt")
+write.table(oncoKBEventCnts,outF,row.names=F,quote=F,sep="\t")
+
+oncoKBTbl <- oncoKBEventCnts[,c("nLevel1Events",
+                            "nLevel2Events",
+                            "nLevelAnyEvent",
+                            "event_counts")]
+colnames(oncoKBTbl) <- c("Level 1 Event Count",
+                         "Level 2 Event Count",
+                         "Any Level Event Count",
+                         "Number of patients")
 ```
 
 ```{r}
-knitr::kable(oncoKBEventCnts[1:15,], )
+#| echo: false
+#| include: true
+knitr::kable(oncoKBTbl[1:15,], )
 ```
 
-## Effect of coverage filtering on the rate of actionable mutations
+# Part 3: Effect of coverage filtering on the rate of actionable mutations
 
-To examine the impact of coverage we, calculate the tumor profiling coverage as the following: t_ref_count+t_alt_count. We tested to see the imapct of filtering out variants with a min coverage below 20 bp.
+To examine the impact of coverage we, calculate the tumor profiling coverage as the following: t_ref_count+t_alt_count. We tested to see the impact of filtering out variants with a min coverage below 20 bp.
 
 The count of variant events below 20bp of coverage was as follows:
 
 ```{r}
+#| echo: false
+#| include: true
 table(svCompiled$t_alt_plus_ref_count < 20)
 ```
 
 This resulted in the following impact on actionable mutation count:
 
 ```{r}
-
+#| echo: false
+#| include: false
 perPatientOncoKBBeforeCoverageFilt <- svCompiled %>%
   dplyr::rename(SequenceCenter = Center) %>%
   #dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
@@ -347,4 +313,36 @@ perPatientOncoKBAfterCoverageFilt <- svCompiled %>%
   dplyr::arrange(desc(isOncoKbLevel1),desc(isOncoKbLevel2or1),desc(isOncoKbLevelAny)) %>%
   dplyr::filter(dplyr::row_number()==1) %>%
   dplyr::ungroup()
+
+
+```
+
+```{r}
+#| echo: false
+#| include: true
+#table(svCompiled$t_alt_plus_ref_count < 20)
+print("Level 1 actionable events before filtering: ")
+nBeforeFilt <- sum(perPatientOncoKBBeforeCoverageFilt$isOncoKbLevel1)
+print(nBeforeFilt)
+print("Level 1 actionable events after filtering: ")
+nAfterFilt <- sum(perPatientOncoKBAfterCoverageFilt$isOncoKbLevel1)
+print(nAfterFilt)
+print("percent difference: ")
+print(paste0(round(100*(nAfterFilt-nBeforeFilt)/nBeforeFilt,3),"%"))
+```
+
+And the following counts change in counts for Level 2 events: \
+
+```{r}
+#| echo: false
+#| include: true
+#table(svCompiled$t_alt_plus_ref_count < 20)
+print("Level 2 actionable events before filtering: ")
+nBeforeFilt <- sum(perPatientOncoKBBeforeCoverageFilt$isOncoKbLevel2)
+print(nBeforeFilt)
+print("Level 2 actionable events after filtering: ")
+nAfterFilt <- sum(perPatientOncoKBAfterCoverageFilt$isOncoKbLevel2)
+print(nAfterFilt)
+print("percent difference: ")
+print(paste0(round(100*(nAfterFilt-nBeforeFilt)/nBeforeFilt,3),"%"))
 ```
