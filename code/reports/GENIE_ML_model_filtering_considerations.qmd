@@ -131,6 +131,8 @@ colnames(outMutTbl) <- c("cancer type detailed",
 
 Cancer subtypes included in ML modeling ordered by most frequent level 2 events.
 
+{{< pagebreak >}}
+
 ```{r}
 #| echo: false
 #| include: true
