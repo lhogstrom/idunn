@@ -143,6 +143,7 @@ perPatientOncoKBLevelSorted <- svCompiled %>%
                 isOncoKbLevel3=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_3" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
                 isOncoKbLevelAny=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
                 isOncoKbLevel2or1=(ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" | ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2") & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
+  dplyr::mutate(isHemeCancer=grepl("LYMPH",ot_code_level_1) | grepl("MYELOID",ot_code_level_1)) %>%
   dplyr::group_by(Tumor_Sample_Barcode) %>%
   dplyr::arrange(desc(isOncoKbLevel1),desc(isOncoKbLevel2or1),desc(isOncoKbLevelAny)) %>%
   dplyr::filter(dplyr::row_number()==1) %>%

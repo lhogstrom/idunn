@@ -22,8 +22,7 @@ utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
 ### connect to result DB and get variants
-#outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20240924/oncokb_summary_and_modeling")
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250121/oncokb_summary_and_modeling")
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/oncokb_summary_and_modeling")
 geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
 modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
@@ -305,7 +304,7 @@ ggplot(seqOtCTypeSummary[iHighest & (iLevel1),],aes(x=ONCOTREE_CODE,y=perc,fill=
   #scale_fill_brewer(palette="Set1",drop=FALSE)+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(outF,height = 30, width = 10)
+ggsave(outF,height = 14, width = 8)
 
 highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:40]
 iHighest <- seqOtCTypeSummary$ONCOTREE_CODE %in% as.character(highest_c_counts)
@@ -314,7 +313,7 @@ ggplot(seqOtCTypeSummary[iHighest & (iLevel1),],aes(x=ONCOTREE_CODE,y=perc,color
   #geom_bar(stat = "identity", position = "stack",alpha=.6) +
   geom_jitter(width=.1,alpha=.8)+
   theme_bw()+
-  facet_grid(level_1~.,scale="free_y",)+
+  #facet_grid(level_1~.,scale="free_y",)+
   xlab("Oncotree Code")+
   ylab("perc of patients")+
   ylim(0,85)+
@@ -322,7 +321,37 @@ ggplot(seqOtCTypeSummary[iHighest & (iLevel1),],aes(x=ONCOTREE_CODE,y=perc,color
   scale_color_brewer(palette="Set2",drop=FALSE)+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(outF,height = 8, width = 18)
+ggsave(outF,height = 6, width = 8)
+
+### repeat plot ordered by most variability in level 1 incidence 
+#iLevel1 <- grepl("1",seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY)
+iLevel1 <- seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY == "LEVEL_1"
+selectDf <- seqOtCTypeSummary[iHighest & (iLevel1),]
+
+#variability ordering
+var_order <- selectDf %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::summarise(
+    group_variability = sd(perc, na.rm = TRUE)
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(desc(group_variability))
+
+selectDf$ONCOTREE_CODE <- factor(selectDf$ONCOTREE_CODE, levels=var_order$ONCOTREE_CODE)
+outF <-  paste0(outDir,"/cancer_type_Seq_Type_oncokb_level1_ordered_by_variability.pdf")
+ggplot(selectDf,aes(x=ONCOTREE_CODE,y=perc))+
+  geom_boxplot(alpha=.2)+
+  geom_jitter(width=.1,alpha=.6,color="dark green")+
+  theme_bw()+
+  #facet_grid(level_1~.,scale="free_y",)+
+  xlab("Oncotree Code")+
+  ylab("perc of patients")+
+  ylim(0,85)+
+  ggtitle(paste0("Institutional variability in clinically actionable mutation rates"))+
+  scale_color_brewer(palette="Set2",drop=FALSE)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 4.5, width = 7)
 
 outF <-  paste0(outDir,"/cancer_type_Seq_Type_oncokb_jitter_by_level.pdf")
 ggplot(seqOtCTypeSummary[iHighest & (iLevel1 | iLevel2),],aes(x=ONCOTREE_CODE,y=perc,color=ONCOKB_HIGHEST_LEVEL_SUMMARY))+

@@ -333,7 +333,7 @@ print("percent difference: ")
 print(paste0(round(100*(nAfterFilt-nBeforeFilt)/nBeforeFilt,3),"%"))
 ```
 
-And the following counts change in counts for Level 2 events: \
+And the following counts change in counts for Level 2 events:\
 
 ```{r}
 #| echo: false
