@@ -137,6 +137,7 @@ assayInfo <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM assayInfoGENIE')
 # create representative variant per row per subject - choose level 1 variant if available
 perPatientOncoKBLevelSorted <- svCompiled %>%
   dplyr::rename(SequenceCenter = Center) %>%
+  #dplyr::filter(t_alt_plus_ref_count > 20) %>%
   dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
   dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
                 isOncoKbLevel2=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),

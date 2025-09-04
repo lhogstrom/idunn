@@ -204,7 +204,7 @@ geneCnts <- perPatientOncoKBLevelSorted %>%
   dplyr::arrange(ONCOTREE_CODE,desc(n_gene_mutated)) %>%
   dplyr::filter(dplyr::row_number() < 6)
 
-cTypeCntTbl <- cTypeThresh %>%
+cTypeGeneCntTbl <- cTypeThresh %>%
   dplyr::left_join(cTypeRep[,c("ONCOTREE_CODE","CANCER_TYPE","CANCER_TYPE_DETAILED")],by=c("ONCOTREE_CODE")) %>%
   dplyr::left_join(cTypeCnts,by=c("ONCOTREE_CODE")) %>%
   dplyr::left_join(geneCnts,by=c("ONCOTREE_CODE")) %>%
@@ -212,7 +212,7 @@ cTypeCntTbl <- cTypeThresh %>%
                 geneOfactionableEvents = paste0(n_gene_mutated, " (", round(percActionable, 1), "%)")) %>%
   dplyr::arrange(desc(n_gene_mutated))
 
-outGeneTbl <- cTypeCntTbl[,c("CANCER_TYPE_DETAILED",
+outGeneTbl <- cTypeGeneCntTbl[,c("CANCER_TYPE_DETAILED",
                             "Hugo_Symbol",
                             "geneOfactionableEvents")]
 colnames(outGeneTbl) <- c("cancer type detailed",
@@ -230,15 +230,15 @@ Cumulative sum of mutations across the subset of cancer types
 
 ```{r}
 ### calculate cumulative sum of mutations across 
-cTypeCntTbl$mutated_cumsum <- cumsum(cTypeCntTbl$n_gene_mutated)
-cTypeCntTbl$perc_of_total <- 100* cTypeCntTbl$mutated_cumsum / sum(cTypeCntTbl$n_gene_mutated)
-cTypeCntTbl$pair_str <- paste0(cTypeCntTbl$ONCOTREE_CODE, " - ", cTypeCntTbl$Hugo_Symbol)
-cTypeCntTbl$pair_str <- factor(cTypeCntTbl$pair_str, levels=cTypeCntTbl$pair_str)
-cMax <- max(cTypeCntTbl$mutated_cumsum)
+cTypeGeneCntTbl$mutated_cumsum <- cumsum(cTypeGeneCntTbl$n_gene_mutated)
+cTypeGeneCntTbl$perc_of_total <- 100* cTypeGeneCntTbl$mutated_cumsum / sum(cTypeGeneCntTbl$n_gene_mutated)
+cTypeGeneCntTbl$pair_str <- paste0(cTypeGeneCntTbl$ONCOTREE_CODE, " - ", cTypeGeneCntTbl$Hugo_Symbol)
+cTypeGeneCntTbl$pair_str <- factor(cTypeGeneCntTbl$pair_str, levels=cTypeGeneCntTbl$pair_str)
+cMax <- max(cTypeGeneCntTbl$mutated_cumsum)
 
 outF <-  paste0(outDir,"/cumulative_mutation_counts_of_actionable_events.pdf")
 #outF <-  paste0(outDir,"/cumulative_mutation_counts_of_actionable_events.png")
-ggplot(cTypeCntTbl,aes(x=pair_str,y=mutated_cumsum))+
+ggplot(cTypeGeneCntTbl,aes(x=pair_str,y=mutated_cumsum))+
   geom_point() + 
     labs(title = "Count of patients with actionable mutations",
        x = "cancer type & gene",
@@ -255,13 +255,13 @@ ggsave(outF,height = 6, width = 11)
 ```{r}
 print("portion of mutations acounted by ranked events")
 print("top 10 events:")
-print(cTypeCntTbl[10,c("perc_of_total")])
+print(cTypeGeneCntTbl[10,c("perc_of_total")])
 print("top 20 events:")
-print(cTypeCntTbl[20,c("perc_of_total")])
+print(cTypeGeneCntTbl[20,c("perc_of_total")])
 print("top 30 events:")
-print(cTypeCntTbl[30,c("perc_of_total")])
+print(cTypeGeneCntTbl[30,c("perc_of_total")])
 print("top 40 events:")
-print(cTypeCntTbl[40,c("perc_of_total")])
+print(cTypeGeneCntTbl[40,c("perc_of_total")])
 
 ```
 
@@ -524,3 +524,102 @@ colnames(outMutTbl) <- c("cancer type detailed",
 ```{r}
 knitr::kable(outMutTbl[1:15,], )
 ```
+# Minimum panel coverage
+Filter by cancer type - mutation pairs where minimum portion of samples had coverage.
+```{r}
+#| echo: false
+#| include: false
+
+# table: mutation; cancer type; panel; patient count
+panelCovTbl <- perPatientOncoKBLevelSorted %>%
+  dplyr::filter(isOncoKbLevel1==1) %>%
+  dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol,Protein_position,SEQ_ASSAY_ID) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::mutate(positionID=paste0(Hugo_Symbol,"-",Protein_position)) %>%
+  dplyr::mutate(positionCtypeID=paste0(ONCOTREE_CODE,"-",Hugo_Symbol,"-",Protein_position)) %>%
+  dplyr::arrange(desc(n))
+
+perPatientPanelCount <- perPatientOncoKBLevelSorted %>%
+  dplyr::group_by(ONCOTREE_CODE,SEQ_ASSAY_ID) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::arrange(desc(n))
+
+cTypeCnts <- perPatientOncoKBLevelSorted %>%
+  dplyr::group_by(ONCOTREE_CODE) %>%
+  dplyr::summarise(nCtype=n()) %>%
+  dplyr::arrange(desc(nCtype))
+
+positionLookup <- data.frame()
+for (pID in unique(panelCovTbl$positionCtypeID)) {
+  pDf <- panelCovTbl[panelCovTbl$positionCtypeID==pID,]
+  cType <- unique(pDf$ONCOTREE_CODE)
+  uSeqIDs <- unique(pDf$SEQ_ASSAY_ID)
+  iIDMatch <- perPatientPanelCount$SEQ_ASSAY_ID %in% uSeqIDs
+  iCtypeMatch <- perPatientPanelCount$ONCOTREE_CODE %in% cType
+  panelCnts <- perPatientPanelCount[iIDMatch & iCtypeMatch,]
+  positionLookup[pID,"tested_patients_with_coverage"] <- sum(panelCnts$n)
+  positionLookup[pID,"n_patients_mutated_at_position"] <- sum(pDf$n)
+  positionLookup[pID,"positionCtypeID"] <- pID
+  positionLookup[pID,"ONCOTREE_CODE"] <- cType
+}
+positionLookup <- positionLookup %>%
+  dplyr::left_join(cTypeCnts,by="ONCOTREE_CODE") %>%
+  dplyr::mutate(perc_of_patients_with_coverage=100*(tested_patients_with_coverage/nCtype)) %>%
+  dplyr::arrange(desc(nCtype))
+
+outF <-  paste0(outDir,"/positoin_summary_and_coverage.pdf")
+ggplot(positionLookup,aes(x=n_patients_mutated_at_position,y=perc_of_patients_with_coverage))+
+  geom_point() + 
+    #labs(title = "Count of patients with actionable mutations",
+    #   x = "cancer type & gene",
+    #   y = "cumulative patients count") +
+  #ylim(0,cMax) + 
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  #theme(axis.text.x = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 6, width = 11)
+
+topPostions <- positionLookup[positionLookup$perc_of_patients_with_coverage > 90.0,]
+positionLookup$highCoveragePosition <- positionLookup$positionCtypeID %in% topPostions$positionCtypeID
+
+iHighCoverage <- positionLookup$highCoveragePosition == T
+print(sum(positionLookup[iHighCoverage,"n_patients_mutated_at_position"]))
+print(sum(positionLookup[!iHighCoverage,"n_patients_mutated_at_position"]))
+
+```
+
+Top 20 most common actionable events by gene
+
+```{r}
+knitr::kable(positionLookup[1:20,], )
+```
+
+
+With coverage labels
+
+```{r}
+positionLookup <- positionLookup %>%
+  dplyr::arrange(desc(n_patients_mutated_at_position))
+positionLookup$mutated_cumsum <- cumsum(positionLookup$n_patients_mutated_at_position)
+positionLookup$perc_of_total <- 100* positionLookup$mutated_cumsum / sum(positionLookup$n_patients_mutated_at_position)
+#cTypeGeneCntTbl$pair_str <- paste0(cTypeGeneCntTbl$ONCOTREE_CODE, " - ", cTypeGeneCntTbl$Hugo_Symbol)
+positionLookup$positionCtypeID <- factor(positionLookup$positionCtypeID, levels=positionLookup$positionCtypeID)
+cMax <- max(positionLookup$mutated_cumsum)
+
+
+outF <-  paste0(outDir,"/cumulative_mutation_counts_of_actionable_events_with_coverage_label.pdf")
+ggplot(positionLookup[1:100,],aes(x=positionCtypeID,y=mutated_cumsum,color= highCoveragePosition))+
+  geom_point() + 
+    labs(title = "Count of patients with actionable mutations\n by protein position",
+       x = "cancer type & protein posiiton",
+       y = "cumulative patients count") +
+  ylim(0,cMax+2000) + 
+  geom_hline(yintercept = cMax,linetype="dotted")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  #theme(axis.text.x = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave(outF,height = 6, width = 15)
+```
+

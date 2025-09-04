@@ -19,6 +19,7 @@ params.scripts5 = file('../code/load_oncokb_run.r')
 params.scripts6 = file('../code/clinical_annotation_variant_matching.r')
 // scripts for reporting and analysis
 params.scripts7 = file('../code/incidence_of_clinically_annotated_mutations_reporting.r')
+params.scripts7a = file('../code/targeted_panel_coordinate_lookup.r')
 params.scripts8 = file('../code/MAF_and_prognostic_marker_analysis.r')
 params.scripts9 = file('../code/summary_oncokb_by_cancer_type.r')
 params.scripts10 = file('../code/model_oncokb_level1_hits.r')
