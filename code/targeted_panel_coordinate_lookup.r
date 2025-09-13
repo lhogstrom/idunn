@@ -42,7 +42,7 @@ svCompiled$SEQ_ASSAY_ID_mod <- svCompiled$SEQ_ASSAY_ID
 svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SEQ_ASSAY_ID_mod"] <- svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SourceStudy"]
 
 ##################
-### assay info ###
+### assay info from GENIE ###
 ##################
 
 inF <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_15p0_public/genomic_information.txt")
@@ -436,6 +436,7 @@ genomicInfo <- read.csv(inF,sep="\t")
 #  dplyr::arrange(desc(n))
 
 panelGPCovTbl <- svCompiled %>%
+  dplyr::filter(SourceStudy=="AACR-GENIE-data") %>%
   dplyr::filter(ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1") %>%
   dplyr::group_by(ONCOTREE_CODE,Hugo_Symbol,Start_Position,SEQ_ASSAY_ID) %>%
   dplyr::summarise(n=dplyr::n_distinct(PATIENT_ID)) %>%
