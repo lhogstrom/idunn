@@ -1,5 +1,34 @@
+library(dplyr)
+library(tidyr)
+library(DBI)
+library(RSQLite)
 
-library(tidylog)
+args <- commandArgs(trailingOnly = TRUE)
+
+# Check if the correct number of arguments are provided
+if (length(args) != 2) {
+  stop("Two arguments must be supplied", call. = FALSE)
+}
+
+# Assign Arguments to Variables
+baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
+dbName <- args[2]
+
+### connect to result DB and get variants
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/genomic_panel_coverage")
+if (!dir.exists(geneOutDir)) {
+  dir.create(geneOutDir, recursive = TRUE)
+}
+
+harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
+
+perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientOncoKBLevelSorted')
+genomicPositionLookup <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM genomicPositionLookup')
+
+
+
+
+
 #load positoin lookup table
 #genomicPositionLookup
 
@@ -39,9 +68,9 @@ df1 <- perPatientOncoKBLevelSorted %>%
       "Black" = "African"
     )
   )
-df2 <- df1 %>% filter(isOncoKbLevel1 == T)                
-df3 <- df2 %>% filter(ONCOKB_HAS_SENSITIVE_ENTRY == T)                
-df4 <- df3 %>% filter(SourceStudy == "AACR-GENIE-data")                # PANCAN/Hartwig removed (GENIE only)
+df2 <- df1 %>% filter(SourceStudy == "AACR-GENIE-data")                # PANCAN/Hartwig removed (GENIE only)
+df3 <- df2 %>% filter(isOncoKbLevel1 == T)                
+df4 <- df3 %>% filter(ONCOKB_HAS_SENSITIVE_ENTRY == T)                
 df5 <- df4 %>% filter(t_alt_plus_ref_count >= 20)                      # coverage >= 20
 df6 <- df5 %>% mutate(positionCtypeID = paste0(ONCOTREE_CODE, "-", Hugo_Symbol, "-", Start_Position))
 df7 <- df6 %>% filter(positionCtypeID %in% genomicPositionSubset$positionCtypeID)  # panel coverage >= 90% positions
@@ -60,9 +89,9 @@ df8 <- df7 %>%
 audit_table_actionable <- tibble(
   step = c(
     "Start",
+    "Filter: GENIE only",
     "Filter: Level 1 actionable events",
     "Filter: Drug sensitivity events",
-    "Filter: GENIE only",
     "Filter: coverage ≥ 20",
     "Mutate: add positionCtypeID",
     "Filter: panel coverage ≥ 90% positions",
@@ -87,8 +116,8 @@ dfNotLvl1a <- perPatientOncoKBLevelSorted %>%
       "Black" = "African"
     )
   )
-dfNotLvl1b <- dfNotLvl1a %>% filter(isOncoKbLevel1 == F)               
-dfNotLvl1c <- dfNotLvl1b %>% filter(SourceStudy == "AACR-GENIE-data")                # PANCAN/Hartwig removed (GENIE only)
+dfNotLvl1b <- dfNotLvl1a %>% filter(SourceStudy == "AACR-GENIE-data")                # PANCAN/Hartwig removed (GENIE only)
+dfNotLvl1c <- dfNotLvl1b %>% filter(isOncoKbLevel1 == F)               
 dfNotLvl1d <- dfNotLvl1c %>% filter(t_alt_plus_ref_count >= 20)                      # coverage >= 20
 dfNotLvl1e <- dfNotLvl1d %>%
   dplyr::filter(ONCOTREE_CODE %in% cTypeSelected$ONCOTREE_CODE)
@@ -96,8 +125,8 @@ dfNotLvl1e <- dfNotLvl1d %>%
 audit_table_not_actionable <- tibble(
   step = c(
     "Start",
-    "Filter: No Level 1 actionable events",
     "Filter: GENIE only",
+    "Filter: No Level 1 actionable events",
     "Filter: coverage ≥ 20",
     "Filter: cancer type selection"
   ),
@@ -116,7 +145,8 @@ dataForModeling <- rbind(df8,dfNotLvl1e)
 outF <- paste0(outDir,"/data_product_level1_actionable_events_after_filtering_results.txt")
 write.table(dataForModeling,outF,row.names=F,quote=F,sep="\t")
 
+RSQLite::dbWriteTable(harmonizedDb, "dataForModeling", perPatientOncoKBFilteredForModeling, overwrite =T)
 
+### Disconnect from SQL db ###
+RSQLite::dbDisconnect(harmonizedDb)
 
-#Feedback on fitlering order: move AACR genie filtering step to the first step.
-#Remove >20 reads from non-actionable
