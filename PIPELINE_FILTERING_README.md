@@ -1,8 +1,8 @@
 # BALDER Pipeline Documentation
 
-This document describes the key stages of the BALDER Nextflow pipeline for analyzing AACR GENIE cancer mutation data.
+This document describes the key data filtering and aggregation stages of the BALDER Nextflow pipeline for analyzing AACR GENIE cancer mutation data.
 
-## Pipeline Stages
+## Pipeline Aggregation and Filtering Stages
 
 ### 1. Load OncoKB Results (`load_oncokb_run.r`)
 
