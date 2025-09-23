@@ -127,31 +127,5 @@ aa.genome.representative.oncokb <- rbind(aa.genome.representative,
                                          oncokbOnly)
 RSQLite::dbWriteTable(harmonizedDb, "representativeClinicalAnnotatedPatientVariantsWithOncoKB", aa.genome.representative.oncokb, overwrite=T)
 
-#############################################################
-###  per-patient data product of level1 and level2 status ###
-#############################################################
-
-# load genie info
-assayInfo <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM assayInfoGENIE')
-
-# create representative variant per row per subject - choose level 1 variant if available
-perPatientOncoKBLevelSorted <- svCompiled %>%
-  dplyr::rename(SequenceCenter = Center) %>%
-  #dplyr::filter(t_alt_plus_ref_count > 20) %>%
-  dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID")) %>%
-  dplyr::mutate(isOncoKbLevel1=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
-                isOncoKbLevel2=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
-                isOncoKbLevel3=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_3" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
-                isOncoKbLevelAny=ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_" & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY),
-                isOncoKbLevel2or1=(ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_1" | ONCOKB_HIGHEST_LEVEL_SUMMARY=="LEVEL_2") & !is.na(ONCOKB_HIGHEST_LEVEL_SUMMARY)) %>%
-  dplyr::mutate(isHemeCancer=grepl("LYMPH",ot_code_level_1) | grepl("MYELOID",ot_code_level_1)) %>%
-  dplyr::group_by(Tumor_Sample_Barcode) %>%
-  dplyr::arrange(desc(isOncoKbLevel1),desc(isOncoKbLevel2or1),desc(isOncoKbLevelAny)) %>%
-  dplyr::filter(dplyr::row_number()==1) %>%
-  dplyr::ungroup()
-outF <- paste0(outDir,"/patient_level2_OncoKB_status_for_modeling_head.txt")
-write.table(head(perPatientOncoKBLevelSorted,1000),outF,row.names=F,quote=F,sep="\t")
-RSQLite::dbWriteTable(harmonizedDb, "perPatientOncoKBLevelSorted", perPatientOncoKBLevelSorted, overwrite =T)
-
 ### Disconnect from SQL db ###
 RSQLite::dbDisconnect(harmonizedDb)

@@ -17,14 +17,17 @@ params.scripts3 = file('../code/setup_and_structure_oncokb_run.r')
 params.scripts4 = file('../code/run_oncokb_annotator.sh')
 params.scripts5 = file('../code/load_oncokb_run.r')
 params.scripts6 = file('../code/clinical_annotation_variant_matching.r')
+params.scripts7 = file('../code/targeted_panel_coordinate_lookup.r')
+params.scripts8 = file('../code/generate_perPatientOncoKBLevelSorted.r')
+
 // scripts for reporting and analysis
-params.scripts7 = file('../code/incidence_of_clinically_annotated_mutations_reporting.r')
-params.scripts7a = file('../code/targeted_panel_coordinate_lookup.r')
-params.scripts8 = file('../code/MAF_and_prognostic_marker_analysis.r')
-params.scripts9 = file('../code/summary_oncokb_by_cancer_type.r')
-params.scripts10 = file('../code/model_oncokb_level1_hits.r')
-params.scripts11 = file('../code/clinical_technical_feature_description.R')
-params.scripts12 = file('../code/oncoKB_level1_ML_modeling_by_cType.py')
+params.scripts9 = file('../code/incidence_of_clinically_annotated_mutations_reporting.r')
+params.scripts10 = file('../code/MAF_and_prognostic_marker_analysis.r')
+params.scripts11 = file('../code/summary_oncokb_by_cancer_type.r')
+params.scripts12 = file('../code/clinical_technical_feature_description.R')
+
+params.scripts13 = file('../code/filter_and_structure_genie_data_for_modeling.r')
+params.scripts14 = file('../code/oncoKB_level1_ML_modeling_by_cType.py')
 
 log.info """\
     B A L D E R - N F   P I P E L I N E
@@ -133,7 +136,7 @@ process clinical_annotation_matching {
     """
 }
 
-process annotation_matching_reporting {
+process targeted_panel_coordinate_lookup {
     publishDir params.results_dir, mode:'copy'
     
     input:
@@ -149,7 +152,7 @@ process annotation_matching_reporting {
     """
 }
 
-process MAF_analysis {
+process generate_perPatientOncoKBLevelSorted {
     publishDir params.results_dir, mode:'copy'
     
     input:
@@ -165,7 +168,7 @@ process MAF_analysis {
     """
 }
 
-process analysis_oncokb_modeling {
+process incidence_of_clinically_annotated_mutations_reporting {
     publishDir params.results_dir, mode:'copy'
     
     input:
@@ -181,7 +184,7 @@ process analysis_oncokb_modeling {
     """
 }
 
-process model_level1_oncokb_hits {
+process MAF_and_prognostic_marker_analysis {
     publishDir params.results_dir, mode:'copy'
     
     input:
@@ -197,8 +200,7 @@ process model_level1_oncokb_hits {
     """
 }
 
-
-process clinical_technical_feature_description {
+process summary_oncokb_by_cancer_type {
     publishDir params.results_dir, mode:'copy'
     
     input:
@@ -214,7 +216,7 @@ process clinical_technical_feature_description {
     """
 }
 
-process demographic_technical_factor_ml_modeling {
+process clinical_technical_feature_description {
     publishDir params.results_dir, mode:'copy'
     
     input:
@@ -226,7 +228,40 @@ process demographic_technical_factor_ml_modeling {
 
     script:
     """
-    python $params.scripts12
+    Rscript $params.scripts12 $base_dir $params.dbName
+    """
+}
+
+
+process filter_and_structure_genie_data_for_modeling {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    Rscript $params.scripts13 $base_dir $params.dbName
+    """
+}
+
+process oncoKB_level1_ML_modeling_by_cType {
+    publishDir params.results_dir, mode:'copy'
+    
+    input:
+    path base_dir
+    path "$params.dbName"
+
+    output:
+    path "$params.dbName"
+
+    script:
+    """
+    python $params.scripts14
     """
 }
 
@@ -241,17 +276,16 @@ workflow {
     
     // start with cashed db
     sqldb4 = clinical_annotation_matching(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"))
+    sqldb5 = targeted_panel_coordinate_lookup(file("${params.base_dir}"),sqldb4)
+    sqldb6 = generate_perPatientOncoKBLevelSorted(file("${params.base_dir}"),sqldb5)
 
-    sqldb5 = annotation_matching_reporting(file("${params.base_dir}"),sqldb4)
-    sqldb6 = MAF_analysis(file("${params.base_dir}"),sqldb5)
-    sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),sqldb6)
-    sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),sqldb7)
-    //sqldb9 = clinical_technical_feature_description(file("${params.base_dir}"),sqldb8)
-    sqldb9 = demographic_technical_factor_ml_modeling(file("${params.base_dir}"),sqldb8)
+    //sqldbNull = incidence_of_clinically_annotated_mutations_reporting(file("${params.base_dir}"),sqldb6)
+    //sqldbNull = MAF_and_prognostic_marker_analysis(file("${params.base_dir}"),sqldb6)
+    //sqldbNull = summary_oncokb_by_cancer_type(file("${params.base_dir}"),sqldb6) // has some sql output
+    //sqldbNull = clinical_technical_feature_description(file("${params.base_dir}"),sqldb6)
+
+    sqldb7 = filter_and_structure_genie_data_for_modeling(file("${params.base_dir}"),sqldb6)
+    //sqldb8 = oncoKB_level1_ML_modeling_by_cType(file("${params.base_dir}"),sqldb7)
     
-    // run last script alone
-    //sqldb7 = analysis_oncokb_modeling(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
-    //sqldb8 = model_level1_oncokb_hits(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
-   // sqldb9 = clinical_technical_feature_description(file("${params.base_dir}"),file("/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20240924/balder-harmonized-biomarker-data-v20240924.sqlite"))
 }
 

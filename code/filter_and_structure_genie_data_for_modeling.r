@@ -15,47 +15,13 @@ baseDir <- args[1] # should be the relative path to "balder/code" where this fil
 dbName <- args[2]
 
 ### connect to result DB and get variants
-outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/genomic_panel_coverage")
-if (!dir.exists(geneOutDir)) {
-  dir.create(geneOutDir, recursive = TRUE)
-}
-
+outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
 perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientOncoKBLevelSorted')
 genomicPositionLookup <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM genomicPositionLookup')
 
-
-
-
-
-#load positoin lookup table
-#genomicPositionLookup
-
-#Steps: 
-#- filter variants with coverage <20
-#- filter variants where panel coverage is less than 90%
-#- filter PANCAN and Hartwig Data - GENIE only
-#- rename race fields
-#- Therapy selection events only (Level 1) only
-
-#- add criteria of >250 actionable patients per cancer type
-
-# # Identify those genomic positions with genomic panel coverage in most of the samples tested
-# genomicPositionSubset <- genomicPositionLookup %>%
-#   dplyr::filter(perc_of_patients_with_coverage > 90.0)
-# 
-# dataForModeling <- perPatientOncoKBLevelSorted %>%
-#   dplyr::filter(SourceStudy=="AACR-GENIE-data") %>%
-#   dplyr::filter(t_alt_plus_ref_count >= 20) %>%
-#   dplyr::mutate(positionCtypeID=paste0(ONCOTREE_CODE,"-",Hugo_Symbol,"-",Start_Position)) %>%
-#   dplyr::filter(positionCtypeID %in% genomicPositionSubset$positionCtypeID)
-# 
-
-
-#### Alterinative approach retain filtered data for counting: 
-
-# 1) Precompute the genomic position subset (and the key you'll join on)
+# 1) Precompute the genomic position subset 
 genomicPositionSubset <- genomicPositionLookup %>%
   filter(perc_of_patients_with_coverage > 90) #%>%
 
@@ -145,7 +111,7 @@ dataForModeling <- rbind(df8,dfNotLvl1e)
 outF <- paste0(outDir,"/data_product_level1_actionable_events_after_filtering_results.txt")
 write.table(dataForModeling,outF,row.names=F,quote=F,sep="\t")
 
-RSQLite::dbWriteTable(harmonizedDb, "dataForModeling", perPatientOncoKBFilteredForModeling, overwrite =T)
+RSQLite::dbWriteTable(harmonizedDb, "perPatientOncoKBFilteredForModeling", dataForModeling, overwrite =T)
 
 ### Disconnect from SQL db ###
 RSQLite::dbDisconnect(harmonizedDb)

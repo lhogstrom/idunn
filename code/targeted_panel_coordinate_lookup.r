@@ -31,11 +31,6 @@ if (!dir.exists(geneOutDir)) {
 
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
-#seqOtCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM seqOtCTypeSummary')
-otCTypeSummary <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM otCTypeSummary')
-perPatientOncoKBLevelSorted <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM perPatientOncoKBLevelSorted')
-assayInfo <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM assayInfoGENIE') 
-
 svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVariantTableWithSampleInfoOncokb') %>%
   dplyr::mutate(isHemeCancer=grepl("LYMPH",ot_code_level_1) | grepl("MYELOID",ot_code_level_1))
 svCompiled$SEQ_ASSAY_ID_mod <- svCompiled$SEQ_ASSAY_ID
@@ -75,14 +70,14 @@ panelGPCovTbl <- svCompiled %>%
   dplyr::mutate(positionCtypeID=paste0(ONCOTREE_CODE,"-",Hugo_Symbol,"-",Start_Position)) %>%
   dplyr::arrange(desc(n))
 
-perPatientPanelCount <- perPatientOncoKBLevelSorted %>%
+perPatientPanelCount <- svCompiled %>%
   dplyr::group_by(ONCOTREE_CODE,SEQ_ASSAY_ID) %>%
-  dplyr::summarise(n=n()) %>%
+  dplyr::summarise(n=dplyr::n_distinct(PATIENT_ID)) %>%
   dplyr::arrange(desc(n))
 
-cTypeCnts <- perPatientOncoKBLevelSorted %>%
+cTypeCnts <- svCompiled %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
-  dplyr::summarise(nCtype=n()) %>%
+  dplyr::summarise(nCtype=dplyr::n_distinct(PATIENT_ID)) %>%
   dplyr::arrange(desc(nCtype))
 
 genomicPositionLookup <- data.frame()
