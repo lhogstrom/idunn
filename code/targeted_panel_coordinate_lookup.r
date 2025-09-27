@@ -48,14 +48,16 @@ genomicInfo <- read.csv(inF,sep="\t")
 ##############################################
 
 medianCoveragePerSample <- svCompiled %>%
-  dplyr::group_by() %>%
-  dplyr::summarise(medianCoverage=median(t_alt_plus_ref_count))
+  dplyr::group_by(SourceStudy,Tumor_Sample_Barcode) %>%
+  dplyr::summarise(medianCoverage=median(t_alt_plus_ref_count,na.rm = TRUE))
 
 ### write table
 outF <- paste0(outDir,"/median_coverage_per_sample.txt")
 write.table(medianCoveragePerSample,outF,row.names=F,quote=F,sep="\t")
 RSQLite::dbWriteTable(harmonizedDb, "medianCoveragePerSample", medianCoveragePerSample, overwrite =T)
 
+# what is the coverage by distribution for AACR GENIE
+print(summary(medianCoveragePerSample[medianCoveragePerSample$SourceStudy=="AACR-GENIE-data","medianCoverage"]))
 
 ##############################################
 ### panel proportions by genomic position ####
