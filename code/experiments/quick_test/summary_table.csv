@@ -1,0 +1,4 @@
+Cancer_Type,Algorithm,Feature_Set,Mean_CV_AUC,Std_CV_AUC,Mean_Test_AUC,Std_Test_AUC,N_Features,N_Patients,Actionable_Rate,Successful_Runs,Failed_Runs
+LUAD,random_forest,demographic,0.572,0.001,0.603,0.007,6,21496,0.425,2,0
+LUAD,random_forest,technical,0.487,0.000,0.561,0.001,19,21496,0.425,2,0
+LUAD,random_forest,both,0.514,0.000,0.612,0.003,25,21496,0.425,2,0
