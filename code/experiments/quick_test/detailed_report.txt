@@ -1,0 +1,29 @@
+Feature Set Comparison Experiment Report
+==================================================
+
+Experiment Configuration:
+-------------------------
+Experiment Name: quick_test
+Database: /Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite
+Cancer Types: LUAD
+Algorithms: random_forest
+Feature Sets: demographic, technical, both
+Random Seeds: 2
+CV Folds: 3
+
+Results Summary:
+---------------
+
+LUAD:
+  random_forest:
+    demographic: AUC 0.572 ± 0.001 (6 features)
+    technical: AUC 0.487 ± 0.000 (19 features)
+    both: AUC 0.514 ± 0.000 (25 features)
+
+Statistical Comparisons:
+-----------------------
+
+LUAD - random_forest:
+  demographic_vs_technical: p=0.009 *** (effect size: 0.086)
+  demographic_vs_both: p=0.007 *** (effect size: 0.058)
+  technical_vs_both: p=0.013 *** (effect size: -0.028)
