@@ -1,2 +1,3 @@
-Cancer_Type,Algorithm,both,demographic,technical
-LUAD,random_forest,0.514,0.572,0.487
+Cancer_Type,Algorithm,CV_Strategy,both,demographic,technical
+LUAD,random_forest,group,0.586,0.585,0.492
+LUAD,random_forest,standard,0.517,0.572,0.482

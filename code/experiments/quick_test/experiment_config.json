@@ -12,6 +12,11 @@
     "both"
   ],
   "cv_folds": 3,
+  "cv_strategies": [
+    "standard",
+    "group"
+  ],
+  "group_column": "SUBJECT_CENTER",
   "n_random_seeds": 2,
   "random_seeds": [
     42,

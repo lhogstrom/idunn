@@ -16,14 +16,24 @@ Results Summary:
 
 LUAD:
   random_forest:
-    demographic: AUC 0.572 ± 0.001 (6 features)
-    technical: AUC 0.487 ± 0.000 (19 features)
-    both: AUC 0.514 ± 0.000 (25 features)
+    standard CV:
+      demographic: AUC 0.572 ± 0.001 (6 features)
+      technical: AUC 0.482 ± 0.001 (18 features)
+      both: AUC 0.517 ± 0.000 (24 features)
+    group CV:
+      demographic: AUC 0.585 ± 0.001 (6 features)
+      technical: AUC 0.492 ± 0.004 (18 features)
+      both: AUC 0.586 ± 0.001 (24 features)
 
 Statistical Comparisons:
 -----------------------
 
-LUAD - random_forest:
-  demographic_vs_technical: p=0.009 *** (effect size: 0.086)
-  demographic_vs_both: p=0.007 *** (effect size: 0.058)
-  technical_vs_both: p=0.013 *** (effect size: -0.028)
+LUAD - random_forest - standard CV:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.090)
+  demographic_vs_both: p=0.011 *** (effect size: 0.055)
+  technical_vs_both: p=0.016 *** (effect size: -0.035)
+
+LUAD - random_forest - group CV:
+  demographic_vs_technical: p=0.020 *** (effect size: 0.093)
+  demographic_vs_both: p=0.069 n.s. (effect size: -0.001)
+  technical_vs_both: p=0.019 *** (effect size: -0.094)

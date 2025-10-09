@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""
+Feature Set Comparison Experiment
+
+Systematic comparison of demographic vs. technical features across cancer types and algorithms.
+Provides comprehensive statistical analysis and reporting.
+
+Usage: python run_feature_set_experiment.py [options]
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+# Add the code directory to Python path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from oncokb_analyzer.experiments import ExperimentConfig, FeatureSetExperiment
+
+
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Run feature set comparison experiment",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    # Database and data options
+    parser.add_argument(
+        "--db-path",
+        type=str,
+        default="/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite",
+        help="Path to SQLite database file"
+    )
+
+    parser.add_argument(
+        "--cancer-types",
+        type=str,
+        nargs="+",
+        default=["LUAD", "BRCA"],
+        help="Cancer types to analyze (OncoTree codes)"
+    )
+
+    # Algorithm options
+    parser.add_argument(
+        "--algorithms",
+        type=str,
+        nargs="+",
+        default=["random_forest", "logistic"],
+        choices=["random_forest", "logistic"],
+        help="Machine learning algorithms to compare"
+    )
+
+    parser.add_argument(
+        "--feature-sets",
+        type=str,
+        nargs="+",
+        default=["demographic", "technical", "both"],
+        choices=["demographic", "technical", "both"],
+        help="Feature sets to compare"
+    )
+
+    # Experimental design options
+    parser.add_argument(
+        "--cv-folds",
+        type=int,
+        default=5,
+        help="Number of cross-validation folds"
+    )
+
+    parser.add_argument(
+        "--cv-strategies",
+        type=str,
+        nargs="+",
+        default=["standard", "group"],
+        choices=["standard", "group"],
+        help="Cross-validation strategies to compare"
+    )
+
+    parser.add_argument(
+        "--group-column",
+        type=str,
+        default="SUBJECT_CENTER",
+        help="Column name for GroupKFold grouping (e.g., SUBJECT_CENTER, SEQ_ASSAY_ID)"
+    )
+
+    parser.add_argument(
+        "--n-random-seeds",
+        type=int,
+        default=5,
+        help="Number of random seeds for robustness testing"
+    )
+
+    parser.add_argument(
+        "--random-seeds",
+        type=int,
+        nargs="+",
+        default=[42, 123, 456, 789, 999],
+        help="Specific random seeds to use"
+    )
+
+    # Output options
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="experiments/",
+        help="Output directory for experiment results"
+    )
+
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default="",
+        help="Custom experiment name (auto-generated if not provided)"
+    )
+
+    # Statistical options
+    parser.add_argument(
+        "--no-statistical-tests",
+        action="store_true",
+        help="Skip statistical testing between feature sets"
+    )
+
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.05,
+        help="Significance level for statistical tests"
+    )
+
+    # Quick test options
+    parser.add_argument(
+        "--quick-test",
+        action="store_true",
+        help="Run quick test with minimal settings (1 cancer type, 1 algorithm, 2 seeds)"
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show experiment configuration without running"
+    )
+
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompt and run immediately"
+    )
+
+    return parser.parse_args()
+
+
+def create_experiment_config(args) -> ExperimentConfig:
+    """Create experiment configuration from command line arguments"""
+
+    # Handle quick test mode
+    if args.quick_test:
+        config = ExperimentConfig(
+            db_path=args.db_path,
+            cancer_types=[args.cancer_types[0]],  # Just first cancer type
+            algorithms=[args.algorithms[0]],      # Just first algorithm
+            feature_sets=args.feature_sets,       # Keep all feature sets for comparison
+            cv_folds=3,                          # Fewer folds for speed
+            cv_strategies=args.cv_strategies,    # Keep all CV strategies for comparison
+            group_column=args.group_column,
+            n_random_seeds=2,                    # Fewer seeds for speed
+            random_seeds=[42, 123],              # Just 2 seeds
+            output_dir=args.output_dir,
+            experiment_name=args.experiment_name or "quick_test",
+            statistical_tests=not args.no_statistical_tests,
+            alpha=args.alpha
+        )
+    else:
+        config = ExperimentConfig(
+            db_path=args.db_path,
+            cancer_types=args.cancer_types,
+            algorithms=args.algorithms,
+            feature_sets=args.feature_sets,
+            cv_folds=args.cv_folds,
+            cv_strategies=args.cv_strategies,
+            group_column=args.group_column,
+            n_random_seeds=args.n_random_seeds,
+            random_seeds=args.random_seeds,
+            output_dir=args.output_dir,
+            experiment_name=args.experiment_name,
+            statistical_tests=not args.no_statistical_tests,
+            alpha=args.alpha
+        )
+
+    return config
+
+
+def print_experiment_summary(config: ExperimentConfig):
+    """Print summary of experiment configuration"""
+    print("Feature Set Comparison Experiment")
+    print("=" * 50)
+    print(f"Experiment Name: {config.experiment_name}")
+    print(f"Database: {config.db_path}")
+    print(f"Cancer Types: {', '.join(config.cancer_types)}")
+    print(f"Algorithms: {', '.join(config.algorithms)}")
+    print(f"Feature Sets: {', '.join(config.feature_sets)}")
+    print(f"CV Strategies: {', '.join(config.cv_strategies)}")
+    print(f"Group Column: {config.group_column}")
+    print(f"CV Folds: {config.cv_folds}")
+    print(f"Random Seeds: {config.n_random_seeds} seeds")
+    print(f"Statistical Tests: {'Yes' if config.statistical_tests else 'No'}")
+    print(f"Output Directory: {config.output_dir}")
+
+    # Calculate total experiments
+    total_experiments = (
+        len(config.cancer_types) *
+        len(config.algorithms) *
+        len(config.cv_strategies) *
+        len(config.feature_sets) *
+        config.n_random_seeds
+    )
+    print(f"Total Experiments: {total_experiments}")
+
+    # Estimate time (rough estimate: 5-10 seconds per experiment)
+    estimated_minutes = (total_experiments * 7) / 60  # 7 seconds average
+    print(f"Estimated Time: ~{estimated_minutes:.1f} minutes")
+    print()
+
+
+def main():
+    """Main experiment runner"""
+
+    # Parse arguments
+    args = parse_arguments()
+
+    # Create experiment configuration
+    try:
+        config = create_experiment_config(args)
+        config.validate()
+    except Exception as e:
+        print(f"ERROR: Invalid configuration: {e}")
+        return 1
+
+    # Print experiment summary
+    print_experiment_summary(config)
+
+    # Handle dry run
+    if args.dry_run:
+        print("Dry run mode - configuration validated successfully!")
+        print("Use --no-dry-run or remove --dry-run to execute the experiment.")
+        return 0
+
+    # Confirm execution for large experiments
+    if not args.quick_test:
+        total_experiments = (
+            len(config.cancer_types) *
+            len(config.algorithms) *
+            len(config.cv_strategies) *
+            len(config.feature_sets) *
+            config.n_random_seeds
+        )
+
+        if total_experiments > 20:
+            if not args.yes:
+                response = input(f"This will run {total_experiments} experiments. Continue? [y/N]: ")
+                if response.lower() not in ['y', 'yes']:
+                    print("Experiment cancelled.")
+                    return 0
+            else:
+                print(f"Running {total_experiments} experiments (confirmation skipped with --yes flag)...")
+
+    # Run experiment
+    try:
+        print("Starting experiment...")
+        experiment = FeatureSetExperiment(config)
+        results = experiment.run_full_experiment()
+
+        print("\nExperiment completed successfully!")
+        print(f"Results saved to: {config.output_dir}/{config.experiment_name}/")
+
+        # Print quick summary
+        print("\nQuick Summary:")
+        print("-" * 15)
+        for cancer_type in results:
+            print(f"{cancer_type}:")
+            for algorithm in results[cancer_type]:
+                print(f"  {algorithm}:")
+                for cv_strategy in results[cancer_type][algorithm]:
+                    print(f"    {cv_strategy} CV:")
+                    for feature_set in config.feature_sets:
+                        if (feature_set in results[cancer_type][algorithm][cv_strategy] and
+                            'summary' in results[cancer_type][algorithm][cv_strategy][feature_set]):
+                            summary = results[cancer_type][algorithm][cv_strategy][feature_set]['summary']
+                            print(f"      {feature_set}: AUC {summary['mean_cv_auc']:.3f} ± {summary['std_cv_auc']:.3f}")
+
+        return 0
+
+    except KeyboardInterrupt:
+        print("\nExperiment interrupted by user.")
+        return 1
+
+    except Exception as e:
+        print(f"ERROR: Experiment failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

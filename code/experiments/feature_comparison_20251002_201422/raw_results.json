@@ -1,0 +1,2322 @@
+{
+  "LUAD": {
+    "random_forest": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5844887075746338,
+            "cv_auc_std": 0.018375603344642475,
+            "cv_scores": [
+              0.579372493869754,
+              0.5906208650182537,
+              0.6092558494215676,
+              0.5900191615164833,
+              0.5531751680471103
+            ],
+            "test_auc": 0.6096908683356523,
+            "test_accuracy": 0.5669095983873469,
+            "test_precision": 0.49283977303431503,
+            "test_recall": 0.6656934306569343,
+            "test_f1": 0.5663716814159292,
+            "n_features": 6,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 42,
+            "duration": 5.829253
+          },
+          {
+            "cv_auc_mean": 0.5870983894676987,
+            "cv_auc_std": 0.016509959059799562,
+            "cv_scores": [
+              0.5813278204831115,
+              0.5930045408409989,
+              0.6099158965747515,
+              0.591600750518561,
+              0.5596429389210705
+            ],
+            "test_auc": 0.596182643126898,
+            "test_accuracy": 0.5517134439447976,
+            "test_precision": 0.4791263478020459,
+            "test_recall": 0.6324817518248175,
+            "test_f1": 0.5452257354097845,
+            "n_features": 6,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 123,
+            "duration": 4.329763
+          },
+          {
+            "cv_auc_mean": 0.5892402265617112,
+            "cv_auc_std": 0.012539561271231526,
+            "cv_scores": [
+              0.5815182736554239,
+              0.58997233160273,
+              0.6107837445509022,
+              0.5907954531364308,
+              0.5731313298630688
+            ],
+            "test_auc": 0.599478286196724,
+            "test_accuracy": 0.5624127771747558,
+            "test_precision": 0.488385269121813,
+            "test_recall": 0.6291970802919709,
+            "test_f1": 0.5499202551834131,
+            "n_features": 6,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 456,
+            "duration": 4.17325
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5869424412013479,
+          "std_cv_auc": 0.0019429313021776422,
+          "median_cv_auc": 0.5870983894676987,
+          "min_cv_auc": 0.5844887075746338,
+          "max_cv_auc": 0.5892402265617112,
+          "mean_test_auc": 0.6017839325530915,
+          "std_test_auc": 0.0057506545084352245,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 21496.0,
+          "mean_actionable_rate": 0.424916263490882,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.4425042815764983,
+            "cv_auc_std": 0.10403381175442661,
+            "cv_scores": [
+              0.33742580792094856,
+              0.2974721367548619,
+              0.49786486591809653,
+              0.5422008376686984,
+              0.5375577596198859
+            ],
+            "test_auc": 0.5595606858834202,
+            "test_accuracy": 0.5393084199100636,
+            "test_precision": 0.46959726243748356,
+            "test_recall": 0.6510948905109489,
+            "test_f1": 0.5456491818320844,
+            "n_features": 19,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 42,
+            "duration": 4.245974
+          },
+          {
+            "cv_auc_mean": 0.4421741372733588,
+            "cv_auc_std": 0.1043932719665217,
+            "cv_scores": [
+              0.3356863872571446,
+              0.2975084493120984,
+              0.49786486591809653,
+              0.542878819682469,
+              0.5369321641969856
+            ],
+            "test_auc": 0.5617294094262723,
+            "test_accuracy": 0.5386881687083269,
+            "test_precision": 0.4693451604487347,
+            "test_recall": 0.6565693430656935,
+            "test_f1": 0.5473908413205538,
+            "n_features": 19,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 123,
+            "duration": 3.654856
+          },
+          {
+            "cv_auc_mean": 0.44408436133391926,
+            "cv_auc_std": 0.10497314723210688,
+            "cv_scores": [
+              0.33863381886165883,
+              0.297611408696946,
+              0.49786486591809653,
+              0.5431414214683381,
+              0.5431702917245572
+            ],
+            "test_auc": 0.564276872393645,
+            "test_accuracy": 0.5365172895022484,
+            "test_precision": 0.4678044996121024,
+            "test_recall": 0.6602189781021898,
+            "test_f1": 0.5476010292114424,
+            "n_features": 19,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 456,
+            "duration": 3.551752
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.4429209267279255,
+          "std_cv_auc": 0.0008336401609974756,
+          "median_cv_auc": 0.4425042815764983,
+          "min_cv_auc": 0.4421741372733588,
+          "max_cv_auc": 0.44408436133391926,
+          "mean_test_auc": 0.5618556559011125,
+          "std_test_auc": 0.0019274434585937398,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 21496.0,
+          "mean_actionable_rate": 0.424916263490882,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.4867273182430691,
+            "cv_auc_std": 0.10739033216955704,
+            "cv_scores": [
+              0.3561355911496046,
+              0.35813038156526605,
+              0.5877934674595203,
+              0.5918300288906249,
+              0.5397471221503297
+            ],
+            "test_auc": 0.6153374215018509,
+            "test_accuracy": 0.5839665064351062,
+            "test_precision": 0.5096642929806714,
+            "test_recall": 0.5485401459854015,
+            "test_f1": 0.5283881174195817,
+            "n_features": 25,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 42,
+            "duration": 4.045575
+          },
+          {
+            "cv_auc_mean": 0.4887520786016329,
+            "cv_auc_std": 0.10899811452233059,
+            "cv_scores": [
+              0.3528283900720004,
+              0.35914624749576207,
+              0.5882749409699526,
+              0.5866905842424758,
+              0.5568202302279736
+            ],
+            "test_auc": 0.6095671802461167,
+            "test_accuracy": 0.5831911924329354,
+            "test_precision": 0.508825526137135,
+            "test_recall": 0.5470802919708029,
+            "test_f1": 0.5272599366865987,
+            "n_features": 25,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 123,
+            "duration": 4.023652
+          },
+          {
+            "cv_auc_mean": 0.482142331962314,
+            "cv_auc_std": 0.10596377379877231,
+            "cv_scores": [
+              0.3552034661813375,
+              0.3569487842378703,
+              0.5880075786963969,
+              0.5902774456507298,
+              0.5202743850452356
+            ],
+            "test_auc": 0.6097845445975758,
+            "test_accuracy": 0.5759032408125291,
+            "test_precision": 0.5008397715821297,
+            "test_recall": 0.5441605839416058,
+            "test_f1": 0.5216022389365051,
+            "n_features": 25,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 456,
+            "duration": 3.969845
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.4858739096023386,
+          "std_cv_auc": 0.002765069907501063,
+          "median_cv_auc": 0.4867273182430691,
+          "min_cv_auc": 0.482142331962314,
+          "max_cv_auc": 0.4887520786016329,
+          "mean_test_auc": 0.6115630487818478,
+          "std_test_auc": 0.002670359387479398,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 21496.0,
+          "mean_actionable_rate": 0.424916263490882,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": 141.09570111161275,
+          "p_value": 5.022728635740447e-05,
+          "significant": "True",
+          "effect_size": 0.14402151447342237,
+          "n_pairs": 3,
+          "fs1_mean": 0.5869424412013479,
+          "fs2_mean": 0.4429209267279255
+        },
+        "demographic_vs_both": {
+          "t_statistic": 33.4729793428785,
+          "p_value": 0.000891313163114661,
+          "significant": "True",
+          "effect_size": 0.10106853159900925,
+          "n_pairs": 3,
+          "fs1_mean": 0.5869424412013479,
+          "fs2_mean": 0.4858739096023386
+        },
+        "technical_vs_both": {
+          "t_statistic": -16.909551815918682,
+          "p_value": 0.003479082885137766,
+          "significant": "True",
+          "effect_size": -0.042952982874413126,
+          "n_pairs": 3,
+          "fs1_mean": 0.4429209267279255,
+          "fs2_mean": 0.4858739096023386
+        }
+      }
+    },
+    "logistic": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5955394219087947,
+            "cv_auc_std": 0.010673799983111234,
+            "cv_scores": [
+              0.5785820191400459,
+              0.6012359775960379,
+              0.6084081504863226,
+              0.6011677808422033,
+              0.5883031814793637
+            ],
+            "test_auc": 0.6148531978832313,
+            "test_accuracy": 0.5690804775934253,
+            "test_precision": 0.4946087918164225,
+            "test_recall": 0.6529197080291971,
+            "test_f1": 0.5628441088563788,
+            "n_features": 6,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 42,
+            "duration": 3.019963
+          },
+          {
+            "cv_auc_mean": 0.5955394219087947,
+            "cv_auc_std": 0.010673799983111234,
+            "cv_scores": [
+              0.5785820191400459,
+              0.6012359775960379,
+              0.6084081504863226,
+              0.6011677808422033,
+              0.5883031814793637
+            ],
+            "test_auc": 0.6029104584823265,
+            "test_accuracy": 0.5596216467669406,
+            "test_precision": 0.486353711790393,
+            "test_recall": 0.6503649635036496,
+            "test_f1": 0.5565271705184259,
+            "n_features": 6,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 123,
+            "duration": 3.055459
+          },
+          {
+            "cv_auc_mean": 0.5955394219087947,
+            "cv_auc_std": 0.010673799983111234,
+            "cv_scores": [
+              0.5785820191400459,
+              0.6012359775960379,
+              0.6084081504863226,
+              0.6011677808422033,
+              0.5883031814793637
+            ],
+            "test_auc": 0.6126447701684401,
+            "test_accuracy": 0.5720266708016747,
+            "test_precision": 0.4971767363071711,
+            "test_recall": 0.6427007299270073,
+            "test_f1": 0.5606494746895893,
+            "n_features": 6,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 456,
+            "duration": 3.074381
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5955394219087947,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.5955394219087947,
+          "min_cv_auc": 0.5955394219087947,
+          "max_cv_auc": 0.5955394219087947,
+          "mean_test_auc": 0.6101361421779993,
+          "std_test_auc": 0.005188266691635302,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 21496.0,
+          "mean_actionable_rate": 0.424916263490882,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.4410987722520958,
+            "cv_auc_std": 0.10429975339749147,
+            "cv_scores": [
+              0.3338953970533652,
+              0.2975626967299213,
+              0.49786486591809653,
+              0.5266442281633109,
+              0.5495266733957851
+            ],
+            "test_auc": 0.5590300177315783,
+            "test_accuracy": 0.537912854706156,
+            "test_precision": 0.46855345911949686,
+            "test_recall": 0.6525547445255474,
+            "test_f1": 0.5454545454545454,
+            "n_features": 19,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 42,
+            "duration": 4.096763
+          },
+          {
+            "cv_auc_mean": 0.4410987722520958,
+            "cv_auc_std": 0.10429975339749147,
+            "cv_scores": [
+              0.3338953970533652,
+              0.2975626967299213,
+              0.49786486591809653,
+              0.5266442281633109,
+              0.5495266733957851
+            ],
+            "test_auc": 0.559567967441595,
+            "test_accuracy": 0.535276787098775,
+            "test_precision": 0.46683870967741936,
+            "test_recall": 0.6602189781021898,
+            "test_f1": 0.5469387755102042,
+            "n_features": 19,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 123,
+            "duration": 4.076399
+          },
+          {
+            "cv_auc_mean": 0.4410987722520958,
+            "cv_auc_std": 0.10429975339749147,
+            "cv_scores": [
+              0.3338953970533652,
+              0.2975626967299213,
+              0.49786486591809653,
+              0.5266442281633109,
+              0.5495266733957851
+            ],
+            "test_auc": 0.5631546268398234,
+            "test_accuracy": 0.5346565358970383,
+            "test_precision": 0.4667515923566879,
+            "test_recall": 0.6686131386861314,
+            "test_f1": 0.5497374343585897,
+            "n_features": 19,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 456,
+            "duration": 3.73698
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.4410987722520958,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.4410987722520958,
+          "min_cv_auc": 0.4410987722520958,
+          "max_cv_auc": 0.4410987722520958,
+          "mean_test_auc": 0.5605842040043322,
+          "std_test_auc": 0.001830783554936267,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 21496.0,
+          "mean_actionable_rate": 0.424916263490882,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5097185969440281,
+            "cv_auc_std": 0.10711536481890473,
+            "cv_scores": [
+              0.3769761038260836,
+              0.380901454805037,
+              0.6065905298622072,
+              0.6022822885059242,
+              0.5818426077208884
+            ],
+            "test_auc": 0.622082407558651,
+            "test_accuracy": 0.5808652504264227,
+            "test_precision": 0.505510872803098,
+            "test_recall": 0.6193430656934307,
+            "test_f1": 0.5566672133836312,
+            "n_features": 25,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 42,
+            "duration": 4.728403
+          },
+          {
+            "cv_auc_mean": 0.5097185969440281,
+            "cv_auc_std": 0.10711536481890473,
+            "cv_scores": [
+              0.3769761038260836,
+              0.380901454805037,
+              0.6065905298622072,
+              0.6022822885059242,
+              0.5818426077208884
+            ],
+            "test_auc": 0.6117820531238869,
+            "test_accuracy": 0.5717165452008063,
+            "test_precision": 0.4966360856269113,
+            "test_recall": 0.5927007299270073,
+            "test_f1": 0.540432612312812,
+            "n_features": 25,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 123,
+            "duration": 4.859267
+          },
+          {
+            "cv_auc_mean": 0.5097185969440281,
+            "cv_auc_std": 0.10711536481890473,
+            "cv_scores": [
+              0.3769761038260836,
+              0.380901454805037,
+              0.6065905298622072,
+              0.6022822885059242,
+              0.5818426077208884
+            ],
+            "test_auc": 0.622426953179581,
+            "test_accuracy": 0.5799348736238177,
+            "test_precision": 0.5048032228075612,
+            "test_recall": 0.5945255474452554,
+            "test_f1": 0.5460030165912518,
+            "n_features": 25,
+            "n_patients": 21496,
+            "n_actionable": 9134,
+            "actionable_rate": 0.424916263490882,
+            "random_seed": 456,
+            "duration": 4.760842
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5097185969440281,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.5097185969440281,
+          "min_cv_auc": 0.5097185969440281,
+          "max_cv_auc": 0.5097185969440281,
+          "mean_test_auc": 0.6187638046207063,
+          "std_test_auc": 0.004938847260493772,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 21496.0,
+          "mean_actionable_rate": 0.424916263490882,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.1544406496566989,
+          "n_pairs": 3,
+          "fs1_mean": 0.5955394219087947,
+          "fs2_mean": 0.4410987722520958
+        },
+        "demographic_vs_both": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.08582082496476662,
+          "n_pairs": 3,
+          "fs1_mean": 0.5955394219087947,
+          "fs2_mean": 0.5097185969440281
+        },
+        "technical_vs_both": {
+          "t_statistic": -Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": -0.06861982469193229,
+          "n_pairs": 3,
+          "fs1_mean": 0.4410987722520958,
+          "fs2_mean": 0.5097185969440281
+        }
+      }
+    }
+  },
+  "BRCA": {
+    "random_forest": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5726317350059048,
+            "cv_auc_std": 0.04535897057580017,
+            "cv_scores": [
+              0.5697400670794633,
+              0.6171600877192983,
+              0.5993663519979309,
+              0.589651493598862,
+              0.4872406746339697
+            ],
+            "test_auc": 0.6006206283683064,
+            "test_accuracy": 0.5702199661590525,
+            "test_precision": 0.5442857142857143,
+            "test_recall": 0.6684210526315789,
+            "test_f1": 0.6,
+            "n_features": 6,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 42,
+            "duration": 2.984963
+          },
+          {
+            "cv_auc_mean": 0.5719117596421963,
+            "cv_auc_std": 0.04722264042245652,
+            "cv_scores": [
+              0.570749484004128,
+              0.6177857327141383,
+              0.5980246993404889,
+              0.5906019656019657,
+              0.48239691655026123
+            ],
+            "test_auc": 0.6150699461070979,
+            "test_accuracy": 0.5939086294416244,
+            "test_precision": 0.565406976744186,
+            "test_recall": 0.6824561403508772,
+            "test_f1": 0.6184419713831479,
+            "n_features": 6,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 123,
+            "duration": 3.036078
+          },
+          {
+            "cv_auc_mean": 0.5690445588860331,
+            "cv_auc_std": 0.047538695493669764,
+            "cv_scores": [
+              0.5741389318885448,
+              0.6133159184726522,
+              0.5999159446527869,
+              0.5796295098926678,
+              0.47822248952351387
+            ],
+            "test_auc": 0.5699590069946108,
+            "test_accuracy": 0.5516074450084603,
+            "test_precision": 0.5306748466257669,
+            "test_recall": 0.6070175438596491,
+            "test_f1": 0.5662847790507366,
+            "n_features": 6,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 456,
+            "duration": 2.938954
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5711960178447114,
+          "std_cv_auc": 0.001549445679212327,
+          "median_cv_auc": 0.5719117596421963,
+          "min_cv_auc": 0.5690445588860331,
+          "max_cv_auc": 0.5726317350059048,
+          "mean_test_auc": 0.5952165271566717,
+          "std_test_auc": 0.018808729167274496,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 3937.0,
+          "mean_actionable_rate": 0.4823469646939294,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.43206632457106753,
+            "cv_auc_std": 0.03629739074289474,
+            "cv_scores": [
+              0.43860939112487096,
+              0.37328108875129,
+              0.4852094917884391,
+              0.4201183240656925,
+              0.44311332712504525
+            ],
+            "test_auc": 0.5209408324733402,
+            "test_accuracy": 0.5160744500846024,
+            "test_precision": 0.49780701754385964,
+            "test_recall": 0.39824561403508774,
+            "test_f1": 0.442495126705653,
+            "n_features": 19,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 42,
+            "duration": 2.971145
+          },
+          {
+            "cv_auc_mean": 0.43228770012381046,
+            "cv_auc_std": 0.0385996455912629,
+            "cv_scores": [
+              0.4385964912280702,
+              0.370172213622291,
+              0.48954157506789087,
+              0.4198920212078107,
+              0.44323619949298976
+            ],
+            "test_auc": 0.47745958032335745,
+            "test_accuracy": 0.4890016920473773,
+            "test_precision": 0.47757255936675463,
+            "test_recall": 0.6350877192982456,
+            "test_f1": 0.5451807228915663,
+            "n_features": 19,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 123,
+            "duration": 2.908461
+          },
+          {
+            "cv_auc_mean": 0.43188590792386117,
+            "cv_auc_std": 0.03673795887577957,
+            "cv_scores": [
+              0.43860939112487096,
+              0.3720426986584108,
+              0.4852094917884391,
+              0.4199825423509634,
+              0.44358541569662163
+            ],
+            "test_auc": 0.5015049879600963,
+            "test_accuracy": 0.494077834179357,
+            "test_precision": 0.47244094488188976,
+            "test_recall": 0.42105263157894735,
+            "test_f1": 0.44526901669758806,
+            "n_features": 19,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 456,
+            "duration": 2.905132
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.43207997753957966,
+          "std_cv_auc": 0.00016431483123751378,
+          "median_cv_auc": 0.43206632457106753,
+          "min_cv_auc": 0.43188590792386117,
+          "max_cv_auc": 0.43228770012381046,
+          "mean_test_auc": 0.4999684669189313,
+          "std_test_auc": 0.017784365696027368,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 3937.0,
+          "mean_actionable_rate": 0.4823469646939294,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5207627212026263,
+            "cv_auc_std": 0.049427387376463267,
+            "cv_scores": [
+              0.5097813467492259,
+              0.5382997936016511,
+              0.5764095435148067,
+              0.5477822319927583,
+              0.4315406901546899
+            ],
+            "test_auc": 0.5999283339066621,
+            "test_accuracy": 0.5752961082910322,
+            "test_precision": 0.5459459459459459,
+            "test_recall": 0.7087719298245614,
+            "test_f1": 0.616793893129771,
+            "n_features": 25,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 42,
+            "duration": 4.362978
+          },
+          {
+            "cv_auc_mean": 0.5194220773811231,
+            "cv_auc_std": 0.041201436693760175,
+            "cv_scores": [
+              0.5036764705882353,
+              0.5319143446852425,
+              0.5748351222035433,
+              0.5360791413422993,
+              0.4506053080862952
+            ],
+            "test_auc": 0.5964238619424378,
+            "test_accuracy": 0.5812182741116751,
+            "test_precision": 0.5523012552301255,
+            "test_recall": 0.6947368421052632,
+            "test_f1": 0.6153846153846154,
+            "n_features": 25,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 123,
+            "duration": 3.054213
+          },
+          {
+            "cv_auc_mean": 0.5205426572658094,
+            "cv_auc_std": 0.04742886567176242,
+            "cv_scores": [
+              0.5057049793601651,
+              0.5354553663570691,
+              0.5804086383033751,
+              0.5426516229147808,
+              0.4384926793936572
+            ],
+            "test_auc": 0.5593782249742002,
+            "test_accuracy": 0.5524534686971235,
+            "test_precision": 0.5304606240713224,
+            "test_recall": 0.6263157894736842,
+            "test_f1": 0.5744167337087691,
+            "n_features": 25,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 456,
+            "duration": 2.916656
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5202424852831863,
+          "std_cv_auc": 0.0005870314462886474,
+          "median_cv_auc": 0.5205426572658094,
+          "min_cv_auc": 0.5194220773811231,
+          "max_cv_auc": 0.5207627212026263,
+          "mean_test_auc": 0.5852434736077666,
+          "std_test_auc": 0.01834536537465106,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 3937.0,
+          "mean_actionable_rate": 0.4823469646939294,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": 136.96289788620453,
+          "p_value": 5.3303951103647955e-05,
+          "significant": "True",
+          "effect_size": 0.13911604030513175,
+          "n_pairs": 3,
+          "fs1_mean": 0.5711960178447114,
+          "fs2_mean": 0.43207997753957966
+        },
+        "demographic_vs_both": {
+          "t_statistic": 41.13001534382775,
+          "p_value": 0.0005906053536267203,
+          "significant": "True",
+          "effect_size": 0.05095353256152513,
+          "n_pairs": 3,
+          "fs1_mean": 0.5711960178447114,
+          "fs2_mean": 0.5202424852831863
+        },
+        "technical_vs_both": {
+          "t_statistic": -171.45812996723046,
+          "p_value": 3.401431080717217e-05,
+          "significant": "True",
+          "effect_size": -0.08816250774360662,
+          "n_pairs": 3,
+          "fs1_mean": 0.43207997753957966,
+          "fs2_mean": 0.5202424852831863
+        }
+      }
+    },
+    "logistic": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.58784880693989,
+            "cv_auc_std": 0.036606125461815305,
+            "cv_scores": [
+              0.5593105005159957,
+              0.6152992776057791,
+              0.6198823225139014,
+              0.614961851803957,
+              0.5297900822598167
+            ],
+            "test_auc": 0.5969742575392731,
+            "test_accuracy": 0.5803722504230119,
+            "test_precision": 0.5581761006289309,
+            "test_recall": 0.6228070175438597,
+            "test_f1": 0.5887230514096187,
+            "n_features": 6,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 42,
+            "duration": 2.628251
+          },
+          {
+            "cv_auc_mean": 0.58784880693989,
+            "cv_auc_std": 0.036606125461815305,
+            "cv_scores": [
+              0.5593105005159957,
+              0.6152992776057791,
+              0.6198823225139014,
+              0.614961851803957,
+              0.5297900822598167
+            ],
+            "test_auc": 0.6129414631349617,
+            "test_accuracy": 0.5736040609137056,
+            "test_precision": 0.5535714285714286,
+            "test_recall": 0.5982456140350877,
+            "test_f1": 0.5750421585160203,
+            "n_features": 6,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 123,
+            "duration": 2.627735
+          },
+          {
+            "cv_auc_mean": 0.58784880693989,
+            "cv_auc_std": 0.036606125461815305,
+            "cv_scores": [
+              0.5593105005159957,
+              0.6152992776057791,
+              0.6198823225139014,
+              0.614961851803957,
+              0.5297900822598167
+            ],
+            "test_auc": 0.5828732370141039,
+            "test_accuracy": 0.562605752961083,
+            "test_precision": 0.5418641390205371,
+            "test_recall": 0.6017543859649123,
+            "test_f1": 0.5702410640066501,
+            "n_features": 6,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 456,
+            "duration": 2.661563
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.58784880693989,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.58784880693989,
+          "min_cv_auc": 0.58784880693989,
+          "max_cv_auc": 0.58784880693989,
+          "mean_test_auc": 0.5975963192294462,
+          "std_test_auc": 0.012283180263366774,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 3937.0,
+          "mean_actionable_rate": 0.4823469646939294,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.42212771904130636,
+            "cv_auc_std": 0.03961345064261656,
+            "cv_scores": [
+              0.40253482972136223,
+              0.3656894994840041,
+              0.4852094917884391,
+              0.4182626406310617,
+              0.43894213358166484
+            ],
+            "test_auc": 0.5154311432175209,
+            "test_accuracy": 0.5109983079526227,
+            "test_precision": 0.49141630901287553,
+            "test_recall": 0.4017543859649123,
+            "test_f1": 0.44208494208494215,
+            "n_features": 19,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 42,
+            "duration": 2.667713
+          },
+          {
+            "cv_auc_mean": 0.42212771904130636,
+            "cv_auc_std": 0.03961345064261656,
+            "cv_scores": [
+              0.40253482972136223,
+              0.3656894994840041,
+              0.4852094917884391,
+              0.4182626406310617,
+              0.43894213358166484
+            ],
+            "test_auc": 0.4942036463708291,
+            "test_accuracy": 0.48646362098138746,
+            "test_precision": 0.4754316069057105,
+            "test_recall": 0.6280701754385964,
+            "test_f1": 0.5411942554799698,
+            "n_features": 19,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 123,
+            "duration": 2.844106
+          },
+          {
+            "cv_auc_mean": 0.42212771904130636,
+            "cv_auc_std": 0.03961345064261656,
+            "cv_scores": [
+              0.40253482972136223,
+              0.3656894994840041,
+              0.4852094917884391,
+              0.4182626406310617,
+              0.43894213358166484
+            ],
+            "test_auc": 0.48373466345602567,
+            "test_accuracy": 0.4906937394247039,
+            "test_precision": 0.4650655021834061,
+            "test_recall": 0.3736842105263158,
+            "test_f1": 0.41439688715953304,
+            "n_features": 19,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 456,
+            "duration": 2.720196
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.42212771904130636,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.42212771904130636,
+          "min_cv_auc": 0.42212771904130636,
+          "max_cv_auc": 0.42212771904130636,
+          "mean_test_auc": 0.4977898176814586,
+          "std_test_auc": 0.013186158799276511,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 3937.0,
+          "mean_actionable_rate": 0.4823469646939294,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5421384201108779,
+            "cv_auc_std": 0.03765913306215528,
+            "cv_scores": [
+              0.5170439886480909,
+              0.5380546955624355,
+              0.6120910384068279,
+              0.5407248157248157,
+              0.5027775622122199
+            ],
+            "test_auc": 0.6024896800825594,
+            "test_accuracy": 0.5803722504230119,
+            "test_precision": 0.5608552631578947,
+            "test_recall": 0.5982456140350877,
+            "test_f1": 0.5789473684210527,
+            "n_features": 25,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 42,
+            "duration": 2.92482
+          },
+          {
+            "cv_auc_mean": 0.5421384201108779,
+            "cv_auc_std": 0.03765913306215528,
+            "cv_scores": [
+              0.5170439886480909,
+              0.5380546955624355,
+              0.6120910384068279,
+              0.5407248157248157,
+              0.5027775622122199
+            ],
+            "test_auc": 0.600171998624011,
+            "test_accuracy": 0.577834179357022,
+            "test_precision": 0.5579119086460033,
+            "test_recall": 0.6,
+            "test_f1": 0.5781910397295013,
+            "n_features": 25,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 123,
+            "duration": 2.909486
+          },
+          {
+            "cv_auc_mean": 0.5421384201108779,
+            "cv_auc_std": 0.03765913306215528,
+            "cv_scores": [
+              0.5170439886480909,
+              0.5380546955624355,
+              0.6120910384068279,
+              0.5407248157248157,
+              0.5027775622122199
+            ],
+            "test_auc": 0.5816291136337576,
+            "test_accuracy": 0.5676818950930627,
+            "test_precision": 0.5464566929133858,
+            "test_recall": 0.6087719298245614,
+            "test_f1": 0.5759336099585063,
+            "n_features": 25,
+            "n_patients": 3937,
+            "n_actionable": 1899,
+            "actionable_rate": 0.4823469646939294,
+            "random_seed": 456,
+            "duration": 2.962452
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5421384201108779,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.5421384201108779,
+          "min_cv_auc": 0.5421384201108779,
+          "max_cv_auc": 0.5421384201108779,
+          "mean_test_auc": 0.594763597446776,
+          "std_test_auc": 0.009335556066696737,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 3937.0,
+          "mean_actionable_rate": 0.4823469646939294,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.16572108789858359,
+          "n_pairs": 3,
+          "fs1_mean": 0.58784880693989,
+          "fs2_mean": 0.42212771904130636
+        },
+        "demographic_vs_both": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.04571038682901207,
+          "n_pairs": 3,
+          "fs1_mean": 0.58784880693989,
+          "fs2_mean": 0.5421384201108779
+        },
+        "technical_vs_both": {
+          "t_statistic": -Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": -0.12001070106957151,
+          "n_pairs": 3,
+          "fs1_mean": 0.42212771904130636,
+          "fs2_mean": 0.5421384201108779
+        }
+      }
+    }
+  },
+  "MEL": {
+    "random_forest": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5657680679048733,
+            "cv_auc_std": 0.028933786234982474,
+            "cv_scores": [
+              0.5903812043848682,
+              0.55948760966062,
+              0.6001566996376684,
+              0.561409947223096,
+              0.517404878618114
+            ],
+            "test_auc": 0.6570425853623174,
+            "test_accuracy": 0.6498113207547169,
+            "test_precision": 0.47024952015355087,
+            "test_recall": 0.5658198614318707,
+            "test_f1": 0.5136268343815513,
+            "n_features": 6,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 42,
+            "duration": 2.886153
+          },
+          {
+            "cv_auc_mean": 0.5629322144344788,
+            "cv_auc_std": 0.032397667052581854,
+            "cv_scores": [
+              0.5900904306359221,
+              0.5718633858772267,
+              0.5926479326133305,
+              0.5563215779478755,
+              0.5037377450980391
+            ],
+            "test_auc": 0.6276952433227354,
+            "test_accuracy": 0.6173584905660378,
+            "test_precision": 0.42992424242424243,
+            "test_recall": 0.5242494226327945,
+            "test_f1": 0.4724245577523413,
+            "n_features": 6,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 123,
+            "duration": 2.818796
+          },
+          {
+            "cv_auc_mean": 0.563606070788037,
+            "cv_auc_std": 0.030312593046413032,
+            "cv_scores": [
+              0.5941467244337182,
+              0.5587914904523901,
+              0.5964256171868629,
+              0.554917689000734,
+              0.5137488328664799
+            ],
+            "test_auc": 0.6352411478992119,
+            "test_accuracy": 0.6083018867924528,
+            "test_precision": 0.4203703703703704,
+            "test_recall": 0.5242494226327945,
+            "test_f1": 0.4665981500513875,
+            "n_features": 6,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 456,
+            "duration": 2.784779
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5641021177091298,
+          "std_cv_auc": 0.0012097005517430854,
+          "median_cv_auc": 0.563606070788037,
+          "min_cv_auc": 0.5629322144344788,
+          "max_cv_auc": 0.5657680679048733,
+          "mean_test_auc": 0.6399929921947549,
+          "std_test_auc": 0.012443248218849921,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 4416.0,
+          "mean_actionable_rate": 0.3269927536231884,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.4269925594228464,
+            "cv_auc_std": 0.1104314780526528,
+            "cv_scores": [
+              0.37085283940565844,
+              0.23555334195472608,
+              0.53113604324677,
+              0.5033029254482542,
+              0.4941176470588235
+            ],
+            "test_auc": 0.557071324268064,
+            "test_accuracy": 0.5154716981132076,
+            "test_precision": 0.35704514363885087,
+            "test_recall": 0.6027713625866051,
+            "test_f1": 0.4484536082474227,
+            "n_features": 19,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 42,
+            "duration": 2.870206
+          },
+          {
+            "cv_auc_mean": 0.42388635171659805,
+            "cv_auc_std": 0.10832943044009759,
+            "cv_scores": [
+              0.37137623215376114,
+              0.23555334195472608,
+              0.53113604324677,
+              0.48724849416890936,
+              0.4941176470588235
+            ],
+            "test_auc": 0.5551864663055749,
+            "test_accuracy": 0.5132075471698113,
+            "test_precision": 0.3547945205479452,
+            "test_recall": 0.5981524249422633,
+            "test_f1": 0.4453998280309544,
+            "n_features": 19,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 123,
+            "duration": 2.886012
+          },
+          {
+            "cv_auc_mean": 0.42352257319690667,
+            "cv_auc_std": 0.10794337019173693,
+            "cv_scores": [
+              0.37221366055072547,
+              0.23555334195472608,
+              0.53113604324677,
+              0.484592173173488,
+              0.4941176470588235
+            ],
+            "test_auc": 0.5588940440559658,
+            "test_accuracy": 0.5418867924528302,
+            "test_precision": 0.3596774193548387,
+            "test_recall": 0.5150115473441108,
+            "test_f1": 0.4235517568850902,
+            "n_features": 19,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 456,
+            "duration": 2.879688
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.42480049477878373,
+          "std_cv_auc": 0.0015571221865264835,
+          "median_cv_auc": 0.42388635171659805,
+          "min_cv_auc": 0.42352257319690667,
+          "max_cv_auc": 0.4269925594228464,
+          "mean_test_auc": 0.5570506115432016,
+          "std_test_auc": 0.0015136831364868039,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 4416.0,
+          "mean_actionable_rate": 0.3269927536231884,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5110099983336804,
+            "cv_auc_std": 0.05000934545269431,
+            "cv_scores": [
+              0.46620336716001287,
+              0.47945720177554085,
+              0.6030984586347907,
+              0.4819620658721005,
+              0.5243288982259571
+            ],
+            "test_auc": 0.6571086071728167,
+            "test_accuracy": 0.6339622641509434,
+            "test_precision": 0.4559322033898305,
+            "test_recall": 0.6212471131639723,
+            "test_f1": 0.5259042033235581,
+            "n_features": 25,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 42,
+            "duration": 2.860206
+          },
+          {
+            "cv_auc_mean": 0.5011017969279216,
+            "cv_auc_std": 0.04377080810276086,
+            "cv_scores": [
+              0.45467128027681664,
+              0.4761047615718896,
+              0.5796022508825278,
+              0.48008050516701034,
+              0.5150501867413633
+            ],
+            "test_auc": 0.6389823838275044,
+            "test_accuracy": 0.6294339622641509,
+            "test_precision": 0.4458955223880597,
+            "test_recall": 0.5519630484988453,
+            "test_f1": 0.49329205366357065,
+            "n_features": 25,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 123,
+            "duration": 2.910494
+          },
+          {
+            "cv_auc_mean": 0.4999414904719709,
+            "cv_auc_std": 0.0432290694998492,
+            "cv_scores": [
+              0.4576400802535547,
+              0.4644979203802734,
+              0.5682691971619307,
+              0.4764979669823961,
+              0.5328022875816993
+            ],
+            "test_auc": 0.6537518511997845,
+            "test_accuracy": 0.6256603773584906,
+            "test_precision": 0.4424131627056673,
+            "test_recall": 0.558891454965358,
+            "test_f1": 0.49387755102040815,
+            "n_features": 25,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 456,
+            "duration": 2.919229
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5040177619111909,
+          "std_cv_auc": 0.004966897449375648,
+          "median_cv_auc": 0.5011017969279216,
+          "min_cv_auc": 0.4999414904719709,
+          "max_cv_auc": 0.5110099983336804,
+          "mean_test_auc": 0.6499476140667019,
+          "std_test_auc": 0.007873760571864844,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 4416.0,
+          "mean_actionable_rate": 0.3269927536231884,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": 349.4321583784652,
+          "p_value": 8.189717538409358e-06,
+          "significant": "True",
+          "effect_size": 0.13930162293034604,
+          "n_pairs": 3,
+          "fs1_mean": 0.5641021177091298,
+          "fs2_mean": 0.42480049477878373
+        },
+        "demographic_vs_both": {
+          "t_statistic": 22.128337937222263,
+          "p_value": 0.0020359846841205916,
+          "significant": "True",
+          "effect_size": 0.060084355797938915,
+          "n_pairs": 3,
+          "fs1_mean": 0.5641021177091298,
+          "fs2_mean": 0.5040177619111909
+        },
+        "technical_vs_both": {
+          "t_statistic": -32.85557695607923,
+          "p_value": 0.000925079045405367,
+          "significant": "True",
+          "effect_size": -0.07921726713240712,
+          "n_pairs": 3,
+          "fs1_mean": 0.42480049477878373,
+          "fs2_mean": 0.5040177619111909
+        }
+      }
+    },
+    "logistic": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5922794019131541,
+            "cv_auc_std": 0.02417815337436542,
+            "cv_scores": [
+              0.5846035299933122,
+              0.5900527769039879,
+              0.6389879183996829,
+              0.5738002866030547,
+              0.573952497665733
+            ],
+            "test_auc": 0.6737409252374196,
+            "test_accuracy": 0.6558490566037736,
+            "test_precision": 0.4779270633397313,
+            "test_recall": 0.5750577367205543,
+            "test_f1": 0.5220125786163522,
+            "n_features": 6,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 42,
+            "duration": 2.690568
+          },
+          {
+            "cv_auc_mean": 0.5922794019131541,
+            "cv_auc_std": 0.02417815337436542,
+            "cv_scores": [
+              0.5846035299933122,
+              0.5900527769039879,
+              0.6389879183996829,
+              0.5738002866030547,
+              0.573952497665733
+            ],
+            "test_auc": 0.6407792127093279,
+            "test_accuracy": 0.6271698113207547,
+            "test_precision": 0.44464609800362975,
+            "test_recall": 0.5658198614318707,
+            "test_f1": 0.4979674796747969,
+            "n_features": 6,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 123,
+            "duration": 2.961745
+          },
+          {
+            "cv_auc_mean": 0.5922794019131541,
+            "cv_auc_std": 0.02417815337436542,
+            "cv_scores": [
+              0.5846035299933122,
+              0.5900527769039879,
+              0.6389879183996829,
+              0.5738002866030547,
+              0.573952497665733
+            ],
+            "test_auc": 0.6412646671982932,
+            "test_accuracy": 0.6249056603773585,
+            "test_precision": 0.44223826714801445,
+            "test_recall": 0.5658198614318707,
+            "test_f1": 0.49645390070921985,
+            "n_features": 6,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 456,
+            "duration": 2.660833
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5922794019131541,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.5922794019131541,
+          "min_cv_auc": 0.5922794019131541,
+          "max_cv_auc": 0.5922794019131541,
+          "mean_test_auc": 0.6519282683816803,
+          "std_test_auc": 0.015425150800881186,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 4416.0,
+          "mean_actionable_rate": 0.3269927536231884,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.42082151220559527,
+            "cv_auc_std": 0.10673825069509638,
+            "cv_scores": [
+              0.37014335145823035,
+              0.23555334195472608,
+              0.529283608868384,
+              0.4750096116878124,
+              0.4941176470588235
+            ],
+            "test_auc": 0.5559010553133318,
+            "test_accuracy": 0.510943396226415,
+            "test_precision": 0.3587385019710907,
+            "test_recall": 0.6304849884526559,
+            "test_f1": 0.457286432160804,
+            "n_features": 19,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 42,
+            "duration": 2.760238
+          },
+          {
+            "cv_auc_mean": 0.42082151220559527,
+            "cv_auc_std": 0.10673825069509638,
+            "cv_scores": [
+              0.37014335145823035,
+              0.23555334195472608,
+              0.529283608868384,
+              0.4750096116878124,
+              0.4941176470588235
+            ],
+            "test_auc": 0.5567269752172247,
+            "test_accuracy": 0.5139622641509434,
+            "test_precision": 0.3595206391478029,
+            "test_recall": 0.6235565819861432,
+            "test_f1": 0.4560810810810811,
+            "n_features": 19,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 123,
+            "duration": 2.770071
+          },
+          {
+            "cv_auc_mean": 0.42082151220559527,
+            "cv_auc_std": 0.10673825069509638,
+            "cv_scores": [
+              0.37014335145823035,
+              0.23555334195472608,
+              0.529283608868384,
+              0.4750096116878124,
+              0.4941176470588235
+            ],
+            "test_auc": 0.5609368365455317,
+            "test_accuracy": 0.549433962264151,
+            "test_precision": 0.36333333333333334,
+            "test_recall": 0.5034642032332564,
+            "test_f1": 0.42207163601161674,
+            "n_features": 19,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 456,
+            "duration": 2.789893
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.4208215122055952,
+          "std_cv_auc": 5.551115123125783e-17,
+          "median_cv_auc": 0.42082151220559527,
+          "min_cv_auc": 0.42082151220559527,
+          "max_cv_auc": 0.42082151220559527,
+          "mean_test_auc": 0.5578549556920294,
+          "std_test_auc": 0.002205149748248371,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 4416.0,
+          "mean_actionable_rate": 0.3269927536231884,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5340451665007689,
+            "cv_auc_std": 0.05862624284327659,
+            "cv_scores": [
+              0.4666976825332209,
+              0.4775028252536903,
+              0.6222140668507451,
+              0.5290942877448068,
+              0.5747169701213819
+            ],
+            "test_auc": 0.6647567808283019,
+            "test_accuracy": 0.6377358490566037,
+            "test_precision": 0.45765765765765765,
+            "test_recall": 0.5866050808314087,
+            "test_f1": 0.5141700404858299,
+            "n_features": 25,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 42,
+            "duration": 2.994205
+          },
+          {
+            "cv_auc_mean": 0.5340451665007689,
+            "cv_auc_std": 0.05862624284327659,
+            "cv_scores": [
+              0.4666976825332209,
+              0.4775028252536903,
+              0.6222140668507451,
+              0.5290942877448068,
+              0.5747169701213819
+            ],
+            "test_auc": 0.6484222081835976,
+            "test_accuracy": 0.6294339622641509,
+            "test_precision": 0.447463768115942,
+            "test_recall": 0.5704387990762124,
+            "test_f1": 0.5015228426395939,
+            "n_features": 25,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 123,
+            "duration": 3.254589
+          },
+          {
+            "cv_auc_mean": 0.5340451665007689,
+            "cv_auc_std": 0.05862624284327659,
+            "cv_scores": [
+              0.4666976825332209,
+              0.4775028252536903,
+              0.6222140668507451,
+              0.5290942877448068,
+              0.5747169701213819
+            ],
+            "test_auc": 0.6572095817065214,
+            "test_accuracy": 0.6324528301886793,
+            "test_precision": 0.44886363636363635,
+            "test_recall": 0.5473441108545035,
+            "test_f1": 0.49323621227887615,
+            "n_features": 25,
+            "n_patients": 4416,
+            "n_actionable": 1444,
+            "actionable_rate": 0.3269927536231884,
+            "random_seed": 456,
+            "duration": 3.214071
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5340451665007689,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.5340451665007689,
+          "min_cv_auc": 0.5340451665007689,
+          "max_cv_auc": 0.5340451665007689,
+          "mean_test_auc": 0.6567961902394738,
+          "std_test_auc": 0.0066749649312462704,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 4416.0,
+          "mean_actionable_rate": 0.3269927536231884,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.17145788970755887,
+          "n_pairs": 3,
+          "fs1_mean": 0.5922794019131541,
+          "fs2_mean": 0.4208215122055952
+        },
+        "demographic_vs_both": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.05823423541238515,
+          "n_pairs": 3,
+          "fs1_mean": 0.5922794019131541,
+          "fs2_mean": 0.5340451665007689
+        },
+        "technical_vs_both": {
+          "t_statistic": -Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": -0.11322365429517373,
+          "n_pairs": 3,
+          "fs1_mean": 0.4208215122055952,
+          "fs2_mean": 0.5340451665007689
+        }
+      }
+    }
+  },
+  "GIST": {
+    "random_forest": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.511056216456679,
+            "cv_auc_std": 0.05917842954157632,
+            "cv_scores": [
+              0.40761689291101055,
+              0.4885800474035768,
+              0.5308770247229326,
+              0.5760336743393009,
+              0.5521734429065743
+            ],
+            "test_auc": 0.5421344980653737,
+            "test_accuracy": 0.626953125,
+            "test_precision": 0.807909604519774,
+            "test_recall": 0.6992665036674817,
+            "test_f1": 0.7496723460026212,
+            "n_features": 6,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 42,
+            "duration": 2.743182
+          },
+          {
+            "cv_auc_mean": 0.5119670343791658,
+            "cv_auc_std": 0.06738506707835333,
+            "cv_scores": [
+              0.40058715794009914,
+              0.4801497522085757,
+              0.5254955242966752,
+              0.5954550298380222,
+              0.5581477076124568
+            ],
+            "test_auc": 0.5911885489116244,
+            "test_accuracy": 0.6796875,
+            "test_precision": 0.8319783197831978,
+            "test_recall": 0.7506112469437652,
+            "test_f1": 0.7892030848329048,
+            "n_features": 6,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 123,
+            "duration": 2.864329
+          },
+          {
+            "cv_auc_mean": 0.5172790268724055,
+            "cv_auc_std": 0.06803084274598126,
+            "cv_scores": [
+              0.3965470803706098,
+              0.49719887955182074,
+              0.5360453964194374,
+              0.5917519181585678,
+              0.5648518598615917
+            ],
+            "test_auc": 0.616326821278515,
+            "test_accuracy": 0.681640625,
+            "test_precision": 0.8219895287958116,
+            "test_recall": 0.7677261613691931,
+            "test_f1": 0.7939317319848294,
+            "n_features": 6,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 456,
+            "duration": 2.836629
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5134340925694167,
+          "std_cv_auc": 0.0027440890616869888,
+          "median_cv_auc": 0.5119670343791658,
+          "min_cv_auc": 0.511056216456679,
+          "max_cv_auc": 0.5172790268724055,
+          "mean_test_auc": 0.5832166227518377,
+          "std_test_auc": 0.03080896959181016,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 1704.0,
+          "mean_actionable_rate": 0.7992957746478874,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.333038710762684,
+            "cv_auc_std": 0.19190001786003905,
+            "cv_scores": [
+              0.2404384830855419,
+              0.2943061840120664,
+              0.07043904518329071,
+              0.6472719522591646,
+              0.41273788927335636
+            ],
+            "test_auc": 0.63024900894913,
+            "test_accuracy": 0.64453125,
+            "test_precision": 0.8270893371757925,
+            "test_recall": 0.7017114914425427,
+            "test_f1": 0.7592592592592593,
+            "n_features": 19,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 42,
+            "duration": 2.798484
+          },
+          {
+            "cv_auc_mean": 0.3350513702923624,
+            "cv_auc_std": 0.2000090187183751,
+            "cv_scores": [
+              0.24043848308554192,
+              0.2938752424046542,
+              0.06127450980392156,
+              0.663416453537937,
+              0.4162521626297578
+            ],
+            "test_auc": 0.6081254302466352,
+            "test_accuracy": 0.583984375,
+            "test_precision": 0.8525179856115108,
+            "test_recall": 0.5794621026894865,
+            "test_f1": 0.6899563318777292,
+            "n_features": 19,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 123,
+            "duration": 2.799956
+          },
+          {
+            "cv_auc_mean": 0.33041877212226617,
+            "cv_auc_std": 0.19957108026734868,
+            "cv_scores": [
+              0.22707929325576384,
+              0.2908586511527688,
+              0.06127450980392156,
+              0.6580349531116794,
+              0.41484645328719727
+            ],
+            "test_auc": 0.6056092292354073,
+            "test_accuracy": 0.5625,
+            "test_precision": 0.8517110266159695,
+            "test_recall": 0.5476772616136919,
+            "test_f1": 0.6666666666666666,
+            "n_features": 19,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 456,
+            "duration": 2.799104
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.3328362843924375,
+          "std_cv_auc": 0.0018966591290869265,
+          "median_cv_auc": 0.333038710762684,
+          "min_cv_auc": 0.33041877212226617,
+          "max_cv_auc": 0.3350513702923624,
+          "mean_test_auc": 0.6146612228103909,
+          "std_test_auc": 0.011069993207240569,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 1704.0,
+          "mean_actionable_rate": 0.7992957746478874,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.35302647359848915,
+            "cv_auc_std": 0.18009728881524378,
+            "cv_scores": [
+              0.24787222581340226,
+              0.2905354449472096,
+              0.14199701619778343,
+              0.6668265132139812,
+              0.4179011678200692
+            ],
+            "test_auc": 0.6252047380539796,
+            "test_accuracy": 0.69921875,
+            "test_precision": 0.8244274809160306,
+            "test_recall": 0.7921760391198044,
+            "test_f1": 0.8079800498753118,
+            "n_features": 25,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 42,
+            "duration": 2.820808
+          },
+          {
+            "cv_auc_mean": 0.3568087181016416,
+            "cv_auc_std": 0.17325884671515113,
+            "cv_scores": [
+              0.25530596854126264,
+              0.30112044817927175,
+              0.14855072463768115,
+              0.6547314578005115,
+              0.42433499134948105
+            ],
+            "test_auc": 0.6184038740000475,
+            "test_accuracy": 0.671875,
+            "test_precision": 0.8265582655826558,
+            "test_recall": 0.7457212713936431,
+            "test_f1": 0.7840616966580977,
+            "n_features": 25,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 123,
+            "duration": 2.810485
+          },
+          {
+            "cv_auc_mean": 0.347413936187302,
+            "cv_auc_std": 0.16460659881995204,
+            "cv_scores": [
+              0.2598039215686274,
+              0.283990519284637,
+              0.1469522591645354,
+              0.6276108269394713,
+              0.4187121539792388
+            ],
+            "test_auc": 0.6436252284757994,
+            "test_accuracy": 0.70703125,
+            "test_precision": 0.841688654353562,
+            "test_recall": 0.7799511002444988,
+            "test_f1": 0.8096446700507615,
+            "n_features": 25,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 456,
+            "duration": 2.769632
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.3524163759624776,
+          "std_cv_auc": 0.0038595894555942,
+          "median_cv_auc": 0.35302647359848915,
+          "min_cv_auc": 0.347413936187302,
+          "max_cv_auc": 0.3568087181016416,
+          "mean_test_auc": 0.6290779468432754,
+          "std_test_auc": 0.010654591815800736,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 1704.0,
+          "mean_actionable_rate": 0.7992957746478874,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": 57.38114642137739,
+          "p_value": 0.00030357343373709405,
+          "significant": "True",
+          "effect_size": 0.18059780817697924,
+          "n_pairs": 3,
+          "fs1_mean": 0.5134340925694167,
+          "fs2_mean": 0.3328362843924375
+        },
+        "demographic_vs_both": {
+          "t_statistic": 35.77632852532384,
+          "p_value": 0.0007803687395908749,
+          "significant": "True",
+          "effect_size": 0.16101771660693914,
+          "n_pairs": 3,
+          "fs1_mean": 0.5134340925694167,
+          "fs2_mean": 0.3524163759624776
+        },
+        "technical_vs_both": {
+          "t_statistic": -14.088894062855255,
+          "p_value": 0.005000107933469697,
+          "significant": "True",
+          "effect_size": -0.019580091570040092,
+          "n_pairs": 3,
+          "fs1_mean": 0.3328362843924375,
+          "fs2_mean": 0.3524163759624776
+        }
+      }
+    },
+    "logistic": {
+      "demographic": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.5404550300102334,
+            "cv_auc_std": 0.09387528826046519,
+            "cv_scores": [
+              0.39638547726783024,
+              0.4707498383968972,
+              0.5678015771526002,
+              0.6463661551577152,
+              0.6209721020761246
+            ],
+            "test_auc": 0.5921143209817932,
+            "test_accuracy": 0.552734375,
+            "test_precision": 0.8125,
+            "test_recall": 0.5721271393643031,
+            "test_f1": 0.6714490674318507,
+            "n_features": 6,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 42,
+            "duration": 2.660993
+          },
+          {
+            "cv_auc_mean": 0.5404550300102334,
+            "cv_auc_std": 0.09387528826046519,
+            "cv_scores": [
+              0.39638547726783024,
+              0.4707498383968972,
+              0.5678015771526002,
+              0.6463661551577152,
+              0.6209721020761246
+            ],
+            "test_auc": 0.6085408407909417,
+            "test_accuracy": 0.55859375,
+            "test_precision": 0.8351648351648352,
+            "test_recall": 0.5574572127139364,
+            "test_f1": 0.6686217008797654,
+            "n_features": 6,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 123,
+            "duration": 2.607553
+          },
+          {
+            "cv_auc_mean": 0.5404550300102334,
+            "cv_auc_std": 0.09387528826046519,
+            "cv_scores": [
+              0.39638547726783024,
+              0.4707498383968972,
+              0.5678015771526002,
+              0.6463661551577152,
+              0.6209721020761246
+            ],
+            "test_auc": 0.6074845111211338,
+            "test_accuracy": 0.58984375,
+            "test_precision": 0.8442906574394463,
+            "test_recall": 0.5965770171149144,
+            "test_f1": 0.6991404011461317,
+            "n_features": 6,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 456,
+            "duration": 2.569952
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.5404550300102334,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.5404550300102334,
+          "min_cv_auc": 0.5404550300102334,
+          "max_cv_auc": 0.5404550300102334,
+          "mean_test_auc": 0.6027132242979563,
+          "std_test_auc": 0.007506953297748173,
+          "mean_n_features": 6.0,
+          "mean_n_patients": 1704.0,
+          "mean_actionable_rate": 0.7992957746478874,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "technical": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.3380153139605242,
+            "cv_auc_std": 0.19668988277629446,
+            "cv_scores": [
+              0.22707929325576384,
+              0.296837965955613,
+              0.07043904518329071,
+              0.6472719522591646,
+              0.4484483131487889
+            ],
+            "test_auc": 0.6198756142141619,
+            "test_accuracy": 0.640625,
+            "test_precision": 0.8260869565217391,
+            "test_recall": 0.6968215158924206,
+            "test_f1": 0.7559681697612732,
+            "n_features": 19,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 42,
+            "duration": 2.761678
+          },
+          {
+            "cv_auc_mean": 0.3380153139605242,
+            "cv_auc_std": 0.19668988277629446,
+            "cv_scores": [
+              0.22707929325576384,
+              0.296837965955613,
+              0.07043904518329071,
+              0.6472719522591646,
+              0.4484483131487889
+            ],
+            "test_auc": 0.618593775963159,
+            "test_accuracy": 0.599609375,
+            "test_precision": 0.8517241379310345,
+            "test_recall": 0.6039119804400978,
+            "test_f1": 0.7067238912732474,
+            "n_features": 19,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 123,
+            "duration": 2.814424
+          },
+          {
+            "cv_auc_mean": 0.3380153139605242,
+            "cv_auc_std": 0.19668988277629446,
+            "cv_scores": [
+              0.22707929325576384,
+              0.296837965955613,
+              0.07043904518329071,
+              0.6472719522591646,
+              0.4484483131487889
+            ],
+            "test_auc": 0.6024046336079,
+            "test_accuracy": 0.591796875,
+            "test_precision": 0.8448275862068966,
+            "test_recall": 0.5990220048899756,
+            "test_f1": 0.7010014306151646,
+            "n_features": 19,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 456,
+            "duration": 2.745732
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.3380153139605242,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.3380153139605242,
+          "min_cv_auc": 0.3380153139605242,
+          "max_cv_auc": 0.3380153139605242,
+          "mean_test_auc": 0.6136246745950736,
+          "std_test_auc": 0.007951006944231499,
+          "mean_n_features": 19.0,
+          "mean_n_patients": 1704.0,
+          "mean_actionable_rate": 0.7992957746478874,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "both": {
+        "individual_runs": [
+          {
+            "cv_auc_mean": 0.4099344715261671,
+            "cv_auc_std": 0.16533262179800579,
+            "cv_scores": [
+              0.24725274725274723,
+              0.3350032320620556,
+              0.2690217391304348,
+              0.6801204177323104,
+              0.5182742214532872
+            ],
+            "test_auc": 0.6559688560780497,
+            "test_accuracy": 0.6484375,
+            "test_precision": 0.8634920634920635,
+            "test_recall": 0.6650366748166259,
+            "test_f1": 0.7513812154696132,
+            "n_features": 25,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 42,
+            "duration": 2.781821
+          },
+          {
+            "cv_auc_mean": 0.4099344715261671,
+            "cv_auc_std": 0.16533262179800579,
+            "cv_scores": [
+              0.24725274725274723,
+              0.3350032320620556,
+              0.2690217391304348,
+              0.6801204177323104,
+              0.5182742214532872
+            ],
+            "test_auc": 0.64832530206281,
+            "test_accuracy": 0.583984375,
+            "test_precision": 0.8402777777777778,
+            "test_recall": 0.5916870415647921,
+            "test_f1": 0.6944045911047345,
+            "n_features": 25,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 123,
+            "duration": 2.869433
+          },
+          {
+            "cv_auc_mean": 0.4099344715261671,
+            "cv_auc_std": 0.16533262179800579,
+            "cv_scores": [
+              0.24725274725274723,
+              0.3350032320620556,
+              0.2690217391304348,
+              0.6801204177323104,
+              0.5182742214532872
+            ],
+            "test_auc": 0.6519571771073183,
+            "test_accuracy": 0.630859375,
+            "test_precision": 0.8459119496855346,
+            "test_recall": 0.6577017114914425,
+            "test_f1": 0.7400275103163687,
+            "n_features": 25,
+            "n_patients": 1704,
+            "n_actionable": 1362,
+            "actionable_rate": 0.7992957746478874,
+            "random_seed": 456,
+            "duration": 2.774401
+          }
+        ],
+        "failed_runs": [],
+        "summary": {
+          "mean_cv_auc": 0.4099344715261671,
+          "std_cv_auc": 0.0,
+          "median_cv_auc": 0.4099344715261671,
+          "min_cv_auc": 0.4099344715261671,
+          "max_cv_auc": 0.4099344715261671,
+          "mean_test_auc": 0.6520837784160592,
+          "std_test_auc": 0.0031217516893033755,
+          "mean_n_features": 25.0,
+          "mean_n_patients": 1704.0,
+          "mean_actionable_rate": 0.7992957746478874,
+          "successful_runs": 3,
+          "failed_runs": 0,
+          "total_runs": 3
+        }
+      },
+      "statistical_tests": {
+        "demographic_vs_technical": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.20243971604970923,
+          "n_pairs": 3,
+          "fs1_mean": 0.5404550300102334,
+          "fs2_mean": 0.3380153139605242
+        },
+        "demographic_vs_both": {
+          "t_statistic": Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": 0.13052055848406635,
+          "n_pairs": 3,
+          "fs1_mean": 0.5404550300102334,
+          "fs2_mean": 0.4099344715261671
+        },
+        "technical_vs_both": {
+          "t_statistic": -Infinity,
+          "p_value": 0.0,
+          "significant": "True",
+          "effect_size": -0.07191915756564288,
+          "n_pairs": 3,
+          "fs1_mean": 0.3380153139605242,
+          "fs2_mean": 0.4099344715261671
+        }
+      }
+    }
+  }
+}

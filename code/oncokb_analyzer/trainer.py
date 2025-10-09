@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import cross_val_score, train_test_split, GroupKFold
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -21,7 +21,8 @@ import logging
 class ModelTrainer:
     """Simple model trainer with basic preprocessing"""
 
-    def __init__(self, algorithm: str = "random_forest", cv_folds: int = 5, random_state: int = 42):
+    def __init__(self, algorithm: str = "random_forest", cv_folds: int = 5, random_state: int = 42,
+                 cv_strategy: str = "standard", group_column: str = "SUBJECT_CENTER"):
         """
         Initialize model trainer.
 
@@ -29,15 +30,23 @@ class ModelTrainer:
             algorithm: Either "random_forest" or "logistic"
             cv_folds: Number of cross-validation folds
             random_state: Random seed for reproducibility
+            cv_strategy: Either "standard" (KFold) or "group" (GroupKFold)
+            group_column: Column name for grouping in GroupKFold (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
         """
         self.algorithm = algorithm
         self.cv_folds = cv_folds
         self.random_state = random_state
+        self.cv_strategy = cv_strategy
+        self.group_column = group_column
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Validate algorithm choice
         if algorithm not in ["random_forest", "logistic"]:
             raise ValueError(f"Algorithm must be 'random_forest' or 'logistic', got: {algorithm}")
+
+        # Validate cv_strategy choice
+        if cv_strategy not in ["standard", "group"]:
+            raise ValueError(f"cv_strategy must be 'standard' or 'group', got: {cv_strategy}")
 
     def prepare_features(self, data: pd.DataFrame, outcome_col: str, feature_set: str = "both"):
         """
@@ -49,7 +58,8 @@ class ModelTrainer:
             feature_set: Which features to use - "demographic", "technical", or "both" (default)
 
         Returns:
-            Tuple of (X, y) for modeling
+            Tuple of (X, y, groups) for modeling. groups is None if cv_strategy is "standard",
+            otherwise contains group identifiers for GroupKFold
 
         Raises:
             ValueError: If insufficient data, missing outcome column, or invalid feature_set
@@ -99,7 +109,6 @@ class ModelTrainer:
             'gene_padding',
             'number_of_genes',
             'variant_classifications',
-            'CENTER',
             'alteration_types',
             'preservation_technique',
             'specimen_tumor_cellularity',
@@ -127,6 +136,15 @@ class ModelTrainer:
         X = data[available_cols].copy()
         y = data[outcome_col].copy()
 
+        # Extract groups for GroupKFold if needed
+        groups = None
+        if self.cv_strategy == "group":
+            if self.group_column not in data.columns:
+                raise ValueError(f"Group column '{self.group_column}' not found in data. Available columns: {data.columns.tolist()}")
+
+            groups = data[self.group_column].copy()
+            self.logger.info(f"Extracted {groups.nunique()} unique groups from '{self.group_column}' for GroupKFold")
+
         # Basic validation
         if len(X) == 0:
             raise ValueError("No data available for modeling")
@@ -137,7 +155,7 @@ class ModelTrainer:
         self.logger.info(f"Prepared features: {X.shape[0]} samples, {X.shape[1]} features")
         self.logger.info(f"Class distribution: {y.value_counts().to_dict()}")
 
-        return X, y
+        return X, y, groups
 
     def create_pipeline(self, available_columns=None):
         """
@@ -163,7 +181,7 @@ class ModelTrainer:
             # Technical
             'SUBJECT_CENTER', 'SEQ_ASSAY_ID', 'is_paired_end', 'library_selection',
             'library_strategy', 'platform', 'target_capture_kit', 'instrument_model',
-            'variant_classifications', 'CENTER', 'alteration_types', 'preservation_technique',
+            'variant_classifications', 'alteration_types', 'preservation_technique',
             'calling_strategy', 'SEQ_PIPELINE_ID', 'specimen_tumor_cellularity', 'coverage'
         ]
 
@@ -208,19 +226,20 @@ class ModelTrainer:
 
         return pipeline
 
-    def train_and_evaluate(self, X: pd.DataFrame, y: pd.Series):
+    def train_and_evaluate(self, X: pd.DataFrame, y: pd.Series, groups: pd.Series = None):
         """
         Train model and get basic evaluation metrics.
 
         Args:
             X: Feature matrix
             y: Target vector
+            groups: Group labels for GroupKFold (required if cv_strategy is "group")
 
         Returns:
             Dictionary with evaluation results
 
         Raises:
-            ValueError: If insufficient data for training
+            ValueError: If insufficient data for training or groups missing for GroupKFold
         """
         if len(X) < 20:
             raise ValueError(f"Insufficient data for training: {len(X)} samples (minimum 20 required)")
@@ -230,19 +249,37 @@ class ModelTrainer:
         if class_counts.min() < 5:
             raise ValueError(f"Insufficient samples in minority class: {class_counts.to_dict()}")
 
-        self.logger.info(f"Training {self.algorithm} model with {len(X)} samples")
+        # Validate groups if using GroupKFold
+        if self.cv_strategy == "group":
+            if groups is None:
+                raise ValueError("groups parameter is required when cv_strategy is 'group'")
+            if len(groups) != len(X):
+                raise ValueError(f"groups length ({len(groups)}) must match X length ({len(X)})")
+
+        self.logger.info(f"Training {self.algorithm} model with {len(X)} samples using {self.cv_strategy} CV")
 
         # Create pipeline with available columns
         pipeline = self.create_pipeline(available_columns=X.columns.tolist())
 
-        # Cross-validation
-        self.logger.info(f"Performing {self.cv_folds}-fold cross-validation...")
-        cv_scores = cross_val_score(
-            pipeline, X, y,
-            cv=self.cv_folds,
-            scoring='roc_auc',
-            n_jobs=-1
-        )
+        # Cross-validation with appropriate strategy
+        if self.cv_strategy == "group":
+            cv_splitter = GroupKFold(n_splits=self.cv_folds)
+            self.logger.info(f"Performing {self.cv_folds}-fold GroupKFold cross-validation on '{self.group_column}'...")
+            cv_scores = cross_val_score(
+                pipeline, X, y,
+                cv=cv_splitter,
+                groups=groups,
+                scoring='roc_auc',
+                n_jobs=-1
+            )
+        else:  # standard
+            self.logger.info(f"Performing {self.cv_folds}-fold standard cross-validation...")
+            cv_scores = cross_val_score(
+                pipeline, X, y,
+                cv=self.cv_folds,
+                scoring='roc_auc',
+                n_jobs=-1
+            )
 
         # Train-test split for additional evaluation
         try:

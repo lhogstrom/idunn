@@ -48,7 +48,7 @@ genomicInfo <- read.csv(inF,sep="\t")
 ##############################################
 
 medianCoveragePerSample <- svCompiled %>%
-  dplyr::group_by(SourceStudy,Tumor_Sample_Barcode) %>%
+  dplyr::group_by(Center,Tumor_Sample_Barcode) %>%
   dplyr::summarise(medianCoverage=median(t_alt_plus_ref_count,na.rm = TRUE))
 
 ### write table

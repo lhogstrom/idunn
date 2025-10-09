@@ -1,0 +1,17 @@
+Cancer_Type,Algorithm,CV_Strategy,both,demographic,technical
+BRCA,logistic,group,0.591,0.587,0.492
+BRCA,logistic,standard,0.543,0.588,0.433
+BRCA,random_forest,group,0.577,0.564,0.498
+BRCA,random_forest,standard,0.524,0.572,0.432
+GIST,logistic,group,0.592,0.573,0.547
+GIST,logistic,standard,0.409,0.540,0.341
+GIST,random_forest,group,0.571,0.526,0.548
+GIST,random_forest,standard,0.355,0.515,0.330
+LUAD,logistic,group,0.597,0.597,0.489
+LUAD,logistic,standard,0.511,0.596,0.443
+LUAD,random_forest,group,0.596,0.592,0.482
+LUAD,random_forest,standard,0.485,0.586,0.442
+MEL,logistic,group,0.625,0.628,0.496
+MEL,logistic,standard,0.529,0.592,0.419
+MEL,random_forest,group,0.612,0.586,0.500
+MEL,random_forest,standard,0.504,0.565,0.421
