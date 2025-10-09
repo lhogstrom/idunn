@@ -1,4 +1,7 @@
-Cancer_Type,Algorithm,Feature_Set,Mean_CV_AUC,Std_CV_AUC,Mean_Test_AUC,Std_Test_AUC,N_Features,N_Patients,Actionable_Rate,Successful_Runs,Failed_Runs
-LUAD,random_forest,demographic,0.572,0.001,0.603,0.007,6,21496,0.425,2,0
-LUAD,random_forest,technical,0.487,0.000,0.561,0.001,19,21496,0.425,2,0
-LUAD,random_forest,both,0.514,0.000,0.612,0.003,25,21496,0.425,2,0
+Cancer_Type,Algorithm,CV_Strategy,Feature_Set,Mean_CV_AUC,Std_CV_AUC,Mean_Test_AUC,Std_Test_AUC,N_Features,N_Patients,Actionable_Rate,Successful_Runs,Failed_Runs
+LUAD,random_forest,standard,demographic,0.572,0.001,0.603,0.007,6,21496,0.425,2,0
+LUAD,random_forest,standard,technical,0.482,0.001,0.561,0.002,18,21496,0.425,2,0
+LUAD,random_forest,standard,both,0.517,0.000,0.613,0.005,24,21496,0.425,2,0
+LUAD,random_forest,group,demographic,0.585,0.001,0.603,0.007,6,21496,0.425,2,0
+LUAD,random_forest,group,technical,0.492,0.004,0.561,0.002,18,21496,0.425,2,0
+LUAD,random_forest,group,both,0.586,0.001,0.613,0.005,24,21496,0.425,2,0

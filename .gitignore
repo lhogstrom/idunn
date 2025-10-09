@@ -4,3 +4,4 @@ workflow/*.log*
 code/.nextflow.log
 .nextflow*
 work/
+code/oncokb_analyzer/__pycache__/

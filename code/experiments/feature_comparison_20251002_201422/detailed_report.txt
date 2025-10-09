@@ -1,0 +1,98 @@
+Feature Set Comparison Experiment Report
+==================================================
+
+Experiment Configuration:
+-------------------------
+Experiment Name: feature_comparison_20251002_201422
+Database: /Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite
+Cancer Types: LUAD, BRCA, MEL, GIST
+Algorithms: random_forest, logistic
+Feature Sets: demographic, technical, both
+Random Seeds: 3
+CV Folds: 5
+
+Results Summary:
+---------------
+
+LUAD:
+  random_forest:
+    demographic: AUC 0.587 ± 0.002 (6 features)
+    technical: AUC 0.443 ± 0.001 (19 features)
+    both: AUC 0.486 ± 0.003 (25 features)
+  logistic:
+    demographic: AUC 0.596 ± 0.000 (6 features)
+    technical: AUC 0.441 ± 0.000 (19 features)
+    both: AUC 0.510 ± 0.000 (25 features)
+
+BRCA:
+  random_forest:
+    demographic: AUC 0.571 ± 0.002 (6 features)
+    technical: AUC 0.432 ± 0.000 (19 features)
+    both: AUC 0.520 ± 0.001 (25 features)
+  logistic:
+    demographic: AUC 0.588 ± 0.000 (6 features)
+    technical: AUC 0.422 ± 0.000 (19 features)
+    both: AUC 0.542 ± 0.000 (25 features)
+
+MEL:
+  random_forest:
+    demographic: AUC 0.564 ± 0.001 (6 features)
+    technical: AUC 0.425 ± 0.002 (19 features)
+    both: AUC 0.504 ± 0.005 (25 features)
+  logistic:
+    demographic: AUC 0.592 ± 0.000 (6 features)
+    technical: AUC 0.421 ± 0.000 (19 features)
+    both: AUC 0.534 ± 0.000 (25 features)
+
+GIST:
+  random_forest:
+    demographic: AUC 0.513 ± 0.003 (6 features)
+    technical: AUC 0.333 ± 0.002 (19 features)
+    both: AUC 0.352 ± 0.004 (25 features)
+  logistic:
+    demographic: AUC 0.540 ± 0.000 (6 features)
+    technical: AUC 0.338 ± 0.000 (19 features)
+    both: AUC 0.410 ± 0.000 (25 features)
+
+Statistical Comparisons:
+-----------------------
+
+LUAD - random_forest:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.144)
+  demographic_vs_both: p=0.001 *** (effect size: 0.101)
+  technical_vs_both: p=0.003 *** (effect size: -0.043)
+
+LUAD - logistic:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.154)
+  demographic_vs_both: p=0.000 *** (effect size: 0.086)
+  technical_vs_both: p=0.000 *** (effect size: -0.069)
+
+BRCA - random_forest:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.139)
+  demographic_vs_both: p=0.001 *** (effect size: 0.051)
+  technical_vs_both: p=0.000 *** (effect size: -0.088)
+
+BRCA - logistic:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.166)
+  demographic_vs_both: p=0.000 *** (effect size: 0.046)
+  technical_vs_both: p=0.000 *** (effect size: -0.120)
+
+MEL - random_forest:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.139)
+  demographic_vs_both: p=0.002 *** (effect size: 0.060)
+  technical_vs_both: p=0.001 *** (effect size: -0.079)
+
+MEL - logistic:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.171)
+  demographic_vs_both: p=0.000 *** (effect size: 0.058)
+  technical_vs_both: p=0.000 *** (effect size: -0.113)
+
+GIST - random_forest:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.181)
+  demographic_vs_both: p=0.001 *** (effect size: 0.161)
+  technical_vs_both: p=0.005 *** (effect size: -0.020)
+
+GIST - logistic:
+  demographic_vs_technical: p=0.000 *** (effect size: 0.202)
+  demographic_vs_both: p=0.000 *** (effect size: 0.131)
+  technical_vs_both: p=0.000 *** (effect size: -0.072)

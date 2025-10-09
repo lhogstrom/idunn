@@ -1,0 +1,29 @@
+{
+  "db_path": "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite",
+  "cancer_types": [
+    "LUAD",
+    "BRCA",
+    "MEL",
+    "GIST"
+  ],
+  "algorithms": [
+    "random_forest",
+    "logistic"
+  ],
+  "feature_sets": [
+    "demographic",
+    "technical",
+    "both"
+  ],
+  "cv_folds": 5,
+  "n_random_seeds": 3,
+  "random_seeds": [
+    42,
+    123,
+    456
+  ],
+  "output_dir": "experiments/",
+  "experiment_name": "feature_comparison_20251002_201422",
+  "statistical_tests": true,
+  "alpha": 0.05
+}

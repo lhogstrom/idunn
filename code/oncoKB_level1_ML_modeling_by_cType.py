@@ -29,14 +29,11 @@ def subset_patient_data(df,cType,topGeneOnly=False):
     demographic_list = [
     'SAMPLE_TYPE',
     'SAMPLE_TYPE_DETAILED',
-    'STAGE',
     'SEX',
     'RACE',
     'ETHNICITY',
     'AGE_AT_SEQ_REPORT',
-    'TUMOR_PURITY',
-    'TUMOR_PLOIDY'
-    ]
+      ]
     ###excluded columns:
     #'PATIENT_ID',
     #'CANCER_TYPE',
@@ -47,6 +44,9 @@ def subset_patient_data(df,cType,topGeneOnly=False):
     #'INT_SEQ_TO_DEATH',
     #'INT_SEQ_TO_CONTACT',    
     #'INT_Seq_or_Biopsy_To_Death',
+    # 'TUMOR_PURITY',
+    # 'TUMOR_PLOIDY'
+    #'STAGE',
         
     techinical_list = [
      'SUBJECT_CENTER',

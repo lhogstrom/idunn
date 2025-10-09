@@ -45,10 +45,12 @@ class OncoKBAnalyzer:
         self.trainer = ModelTrainer(
             algorithm=config.algorithm,
             cv_folds=config.cv_folds,
-            random_state=config.random_state
+            random_state=config.random_state,
+            cv_strategy=config.cv_strategy,
+            group_column=config.group_column
         )
 
-        self.logger.info(f"Initialized OncoKBAnalyzer with {config.algorithm} algorithm")
+        self.logger.info(f"Initialized OncoKBAnalyzer with {config.algorithm} algorithm using {config.cv_strategy} CV")
 
     def run_analysis(self) -> Dict[str, Any]:
         """
@@ -147,10 +149,10 @@ class OncoKBAnalyzer:
             )
 
         # Prepare features based on configuration
-        X, y = self.trainer.prepare_features(cancer_data, self.config.outcome_column, self.config.feature_set)
+        X, y, groups = self.trainer.prepare_features(cancer_data, self.config.outcome_column, self.config.feature_set)
 
         # Train and evaluate model
-        model_results = self.trainer.train_and_evaluate(X, y)
+        model_results = self.trainer.train_and_evaluate(X, y, groups)
 
         # Add cancer type metadata
         model_results.update({
@@ -159,8 +161,14 @@ class OncoKBAnalyzer:
             'n_actionable': int(n_actionable),
             'actionable_rate': float(n_actionable / len(cancer_data)),
             'n_features': X.shape[1],
+            'cv_strategy': self.config.cv_strategy,
             'status': 'completed'
         })
+
+        # Add group information if using GroupKFold
+        if groups is not None:
+            model_results['n_groups'] = int(groups.nunique())
+            model_results['group_column'] = self.config.group_column
 
         return model_results
 
