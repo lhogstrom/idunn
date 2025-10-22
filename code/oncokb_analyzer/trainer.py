@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score, train_test_split, GroupKFold
+from sklearn.model_selection import cross_val_score, train_test_split, GroupKFold, GroupShuffleSplit
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -22,7 +22,8 @@ class ModelTrainer:
     """Simple model trainer with basic preprocessing"""
 
     def __init__(self, algorithm: str = "random_forest", cv_folds: int = 5, random_state: int = 42,
-                 cv_strategy: str = "standard", group_column: str = "SUBJECT_CENTER"):
+                 cv_strategy: str = "standard", group_column: str = "SUBJECT_CENTER",
+                 institution_aware_test_split: bool = False, test_split_group_column: str = "SUBJECT_CENTER"):
         """
         Initialize model trainer.
 
@@ -32,12 +33,16 @@ class ModelTrainer:
             random_state: Random seed for reproducibility
             cv_strategy: Either "standard" (KFold) or "group" (GroupKFold)
             group_column: Column name for grouping in GroupKFold (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
+            institution_aware_test_split: Use GroupShuffleSplit for test splits (prevents institutional overlap)
+            test_split_group_column: Column for grouping in test splits (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
         """
         self.algorithm = algorithm
         self.cv_folds = cv_folds
         self.random_state = random_state
         self.cv_strategy = cv_strategy
         self.group_column = group_column
+        self.institution_aware_test_split = institution_aware_test_split
+        self.test_split_group_column = test_split_group_column
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Validate algorithm choice
@@ -136,14 +141,21 @@ class ModelTrainer:
         X = data[available_cols].copy()
         y = data[outcome_col].copy()
 
-        # Extract groups for GroupKFold if needed
+        # Extract groups for GroupKFold or institution-aware test splits if needed
         groups = None
-        if self.cv_strategy == "group":
-            if self.group_column not in data.columns:
-                raise ValueError(f"Group column '{self.group_column}' not found in data. Available columns: {data.columns.tolist()}")
+        if self.cv_strategy == "group" or self.institution_aware_test_split:
+            # Determine which column to use for grouping
+            group_col = self.group_column if self.cv_strategy == "group" else self.test_split_group_column
 
-            groups = data[self.group_column].copy()
-            self.logger.info(f"Extracted {groups.nunique()} unique groups from '{self.group_column}' for GroupKFold")
+            if group_col not in data.columns:
+                raise ValueError(f"Group column '{group_col}' not found in data. Available columns: {data.columns.tolist()}")
+
+            groups = data[group_col].copy()
+
+            if self.cv_strategy == "group":
+                self.logger.info(f"Extracted {groups.nunique()} unique groups from '{group_col}' for GroupKFold CV")
+            if self.institution_aware_test_split:
+                self.logger.info(f"Extracted {groups.nunique()} unique groups from '{group_col}' for institution-aware test split")
 
         # Basic validation
         if len(X) == 0:
@@ -282,21 +294,70 @@ class ModelTrainer:
             )
 
         # Train-test split for additional evaluation
-        try:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y,
-                test_size=0.3,
-                random_state=self.random_state,
-                stratify=y
-            )
-        except ValueError as e:
-            # If stratification fails due to class imbalance, try without stratification
-            self.logger.warning(f"Stratified split failed: {e}. Using random split.")
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y,
-                test_size=0.3,
-                random_state=self.random_state
-            )
+        if self.institution_aware_test_split and groups is not None:
+            # Use GroupShuffleSplit to ensure institutions don't overlap between train and test
+            # Note: This uses the same groups as CV (from groups parameter)
+            self.logger.info(f"Using institution-aware test split with GroupShuffleSplit on '{self.group_column}'")
+
+            splitter = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=self.random_state)
+
+            try:
+                # Get train/test indices ensuring group separation
+                train_idx, test_idx = next(splitter.split(X, y, groups=groups))
+                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+                # Log group separation
+                train_groups = groups.iloc[train_idx].unique()
+                test_groups = groups.iloc[test_idx].unique()
+                overlap = set(train_groups) & set(test_groups)
+
+                self.logger.info(f"Train set: {len(train_groups)} unique groups, Test set: {len(test_groups)} unique groups")
+                if len(overlap) > 0:
+                    self.logger.warning(f"WARNING: {len(overlap)} groups overlap between train and test!")
+                else:
+                    self.logger.info("No group overlap between train and test sets (institution-aware split successful)")
+
+            except Exception as e:
+                self.logger.error(f"Institution-aware split failed: {e}. Falling back to standard split.")
+                # Fallback to standard split
+                try:
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y,
+                        test_size=0.3,
+                        random_state=self.random_state,
+                        stratify=y
+                    )
+                except ValueError as e2:
+                    self.logger.warning(f"Stratified split failed: {e2}. Using random split.")
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y,
+                        test_size=0.3,
+                        random_state=self.random_state
+                    )
+        else:
+            # Standard train-test split
+            if self.institution_aware_test_split:
+                self.logger.warning(
+                    "Institution-aware test split requested but groups parameter is None. "
+                    "Falling back to standard split."
+                )
+
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y,
+                    test_size=0.3,
+                    random_state=self.random_state,
+                    stratify=y
+                )
+            except ValueError as e:
+                # If stratification fails due to class imbalance, try without stratification
+                self.logger.warning(f"Stratified split failed: {e}. Using random split.")
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y,
+                    test_size=0.3,
+                    random_state=self.random_state
+                )
 
         # Fit pipeline and evaluate
         pipeline.fit(X_train, y_train)

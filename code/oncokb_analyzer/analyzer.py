@@ -47,7 +47,9 @@ class OncoKBAnalyzer:
             cv_folds=config.cv_folds,
             random_state=config.random_state,
             cv_strategy=config.cv_strategy,
-            group_column=config.group_column
+            group_column=config.group_column,
+            institution_aware_test_split=config.institution_aware_test_split,
+            test_split_group_column=config.test_split_group_column
         )
 
         self.logger.info(f"Initialized OncoKBAnalyzer with {config.algorithm} algorithm using {config.cv_strategy} CV")

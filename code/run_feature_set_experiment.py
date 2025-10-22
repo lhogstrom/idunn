@@ -85,6 +85,21 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--institution-aware-test-split",
+        type=str,
+        nargs='?',
+        const="SUBJECT_CENTER",
+        default=None,
+        metavar="GROUP_COLUMN",
+        help=(
+            "Enable institution-aware test splits using GroupShuffleSplit. "
+            "Optionally specify the grouping column (default: SUBJECT_CENTER). "
+            "This prevents institutional overlap between train and test sets, "
+            "providing more realistic generalization estimates."
+        )
+    )
+
+    parser.add_argument(
         "--n-random-seeds",
         type=int,
         default=5,
@@ -153,6 +168,10 @@ def parse_arguments():
 def create_experiment_config(args) -> ExperimentConfig:
     """Create experiment configuration from command line arguments"""
 
+    # Determine institution-aware test split settings
+    institution_aware = args.institution_aware_test_split is not None
+    test_split_group_col = args.institution_aware_test_split if institution_aware else "SUBJECT_CENTER"
+
     # Handle quick test mode
     if args.quick_test:
         config = ExperimentConfig(
@@ -163,6 +182,8 @@ def create_experiment_config(args) -> ExperimentConfig:
             cv_folds=3,                          # Fewer folds for speed
             cv_strategies=args.cv_strategies,    # Keep all CV strategies for comparison
             group_column=args.group_column,
+            institution_aware_test_split=institution_aware,
+            test_split_group_column=test_split_group_col,
             n_random_seeds=2,                    # Fewer seeds for speed
             random_seeds=[42, 123],              # Just 2 seeds
             output_dir=args.output_dir,
@@ -179,6 +200,8 @@ def create_experiment_config(args) -> ExperimentConfig:
             cv_folds=args.cv_folds,
             cv_strategies=args.cv_strategies,
             group_column=args.group_column,
+            institution_aware_test_split=institution_aware,
+            test_split_group_column=test_split_group_col,
             n_random_seeds=args.n_random_seeds,
             random_seeds=args.random_seeds,
             output_dir=args.output_dir,
@@ -200,7 +223,8 @@ def print_experiment_summary(config: ExperimentConfig):
     print(f"Algorithms: {', '.join(config.algorithms)}")
     print(f"Feature Sets: {', '.join(config.feature_sets)}")
     print(f"CV Strategies: {', '.join(config.cv_strategies)}")
-    print(f"Group Column: {config.group_column}")
+    print(f"Group Column (CV): {config.group_column}")
+    print(f"Institution-Aware Test Split: {'Yes (' + config.test_split_group_column + ')' if config.institution_aware_test_split else 'No'}")
     print(f"CV Folds: {config.cv_folds}")
     print(f"Random Seeds: {config.n_random_seeds} seeds")
     print(f"Statistical Tests: {'Yes' if config.statistical_tests else 'No'}")

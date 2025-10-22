@@ -37,6 +37,10 @@ class ExperimentConfig:
     n_random_seeds: int = 5  # For statistical robustness
     random_seeds: List[int] = field(default_factory=lambda: [42, 123, 456, 789, 999])
 
+    # Train-test split settings
+    institution_aware_test_split: bool = False  # Use GroupShuffleSplit for test splits
+    test_split_group_column: str = "SUBJECT_CENTER"  # Column for institution-aware test splits
+
     # Output settings
     output_dir: str = "experiments/"
     experiment_name: str = ""  # Will be auto-generated if empty
@@ -115,6 +119,8 @@ class ExperimentConfig:
             'group_column': self.group_column,
             'n_random_seeds': self.n_random_seeds,
             'random_seeds': self.random_seeds,
+            'institution_aware_test_split': self.institution_aware_test_split,
+            'test_split_group_column': self.test_split_group_column,
             'output_dir': self.output_dir,
             'experiment_name': self.experiment_name,
             'statistical_tests': self.statistical_tests,
@@ -239,6 +245,8 @@ class FeatureSetExperiment:
             feature_set=feature_set,
             cv_strategy=cv_strategy,
             group_column=self.config.group_column,
+            institution_aware_test_split=self.config.institution_aware_test_split,
+            test_split_group_column=self.config.test_split_group_column,
             random_state=random_seed,
             cv_folds=self.config.cv_folds,
             min_actionable_events=250,  # Use default threshold

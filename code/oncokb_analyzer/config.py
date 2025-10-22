@@ -33,6 +33,10 @@ class Config:
     cv_strategy: str = "standard"  # "standard" or "group"
     group_column: str = "SUBJECT_CENTER"  # Column for GroupKFold (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
 
+    # Train-test split strategy
+    institution_aware_test_split: bool = False  # Use GroupShuffleSplit for test splits
+    test_split_group_column: str = "SUBJECT_CENTER"  # Column for institution-aware test splits (can differ from cv group_column)
+
     # Output
     output_dir: str = "output/"
 
@@ -95,6 +99,10 @@ class Config:
         if self.cv_strategy == "group" and not self.group_column:
             raise ValueError("group_column must be specified when cv_strategy is 'group'")
 
+        # Check test_split_group_column is provided when using institution-aware test split
+        if self.institution_aware_test_split and not self.test_split_group_column:
+            raise ValueError("test_split_group_column must be specified when institution_aware_test_split is True")
+
         return True
 
     def to_dict(self) -> dict:
@@ -110,5 +118,7 @@ class Config:
             'feature_set': self.feature_set,
             'cv_strategy': self.cv_strategy,
             'group_column': self.group_column,
+            'institution_aware_test_split': self.institution_aware_test_split,
+            'test_split_group_column': self.test_split_group_column,
             'output_dir': self.output_dir
         }
