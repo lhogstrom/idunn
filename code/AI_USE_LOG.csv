@@ -2,3 +2,5 @@
 1-Oct-25,code refactor,"Modifying the structure of the single, large ML script ""oncoKB_level1_ML_modeling_by_cType.py"" to help make it more modular",Claude Sonnet 4.0
 5-Oct-25,statistical model brainstorm,"organize code structure to accomodate experiments across feature inputs, and model types",Claude Sonnet 4.5
 6-Oct-25,code refactor,"organize results reporting for ML performance stats",Claude Sonnet 4.5
+20-Oct-25,statistical model brainstorm,"get information on the best way to implement GroupShuffleSplit to define CV folds and test sets. Get function framework for adding this feature to ML experiments.",Claude Sonnet 4.5
+20-Oct-25,code structure,"function framework for adding CV statification feature to ML experiments.",Claude Sonnet 4.5
