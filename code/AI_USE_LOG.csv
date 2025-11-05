@@ -5,3 +5,4 @@
 20-Oct-25,statistical model brainstorm,"get information on the best way to implement GroupShuffleSplit to define CV folds and test sets. Get function framework for adding this feature to ML experiments.",Claude Sonnet 4.5
 20-Oct-25,code structure,"function framework for adding CV statification feature to ML experiments.",Claude Sonnet 4.5
 20-Oct-23,statistical model brainstorm,"Queried for help with plotting approaches and coef of variance calculations.",Claude Sonnet 4.5
+30-Oct-23,statistical model brainstorm,"Queried python plotting approaches for dot graph and welch's t-test calculations",Claude Sonnet 4.5
