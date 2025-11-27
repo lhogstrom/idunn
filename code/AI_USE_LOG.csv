@@ -7,3 +7,4 @@
 20-Oct-25,statistical model brainstorm,"Queried for help with plotting approaches and coef of variance calculations.",Claude Sonnet 4.5
 30-Oct-25,statistical model brainstorm,"Queried python plotting approaches for dot graph and welch's t-test calculations",Claude Sonnet 4.5
 2-Nov-25,statistical model brainstorm,"Created plots to look at interaction between age and ethnicity. Welch's t-test config.",Claude Sonnet 4.5
+25-Nov-25,statistical model brainstorm,"Refactored existing post-hoc testing structure. queried for methods to perform log-odds,chi sq, and welch's t-test in python. queried for best approach to apply FDR correction",Claude Sonnet 4.5
