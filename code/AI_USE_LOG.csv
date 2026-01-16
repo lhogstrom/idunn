@@ -8,3 +8,6 @@
 30-Oct-25,statistical model brainstorm,"Queried python plotting approaches for dot graph and welch's t-test calculations",Claude Sonnet 4.5
 2-Nov-25,statistical model brainstorm,"Created plots to look at interaction between age and ethnicity. Welch's t-test config.",Claude Sonnet 4.5
 25-Nov-25,statistical model brainstorm,"Refactored existing post-hoc testing structure. queried for methods to perform log-odds,chi sq, and welch's t-test in python. queried for best approach to apply FDR correction",Claude Sonnet 4.5
+25-Nov-25,code structure,"quried to get function organization and execution scheme for post-hoc testing.",Claude Sonnet 4.5
+04-Jan-26,code structure,"Used AI to enumerate oncotree grouping options including OT code roll-up events in define_multi_tier_groupings_v3.py.",Claude Sonnet 4.5
+10-Jan-26,vizualizaiton,"refactored shap vizualization code and added new plotting functionality based on AI sugguestions",Claude Sonnet 4.5
