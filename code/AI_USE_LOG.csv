@@ -11,3 +11,8 @@
 25-Nov-25,code structure,"quried to get function organization and execution scheme for post-hoc testing.",Claude Sonnet 4.5
 04-Jan-26,code structure,"Used AI to enumerate oncotree grouping options including OT code roll-up events in define_multi_tier_groupings_v3.py.",Claude Sonnet 4.5
 10-Jan-26,vizualizaiton,"refactored shap vizualization code and added new plotting functionality based on AI sugguestions",Claude Sonnet 4.5
+14-Jan-26,statistical model brainstorm,"Used AI to help identify which hyperparmeters to vary for random forest, xgb, and LR",Claude Sonnet 4.5
+14-Jan-26,code structure,"structed hyperparmeter testing and model selection functions and output files",Claude Sonnet 4.5
+15-Jan-26,code structure,"migrated and updated ml preprocessing steps",Claude Sonnet 4.5
+15-Jan-26,code structure,"updated ml analyzer.py functionality to take pre-defined train/test split assignment IDs",Claude Sonnet 4.5
+17-Jan-26,code structure,"Prepared data_loader to support nested cross validation",Claude Sonnet 4.5

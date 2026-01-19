@@ -6,8 +6,10 @@ No advanced features - just basic functionality to get working.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from datetime import datetime
+from pathlib import Path
+import pandas as pd
 
 from .config import Config
 from .data_loader import DataLoader
@@ -49,10 +51,35 @@ class OncoKBAnalyzer:
             cv_strategy=config.cv_strategy,
             group_column=config.group_column,
             institution_aware_test_split=config.institution_aware_test_split,
-            test_split_group_column=config.test_split_group_column
+            test_split_group_column=config.test_split_group_column,
+            n_jobs=config.n_jobs
         )
 
         self.logger.info(f"Initialized OncoKBAnalyzer with {config.algorithm} algorithm using {config.cv_strategy} CV")
+
+    def _load_train_patient_ids(self) -> Optional[List[str]]:
+        """
+        Load training patient IDs from train/test split file if configured.
+
+        Returns:
+            List of training patient IDs, or None if no split file configured
+        """
+        if not self.config.train_test_split_file:
+            return None
+
+        split_path = Path(self.config.train_test_split_file)
+        if not split_path.exists():
+            self.logger.warning(f"Train/test split file not found: {split_path}")
+            self.logger.warning("Using ALL data (no train/test split filtering)")
+            return None
+
+        try:
+            split_df = pd.read_csv(split_path)
+            train_patient_ids = split_df[split_df['split'] == 'train']['PATIENT_ID'].tolist()
+            return train_patient_ids
+        except Exception as e:
+            self.logger.error(f"Error loading train/test split file: {e}")
+            return None
 
     def run_analysis(self) -> Dict[str, Any]:
         """
@@ -68,15 +95,55 @@ class OncoKBAnalyzer:
         self.logger.info("Starting OncoKB actionability analysis...")
 
         try:
-            # Load data
-            self.logger.info("Loading patient data...")
-            data = self.data_loader.load_patient_data()
+            # Load train/test split if provided (filter to training data only)
+            train_patient_ids = self._load_train_patient_ids()
+            if train_patient_ids:
+                self.logger.info(f"Train/test split loaded: using {len(train_patient_ids):,} training patients")
 
-            # Get data summary
-            data_summary = self.data_loader.get_data_summary(data)
-            self.logger.info(f"Loaded data summary: {data_summary['total_patients']} patients, "
-                            f"{data_summary['total_cancer_types']} cancer types, "
-                            f"{data_summary['actionable_rate']:.1%} actionable rate")
+            # Detect if any cancer types use multi-tier groupings
+            has_tier_codes = any(ct.startswith('tier') for ct in self.config.cancer_types)
+
+            if has_tier_codes:
+                # Use multi-tier data loader
+                self.logger.info("Detected tier-prefixed codes - using multi-tier grouping data loader...")
+                mapping_file = "../../analysis_output/multi_tier_groupings/patient_to_group_mapping.csv"
+                cancer_data_dict = self.data_loader.prepare_cancer_data_dict_multi_tier(
+                    grouping_mapping_file=mapping_file,
+                    feature_set=self.config.feature_set,
+                    outcome_col=self.config.outcome_column,
+                    group_column=self.config.group_column,
+                    patient_ids_filter=train_patient_ids
+                )
+
+                # Set data to None to signal multi-tier mode
+                data = None
+                data_summary = {
+                    'total_patients': sum(X.shape[0] for X, y, groups in cancer_data_dict.values()),
+                    'total_cancer_types': len(cancer_data_dict),
+                    'actionable_rate': sum(y.sum() for X, y, groups in cancer_data_dict.values()) /
+                                     sum(X.shape[0] for X, y, groups in cancer_data_dict.values())
+                }
+                self.logger.info(f"Loaded multi-tier data: {data_summary['total_patients']} patients, "
+                                f"{data_summary['total_cancer_types']} groups, "
+                                f"{data_summary['actionable_rate']:.1%} actionable rate")
+            else:
+                # Use standard data loader
+                self.logger.info("Loading patient data...")
+                data = self.data_loader.load_patient_data()
+
+                # Apply train/test split filter if provided
+                if train_patient_ids:
+                    original_count = len(data)
+                    data = data[data['PATIENT_ID'].isin(train_patient_ids)].copy()
+                    self.logger.info(f"Filtered to training data: {len(data):,} / {original_count:,} patients")
+
+                cancer_data_dict = None
+
+                # Get data summary
+                data_summary = self.data_loader.get_data_summary(data)
+                self.logger.info(f"Loaded data summary: {data_summary['total_patients']} patients, "
+                                f"{data_summary['total_cancer_types']} cancer types, "
+                                f"{data_summary['actionable_rate']:.1%} actionable rate")
 
             results = {
                 'analysis_metadata': {
@@ -92,7 +159,7 @@ class OncoKBAnalyzer:
                 self.logger.info(f"Analyzing cancer type: {cancer_type}")
 
                 try:
-                    cancer_result = self._analyze_cancer_type(data, cancer_type)
+                    cancer_result = self._analyze_cancer_type(data, cancer_type, cancer_data_dict)
                     results['cancer_type_results'][cancer_type] = cancer_result
 
                     self.logger.info(
@@ -125,13 +192,14 @@ class OncoKBAnalyzer:
             self.logger.error(f"Analysis failed: {str(e)}")
             raise
 
-    def _analyze_cancer_type(self, data, cancer_type: str) -> Dict[str, Any]:
+    def _analyze_cancer_type(self, data, cancer_type: str, cancer_data_dict=None) -> Dict[str, Any]:
         """
         Analyze a single cancer type.
 
         Args:
-            data: Full patient dataset
+            data: Full patient dataset (None if using multi-tier mode)
             cancer_type: Cancer type to analyze
+            cancer_data_dict: Pre-loaded multi-tier data dict (None if using standard mode)
 
         Returns:
             Dictionary with analysis results
@@ -139,29 +207,48 @@ class OncoKBAnalyzer:
         Raises:
             Exception: If analysis fails for this cancer type
         """
-        # Filter data for this cancer type
-        cancer_data = self.data_loader.filter_for_cancer_type(data, cancer_type)
+        if cancer_data_dict is not None:
+            # Multi-tier mode: data is already prepared
+            if cancer_type not in cancer_data_dict:
+                raise ValueError(
+                    f"Cancer type '{cancer_type}' not found in multi-tier groupings. "
+                    f"Available groups: {list(cancer_data_dict.keys())[:10]}"
+                )
 
-        # Check minimum actionable events threshold
-        n_actionable = cancer_data[self.config.outcome_column].sum()
-        if n_actionable < self.config.min_actionable_events:
-            raise ValueError(
-                f"Insufficient actionable events for {cancer_type}: {n_actionable} "
-                f"(minimum {self.config.min_actionable_events} required)"
-            )
+            X, y, groups = cancer_data_dict[cancer_type]
 
-        # Prepare features based on configuration
-        X, y, groups = self.trainer.prepare_features(cancer_data, self.config.outcome_column, self.config.feature_set)
+            # Check minimum actionable events threshold
+            n_actionable = y.sum()
+            if n_actionable < self.config.min_actionable_events:
+                raise ValueError(
+                    f"Insufficient actionable events for {cancer_type}: {n_actionable} "
+                    f"(minimum {self.config.min_actionable_events} required)"
+                )
+        else:
+            # Standard mode: filter and prepare data
+            cancer_data = self.data_loader.filter_for_cancer_type(data, cancer_type)
+
+            # Check minimum actionable events threshold
+            n_actionable = cancer_data[self.config.outcome_column].sum()
+            if n_actionable < self.config.min_actionable_events:
+                raise ValueError(
+                    f"Insufficient actionable events for {cancer_type}: {n_actionable} "
+                    f"(minimum {self.config.min_actionable_events} required)"
+                )
+
+            # Prepare features based on configuration
+            X, y, groups = self.trainer.prepare_features(cancer_data, self.config.outcome_column, self.config.feature_set)
 
         # Train and evaluate model
         model_results = self.trainer.train_and_evaluate(X, y, groups)
 
         # Add cancer type metadata
+        n_patients = X.shape[0]  # Use feature matrix shape (works for both modes)
         model_results.update({
             'cancer_type': cancer_type,
-            'n_patients': len(cancer_data),
+            'n_patients': n_patients,
             'n_actionable': int(n_actionable),
-            'actionable_rate': float(n_actionable / len(cancer_data)),
+            'actionable_rate': float(n_actionable / n_patients),
             'n_features': X.shape[1],
             'cv_strategy': self.config.cv_strategy,
             'status': 'completed'
