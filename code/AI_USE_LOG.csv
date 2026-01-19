@@ -16,3 +16,6 @@
 15-Jan-26,code structure,"migrated and updated ml preprocessing steps",Claude Sonnet 4.5
 15-Jan-26,code structure,"updated ml analyzer.py functionality to take pre-defined train/test split assignment IDs",Claude Sonnet 4.5
 17-Jan-26,code structure,"Prepared data_loader to support nested cross validation",Claude Sonnet 4.5
+18-Jan-26,code refactor,"Magrated shap analysis from R to python with functionality",Claude Sonnet 4.5
+18-Jan-26,statistical model brainstorm,"Had AI help me add shap interaction analysis rather than just individual feature rankings",Claude Sonnet 4.5
+19-Jan-26,code structure,"Update support tool scripts including db handling, db_config.py, and output_manager",Claude Sonnet 4.5

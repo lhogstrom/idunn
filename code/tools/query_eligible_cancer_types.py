@@ -12,6 +12,12 @@ Usage:
 import pandas as pd
 from sqlalchemy import create_engine
 import argparse
+
+# Add tools to path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
+from db_config import get_default_db_path
 import sys
 from pathlib import Path
 
@@ -57,7 +63,7 @@ def main():
     parser.add_argument(
         "--db-path",
         type=str,
-        default="/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite",
+        default=get_default_db_path(),
         help="Path to SQLite database"
     )
 
