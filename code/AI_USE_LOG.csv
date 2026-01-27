@@ -24,3 +24,4 @@
 23-Jan-26,statistical model brainstorm,"I was seeing model overfitting. Had AI implement institutional sample weighting during model training.",Claude Opus 4.5
 24-Jan-26,code structure,"Added base-run-dir flag to draw results from prior runs of data.",Claude Opus 4.5
 25-Jan-26,code structure,"Added master run all script. Used AI to structure error handling and add flags to control pipeline execution.",Claude Opus 4.5
+25-Jan-26,code refactor,"used AI to refactor logic of shap rankings from R to python.",Claude Opus 4.5

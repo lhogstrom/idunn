@@ -9,38 +9,159 @@ For features ranking in top 5:
 2. RACE/ETHNICITY: Chi-square tests across groups
 3. Technical features (library_selection, calling_strategy): Chi-square tests
 4. Applies Benjamini-Hochberg FDR correction for each category
+
 """
 
 import sqlite3
 import pandas as pd
 import numpy as np
+import argparse
 from pathlib import Path
+
+# Add tools to path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
+from db_config import get_default_db_path
 from scipy import stats
 from scipy.stats import chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
 # Configuration
-DB_PATH = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
-SHAP_FILE = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522b/demographic_technical_ml_modeling/shap_feature_ranks.csv"
-OUTPUT_DIR = Path("../../../analysis_output/posthoc_statistics")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = get_default_db_path()
+
+# Use absolute path to ensure output goes to repo directory
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+# Legacy SHAP file path (for backward compatibility)
+LEGACY_SHAP_FILE = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522b/demographic_technical_ml_modeling/shap_feature_ranks.csv"
+
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "analysis_output" / "posthoc_statistics"
+OUTPUT_DIR = None  # Set by main()
+
+# Feature patterns for pattern matching in both old and new formats
+# Old format uses sklearn-style names: "cat__SEX_Male"
+# New format uses readable names: "Sex: Male"
+FEATURE_PATTERNS = {
+    'SEX': ['SEX_', 'Sex:'],
+    'RACE_ETHNICITY': ['RACE_', 'ETHNICITY_', 'Race:', 'Ethnicity:'],
+    'TECHNICAL': ['library_selection_', 'calling_strategy_', 'Library Selection:', 'Calling Strategy:']
+}
 
 TABLE_NAME = "perPatientOncoKBFilteredForModeling"
 TOP_N_FEATURES = 5
 
 
-def load_shap_rankings(shap_file):
-    """Load SHAP feature rankings"""
+def get_default_shap_file():
+    """
+    Get default SHAP file, preferring new format (TIER 6a) over legacy.
 
+    Searches for SHAP primary values output from compute_shap_primary_values.py
+    in the standard output locations.
+
+    Returns:
+        str: Path to SHAP rankings file, or None if not found
+    """
+    # Check for new format output in analysis_output
+    new_output = REPO_ROOT / "analysis_output" / "shap_primary_values"
+    if new_output.exists():
+        # Find latest run
+        runs = sorted(new_output.glob("run_*"), reverse=True)
+        for run_dir in runs:
+            combined_file = run_dir / "combined_feature_importance.csv"
+            if combined_file.exists():
+                print(f"Found SHAP file (new format): {combined_file}")
+                return str(combined_file)
+
+    # Check for new format in runs directory (unified output structure)
+    runs_dir = REPO_ROOT / "runs"
+    if runs_dir.exists():
+        # Find latest run with SHAP output
+        runs = sorted(runs_dir.glob("run_*"), reverse=True)
+        for run_dir in runs:
+            shap_dir = run_dir / "tier6_shap_analysis" / "primary_values"
+            combined_file = shap_dir / "combined_feature_importance.csv"
+            if combined_file.exists():
+                print(f"Found SHAP file (new format, unified runs): {combined_file}")
+                return str(combined_file)
+
+    # Fall back to legacy file
+    if Path(LEGACY_SHAP_FILE).exists():
+        print(f"Using legacy SHAP file: {LEGACY_SHAP_FILE}")
+        print("  WARNING: Consider running TIER 6a (compute_shap_primary_values.py) for updated SHAP rankings")
+        return LEGACY_SHAP_FILE
+
+    return None
+
+
+def load_shap_rankings_adaptive(shap_file):
+    """
+    Load SHAP rankings, auto-detecting format (new vs legacy).
+
+    New format (from shap_primary_analyzer.py):
+        - cancer_type, feature_name, feature_name_raw, mean_abs_shap, rank
+
+    Legacy format:
+        - ONCOTREE_CODE, feature, mean_abs_shap, feature_rank
+
+    Args:
+        shap_file: Path to SHAP rankings CSV file
+
+    Returns:
+        pd.DataFrame with standardized columns:
+            - ONCOTREE_CODE: cancer type
+            - feature: feature name (human-readable preferred)
+            - mean_abs_shap: mean absolute SHAP value
+            - feature_rank: 1-based rank
+
+    Raises:
+        ValueError: If file format is not recognized
+    """
     print(f"Loading SHAP rankings from {shap_file}...")
 
     df = pd.read_csv(shap_file)
+
+    # Detect format by checking column names
+    if 'cancer_type' in df.columns and 'feature_name' in df.columns:
+        # New format from shap_primary_analyzer.py
+        print("  Detected NEW format (TIER 6a output)")
+
+        # Rename columns to legacy format for compatibility
+        df = df.rename(columns={
+            'cancer_type': 'ONCOTREE_CODE',
+            'feature_name': 'feature',  # Use readable name for pattern matching
+            'rank': 'feature_rank'
+        })
+
+        # Keep feature_name_raw as additional column for reference
+        if 'feature_name_raw' in df.columns:
+            df['feature_raw'] = df['feature_name_raw']
+
+    elif 'ONCOTREE_CODE' in df.columns and 'feature' in df.columns:
+        # Legacy format
+        print("  Detected LEGACY format")
+
+    else:
+        raise ValueError(
+            f"Unrecognized SHAP file format. "
+            f"Expected columns 'cancer_type'/'feature_name' (new) or 'ONCOTREE_CODE'/'feature' (legacy). "
+            f"Found: {df.columns.tolist()}"
+        )
+
+    # Ensure feature_rank exists
+    if 'feature_rank' not in df.columns and 'rank' in df.columns:
+        df['feature_rank'] = df['rank']
 
     print(f"Loaded {len(df):,} feature rankings")
     print(f"Cancer types: {df['ONCOTREE_CODE'].nunique()}")
     print(f"Unique features: {df['feature'].nunique()}")
 
     return df
+
+
+def load_shap_rankings(shap_file):
+    """Load SHAP feature rankings (wrapper for backward compatibility)"""
+    return load_shap_rankings_adaptive(shap_file)
 
 
 def identify_top_features(shap_df, feature_patterns, top_n=5):
@@ -61,7 +182,7 @@ def identify_top_features(shap_df, feature_patterns, top_n=5):
                     'pattern': pattern,
                     'ONCOTREE_CODE': row['ONCOTREE_CODE'],
                     'feature': row['feature'],
-                    'rank': row['feature_rank'],
+                    'feature_rank': row['feature_rank'],  # Standardized column name
                     'mean_abs_shap': row['mean_abs_shap']
                 })
 
@@ -328,7 +449,8 @@ def analyze_sex_associations(shap_df, db_path):
     print("=" * 80)
 
     # Identify cancer types with sex features in top 5
-    sex_features = identify_top_features(shap_df, ['SEX_'], TOP_N_FEATURES)
+    # Use both old (SEX_) and new (Sex:) patterns for compatibility
+    sex_features = identify_top_features(shap_df, FEATURE_PATTERNS['SEX'], TOP_N_FEATURES)
 
     if len(sex_features) == 0:
         print("No cancer types with SEX features in top 5")
@@ -357,7 +479,7 @@ def analyze_sex_associations(shap_df, db_path):
         result = {
             'ONCOTREE_CODE': cancer_type,
             'feature': shap_info['feature'],
-            'shap_rank': shap_info['rank'],
+            'shap_rank': shap_info['feature_rank'],
             'shap_importance': shap_info['mean_abs_shap'],
             **test_result
         }
@@ -399,9 +521,10 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
     print("=" * 80)
 
     # Identify cancer types with race/ethnicity features in top 5
+    # Use both old (RACE_, ETHNICITY_) and new (Race:, Ethnicity:) patterns
     race_eth_features = identify_top_features(
         shap_df,
-        ['RACE_', 'ETHNICITY_'],
+        FEATURE_PATTERNS['RACE_ETHNICITY'],
         TOP_N_FEATURES
     )
 
@@ -434,9 +557,10 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
             feature_name = feat_info['feature']
 
             # Determine column name (RACE or ETHNICITY)
-            if 'RACE_' in feature_name:
+            # Support both old format (RACE_, ETHNICITY_) and new format (Race:, Ethnicity:)
+            if 'RACE_' in feature_name or 'Race:' in feature_name:
                 column = 'RACE'
-            elif 'ETHNICITY_' in feature_name:
+            elif 'ETHNICITY_' in feature_name or 'Ethnicity:' in feature_name:
                 column = 'ETHNICITY'
             else:
                 continue
@@ -450,7 +574,7 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
                 'ONCOTREE_CODE': cancer_type,
                 'feature': feature_name,
                 'column': column,
-                'shap_rank': feat_info['rank'],
+                'shap_rank': feat_info['feature_rank'],
                 'shap_importance': feat_info['mean_abs_shap'],
                 **test_result
             }
@@ -491,9 +615,10 @@ def analyze_technical_feature_associations(shap_df, db_path):
     print("=" * 80)
 
     # Identify cancer types with technical features in top 5
+    # Use both old and new format patterns
     tech_features = identify_top_features(
         shap_df,
-        ['library_selection_', 'calling_strategy_'],
+        FEATURE_PATTERNS['TECHNICAL'],
         TOP_N_FEATURES
     )
 
@@ -553,9 +678,11 @@ def analyze_technical_feature_associations(shap_df, db_path):
             feature_name = feat_info['feature']
 
             # Determine column name
-            if 'library_selection_' in feature_name:
+            # Support both old format (library_selection_, calling_strategy_)
+            # and new format (Library Selection:, Calling Strategy:)
+            if 'library_selection_' in feature_name.lower() or 'Library Selection:' in feature_name:
                 column = lib_sel_cols[0] if len(lib_sel_cols) > 0 else None
-            elif 'calling_strategy_' in feature_name:
+            elif 'calling_strategy_' in feature_name.lower() or 'Calling Strategy:' in feature_name:
                 column = call_strat_cols[0] if len(call_strat_cols) > 0 else None
             else:
                 continue
@@ -573,7 +700,7 @@ def analyze_technical_feature_associations(shap_df, db_path):
                 'ONCOTREE_CODE': cancer_type,
                 'feature': feature_name,
                 'column': column,
-                'shap_rank': feat_info['rank'],
+                'shap_rank': feat_info['feature_rank'],
                 'shap_importance': feat_info['mean_abs_shap'],
                 **test_result
             }
@@ -705,12 +832,58 @@ def generate_summary_report(sex_results, race_eth_results, tech_results, output_
 def main():
     """Main execution function"""
 
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description='SHAP feature association testing',
+        epilog="""
+Examples:
+  # Use auto-detected SHAP file (new format preferred)
+  python analyze_shap_feature_associations.py
+
+  # Use specific SHAP file (new TIER 6a format)
+  python analyze_shap_feature_associations.py --shap-file ../../../analysis_output/shap_primary_values/run_*/combined_feature_importance.csv
+
+  # Use legacy SHAP file
+  python analyze_shap_feature_associations.py --shap-file /path/to/legacy/shap_feature_ranks.csv
+        """
+    )
+    parser.add_argument('--output-dir', type=str, default=None,
+                       help='Output directory for results')
+    parser.add_argument('--shap-file', type=str, default=None,
+                       help='Path to SHAP feature rankings CSV (new TIER 6a format or legacy format)')
+    args = parser.parse_args()
+
+    # Set output directory
+    global OUTPUT_DIR
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
+    else:
+        OUTPUT_DIR = DEFAULT_OUTPUT_DIR
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     print("=" * 80)
     print("Post-Hoc Statistical Testing: SHAP Feature Associations")
     print("=" * 80)
 
-    # Load SHAP rankings
-    shap_df = load_shap_rankings(SHAP_FILE)
+    # Determine SHAP file to use
+    if args.shap_file:
+        shap_file = args.shap_file
+        print(f"\nUsing specified SHAP file: {shap_file}")
+    else:
+        shap_file = get_default_shap_file()
+        if shap_file is None:
+            print("\nERROR: No SHAP file found!")
+            print("  Please run TIER 6a (compute_shap_primary_values.py) first, or")
+            print("  specify a SHAP file using --shap-file argument")
+            return 1
+
+    # Verify SHAP file exists
+    if not Path(shap_file).exists():
+        print(f"\nERROR: SHAP file not found: {shap_file}")
+        return 1
+
+    # Load SHAP rankings (auto-detects format)
+    shap_df = load_shap_rankings_adaptive(shap_file)
 
     # Save top 5 features for all cancer types
     top5_all = shap_df[shap_df['feature_rank'] <= TOP_N_FEATURES].copy()
@@ -742,6 +915,58 @@ def main():
     # Generate summary report
     report_file = OUTPUT_DIR / "shap_associations_report.txt"
     generate_summary_report(sex_results, race_eth_results, tech_results, report_file)
+
+    # Generate presentation tables
+    print("\n" + "=" * 80)
+    print("Creating presentation-friendly tables...")
+    print("=" * 80)
+
+    from create_presentation_tables import (
+        create_sex_presentation_table,
+        create_race_presentation_table,
+        create_tech_presentation_table,
+        generate_sex_legend,
+        generate_race_legend,
+        generate_tech_legend,
+        load_oncotree_mapping
+    )
+
+    # Load OncoTree mapping
+    oncotree_mapping = load_oncotree_mapping(DB_PATH)
+
+    # Create presentation tables
+    if len(sex_results) > 0:
+        sex_pres = create_sex_presentation_table(sex_results, oncotree_mapping)
+        if len(sex_pres) > 0:
+            sex_pres_file = OUTPUT_DIR / "sex_associations_PRESENTATION.csv"
+            sex_pres.to_csv(sex_pres_file, index=False)
+            print(f"Sex presentation table: {sex_pres_file}")
+
+            # Generate legend
+            sex_legend_file = OUTPUT_DIR / "sex_associations_LEGEND.md"
+            generate_sex_legend(sex_legend_file)
+
+    if len(race_eth_results) > 0:
+        race_pres = create_race_presentation_table(race_eth_results, oncotree_mapping)
+        if len(race_pres) > 0:
+            race_pres_file = OUTPUT_DIR / "race_ethnicity_associations_PRESENTATION.csv"
+            race_pres.to_csv(race_pres_file, index=False)
+            print(f"Race/Ethnicity presentation table: {race_pres_file}")
+
+            # Generate legend
+            race_legend_file = OUTPUT_DIR / "race_ethnicity_associations_LEGEND.md"
+            generate_race_legend(race_legend_file)
+
+    if len(tech_results) > 0:
+        tech_pres = create_tech_presentation_table(tech_results, oncotree_mapping)
+        if len(tech_pres) > 0:
+            tech_pres_file = OUTPUT_DIR / "technical_feature_associations_PRESENTATION.csv"
+            tech_pres.to_csv(tech_pres_file, index=False)
+            print(f"Technical features presentation table: {tech_pres_file}")
+
+            # Generate legend
+            tech_legend_file = OUTPUT_DIR / "technical_feature_associations_LEGEND.md"
+            generate_tech_legend(tech_legend_file)
 
     print("\n" + "=" * 80)
     print("Analysis complete!")
