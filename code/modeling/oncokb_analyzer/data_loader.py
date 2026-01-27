@@ -3,12 +3,17 @@ Simple Data Loader for OncoKB Analyzer
 
 Basic SQLite data loading functionality.
 No caching, connection pooling, or advanced features - just load and filter.
+
+Feature definitions are imported from preprocessing.py, which loads them
+from the centralized config at code/config/features.yaml.
 """
 
 import pandas as pd
 from sqlalchemy import create_engine
 from pathlib import Path
 import logging
+
+from .preprocessing import DEMOGRAPHIC_FEATURES, TECHNICAL_FEATURES
 
 
 class DataLoader:
@@ -240,44 +245,14 @@ class DataLoader:
                 f"feature_set must be one of {valid_feature_sets}, got: {feature_set}"
             )
 
-        # Define feature lists (same as trainer.py)
-        demographic_list = [
-            'SAMPLE_TYPE',
-            'SAMPLE_TYPE_DETAILED',
-            'SEX',
-            'RACE',
-            'ETHNICITY',
-            'AGE_AT_SEQ_REPORT',
-        ]
-
-        technical_list = [
-            'SUBJECT_CENTER',
-            'SEQ_ASSAY_ID',
-            'is_paired_end',
-            'library_selection',
-            'library_strategy',
-            'platform',
-            'read_length',
-            'target_capture_kit',
-            'instrument_model',
-            'gene_padding',
-            'number_of_genes',
-            'variant_classifications',
-            'alteration_types',
-            'preservation_technique',
-            'specimen_tumor_cellularity',
-            'calling_strategy',
-            'coverage',
-            'SEQ_PIPELINE_ID'
-        ]
-
+        # Feature lists imported from preprocessing.py (centralized in config/features.yaml)
         # Select features based on feature_set parameter
         if feature_set == "demographic":
-            feature_list = demographic_list
+            feature_list = DEMOGRAPHIC_FEATURES.copy()
         elif feature_set == "technical":
-            feature_list = technical_list
+            feature_list = TECHNICAL_FEATURES.copy()
         else:  # feature_set == "both"
-            feature_list = demographic_list + technical_list
+            feature_list = DEMOGRAPHIC_FEATURES + TECHNICAL_FEATURES
 
         # Filter to columns that actually exist in the data
         available_cols = [col for col in feature_list if col in data.columns]

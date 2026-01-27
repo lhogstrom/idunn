@@ -4,8 +4,6 @@ Hyperparameter Optimizer with Nested Cross-Validation
 This module implements nested cross-validation for unbiased hyperparameter optimization.
 Supports both universal (pooled) and cancer-type-specific optimization strategies.
 
-Author: Claude Code
-Date: December 2025
 """
 
 import numpy as np

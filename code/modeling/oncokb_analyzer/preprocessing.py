@@ -4,8 +4,10 @@ Preprocessing Pipeline for OncoKB Analyzer
 Shared preprocessing logic used by both trainer.py and hyperparameter_optimizer.py.
 Handles imputation and encoding of demographic and technical features.
 
-Author: Claude Code
-Date: December 2025
+Feature definitions are centralized in code/config/features.yaml and loaded
+via code/tools/feature_config.py. This module re-exports constants for
+backwards compatibility with existing imports.
+
 """
 
 from sklearn.preprocessing import OneHotEncoder
@@ -13,62 +15,35 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from typing import List, Optional
+import sys
+from pathlib import Path
+
+# Add tools to path for feature_config import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
+from feature_config import (
+    get_feature_list as _get_feature_list,
+    get_numeric_features as _get_numeric_features,
+    get_categorical_features as _get_categorical_features,
+)
 
 
 # ============================================================================
-# Feature Definitions
+# Feature Definitions (loaded from centralized config)
 # ============================================================================
+# These are re-exported for backwards compatibility with existing imports
+# SINGLE SOURCE OF TRUTH: code/config/features.yaml
 
 # Demographic features (no data leakage)
-DEMOGRAPHIC_FEATURES = [
-    'SAMPLE_TYPE',
-    'SAMPLE_TYPE_DETAILED',
-    'SEX',
-    'RACE',
-    'ETHNICITY',
-    'AGE_AT_SEQ_REPORT',
-]
+DEMOGRAPHIC_FEATURES = _get_feature_list('demographic')
 
 # Technical features (may cause data leakage in cross-institution prediction)
-TECHNICAL_FEATURES = [
-    'SUBJECT_CENTER',
-    'SEQ_ASSAY_ID',
-    'is_paired_end',
-    'library_selection',
-    'library_strategy',
-    'platform',
-    'read_length',
-    'target_capture_kit',
-    'instrument_model',
-    'gene_padding',
-    'number_of_genes',
-    'variant_classifications',
-    'alteration_types',
-    'preservation_technique',
-    'specimen_tumor_cellularity',
-    'calling_strategy',
-    'coverage',
-    'SEQ_PIPELINE_ID'
-]
+TECHNICAL_FEATURES = _get_feature_list('technical')
 
 # Numeric features (subset of all features)
-NUMERIC_FEATURES = [
-    'AGE_AT_SEQ_REPORT',
-    'read_length',
-    'gene_padding',
-    'number_of_genes'
-]
+NUMERIC_FEATURES = _get_numeric_features()
 
 # Categorical features (all others are categorical)
-CATEGORICAL_FEATURES = [
-    # Demographic
-    'SAMPLE_TYPE', 'SAMPLE_TYPE_DETAILED', 'SEX', 'RACE', 'ETHNICITY',
-    # Technical
-    'SUBJECT_CENTER', 'SEQ_ASSAY_ID', 'is_paired_end', 'library_selection',
-    'library_strategy', 'platform', 'target_capture_kit', 'instrument_model',
-    'variant_classifications', 'alteration_types', 'preservation_technique',
-    'calling_strategy', 'SEQ_PIPELINE_ID', 'specimen_tumor_cellularity', 'coverage'
-]
+CATEGORICAL_FEATURES = _get_categorical_features()
 
 
 def get_feature_list(feature_set: str = 'demographic') -> List[str]:

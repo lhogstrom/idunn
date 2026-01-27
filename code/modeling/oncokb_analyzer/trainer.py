@@ -3,6 +3,9 @@ Basic Model Trainer for OncoKB Analyzer
 
 Simple trainer with demographic features only (no technical features to avoid data leakage).
 Supports Random Forest or Logistic Regression with basic preprocessing.
+
+Feature definitions are imported from preprocessing.py, which loads them
+from the centralized config at code/config/features.yaml.
 """
 
 import pandas as pd
@@ -17,13 +20,17 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
 import logging
 
+from .stratified_group_kfold import StratifiedGroupKFold
+from .preprocessing import DEMOGRAPHIC_FEATURES, TECHNICAL_FEATURES, NUMERIC_FEATURES, CATEGORICAL_FEATURES
+
 
 class ModelTrainer:
     """Simple model trainer with basic preprocessing"""
 
     def __init__(self, algorithm: str = "random_forest", cv_folds: int = 5, random_state: int = 42,
-                 cv_strategy: str = "standard", group_column: str = "SUBJECT_CENTER",
-                 institution_aware_test_split: bool = False, test_split_group_column: str = "SUBJECT_CENTER"):
+                 cv_strategy: str = "stratified_group", group_column: str = "SUBJECT_CENTER",
+                 institution_aware_test_split: bool = False, test_split_group_column: str = "SUBJECT_CENTER",
+                 n_jobs: int = -1):
         """
         Initialize model trainer.
 
@@ -31,10 +38,11 @@ class ModelTrainer:
             algorithm: Either "random_forest" or "logistic"
             cv_folds: Number of cross-validation folds
             random_state: Random seed for reproducibility
-            cv_strategy: Either "standard" (KFold) or "group" (GroupKFold)
+            cv_strategy: "standard" (KFold), "group" (GroupKFold), or "stratified_group" (StratifiedGroupKFold)
             group_column: Column name for grouping in GroupKFold (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
             institution_aware_test_split: Use GroupShuffleSplit for test splits (prevents institutional overlap)
             test_split_group_column: Column for grouping in test splits (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
+            n_jobs: Number of parallel jobs (-1 uses all cores, 1 for single-threaded to save memory)
         """
         self.algorithm = algorithm
         self.cv_folds = cv_folds
@@ -43,6 +51,7 @@ class ModelTrainer:
         self.group_column = group_column
         self.institution_aware_test_split = institution_aware_test_split
         self.test_split_group_column = test_split_group_column
+        self.n_jobs = n_jobs
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Validate algorithm choice
@@ -50,8 +59,8 @@ class ModelTrainer:
             raise ValueError(f"Algorithm must be 'random_forest' or 'logistic', got: {algorithm}")
 
         # Validate cv_strategy choice
-        if cv_strategy not in ["standard", "group"]:
-            raise ValueError(f"cv_strategy must be 'standard' or 'group', got: {cv_strategy}")
+        if cv_strategy not in ["standard", "group", "stratified_group"]:
+            raise ValueError(f"cv_strategy must be 'standard', 'group', or 'stratified_group', got: {cv_strategy}")
 
     def prepare_features(self, data: pd.DataFrame, outcome_col: str, feature_set: str = "both"):
         """
@@ -77,58 +86,15 @@ class ModelTrainer:
         if feature_set not in valid_feature_sets:
             raise ValueError(f"feature_set must be one of {valid_feature_sets}, got: {feature_set}")
 
-        # Demographic columns
-        demographic_list = [
-            'SAMPLE_TYPE',
-            'SAMPLE_TYPE_DETAILED',
-            'SEX',
-            'RACE',
-            'ETHNICITY',
-            'AGE_AT_SEQ_REPORT',
-        ]
-
-        ###excluded columns:
-        #'PATIENT_ID',
-        #'CANCER_TYPE',
-        #'CANCER_TYPE_DETAILED',
-        #'ONCOTREE_CODE',
-        #'INT_Biopsy_To_Death',
-        #'DEAD',
-        #'INT_SEQ_TO_DEATH',
-        #'INT_SEQ_TO_CONTACT',
-        #'INT_Seq_or_Biopsy_To_Death',
-        # 'TUMOR_PURITY',
-        # 'TUMOR_PLOIDY'
-        #'STAGE',
-
-        technical_list = [
-            'SUBJECT_CENTER',
-            'SEQ_ASSAY_ID',
-            'is_paired_end',
-            'library_selection',
-            'library_strategy',
-            'platform',
-            'read_length',
-            'target_capture_kit',
-            'instrument_model',
-            'gene_padding',
-            'number_of_genes',
-            'variant_classifications',
-            'alteration_types',
-            'preservation_technique',
-            'specimen_tumor_cellularity',
-            'calling_strategy',
-            'coverage',
-            'SEQ_PIPELINE_ID'
-        ]
-
+        # Feature lists imported from preprocessing.py (centralized in config/features.yaml)
+        # Excluded columns documented in config/features.yaml metadata
         # Select features based on feature_set parameter
         if feature_set == "demographic":
-            feature_list = demographic_list
+            feature_list = DEMOGRAPHIC_FEATURES.copy()
         elif feature_set == "technical":
-            feature_list = technical_list
+            feature_list = TECHNICAL_FEATURES.copy()
         else:  # feature_set == "both"
-            feature_list = demographic_list + technical_list
+            feature_list = DEMOGRAPHIC_FEATURES + TECHNICAL_FEATURES
 
         # Filter to columns that actually exist in the data
         available_cols = [col for col in feature_list if col in data.columns]
@@ -141,11 +107,11 @@ class ModelTrainer:
         X = data[available_cols].copy()
         y = data[outcome_col].copy()
 
-        # Extract groups for GroupKFold or institution-aware test splits if needed
+        # Extract groups for GroupKFold/StratifiedGroupKFold or institution-aware test splits if needed
         groups = None
-        if self.cv_strategy == "group" or self.institution_aware_test_split:
+        if self.cv_strategy in ["group", "stratified_group"] or self.institution_aware_test_split:
             # Determine which column to use for grouping
-            group_col = self.group_column if self.cv_strategy == "group" else self.test_split_group_column
+            group_col = self.group_column if self.cv_strategy in ["group", "stratified_group"] else self.test_split_group_column
 
             if group_col not in data.columns:
                 raise ValueError(f"Group column '{group_col}' not found in data. Available columns: {data.columns.tolist()}")
@@ -154,6 +120,8 @@ class ModelTrainer:
 
             if self.cv_strategy == "group":
                 self.logger.info(f"Extracted {groups.nunique()} unique groups from '{group_col}' for GroupKFold CV")
+            elif self.cv_strategy == "stratified_group":
+                self.logger.info(f"Extracted {groups.nunique()} unique groups from '{group_col}' for StratifiedGroupKFold CV")
             if self.institution_aware_test_split:
                 self.logger.info(f"Extracted {groups.nunique()} unique groups from '{group_col}' for institution-aware test split")
 
@@ -179,23 +147,9 @@ class ModelTrainer:
         Returns:
             Scikit-learn Pipeline object
         """
-        # Define all possible column types for preprocessing
-        all_numeric_cols = [
-            'AGE_AT_SEQ_REPORT',
-            'read_length',
-            'gene_padding',
-            'number_of_genes'
-        ]
-
-        all_categorical_cols = [
-            # Demographic
-            'SAMPLE_TYPE', 'SAMPLE_TYPE_DETAILED', 'SEX', 'RACE', 'ETHNICITY',
-            # Technical
-            'SUBJECT_CENTER', 'SEQ_ASSAY_ID', 'is_paired_end', 'library_selection',
-            'library_strategy', 'platform', 'target_capture_kit', 'instrument_model',
-            'variant_classifications', 'alteration_types', 'preservation_technique',
-            'calling_strategy', 'SEQ_PIPELINE_ID', 'specimen_tumor_cellularity', 'coverage'
-        ]
+        # Feature type lists imported from preprocessing.py (centralized in config/features.yaml)
+        all_numeric_cols = NUMERIC_FEATURES.copy()
+        all_categorical_cols = CATEGORICAL_FEATURES.copy()
 
         # Filter to only available columns if specified
         if available_columns is not None:
@@ -221,7 +175,9 @@ class ModelTrainer:
                 max_depth=10,
                 random_state=self.random_state,
                 class_weight='balanced',
-                n_jobs=-1  # Use all available cores
+                n_jobs=self.n_jobs,
+                oob_score=True,   # Enable out-of-bag score for overfitting monitoring
+                bootstrap=True    # Required for oob_score
             )
         else:  # logistic regression
             model = LogisticRegression(
@@ -261,10 +217,10 @@ class ModelTrainer:
         if class_counts.min() < 5:
             raise ValueError(f"Insufficient samples in minority class: {class_counts.to_dict()}")
 
-        # Validate groups if using GroupKFold
-        if self.cv_strategy == "group":
+        # Validate groups if using GroupKFold or StratifiedGroupKFold
+        if self.cv_strategy in ["group", "stratified_group"]:
             if groups is None:
-                raise ValueError("groups parameter is required when cv_strategy is 'group'")
+                raise ValueError(f"groups parameter is required when cv_strategy is '{self.cv_strategy}'")
             if len(groups) != len(X):
                 raise ValueError(f"groups length ({len(groups)}) must match X length ({len(X)})")
 
@@ -282,7 +238,17 @@ class ModelTrainer:
                 cv=cv_splitter,
                 groups=groups,
                 scoring='roc_auc',
-                n_jobs=-1
+                n_jobs=self.n_jobs
+            )
+        elif self.cv_strategy == "stratified_group":
+            cv_splitter = StratifiedGroupKFold(n_splits=self.cv_folds, random_state=self.random_state)
+            self.logger.info(f"Performing {self.cv_folds}-fold StratifiedGroupKFold cross-validation on '{self.group_column}'...")
+            cv_scores = cross_val_score(
+                pipeline, X, y,
+                cv=cv_splitter,
+                groups=groups,
+                scoring='roc_auc',
+                n_jobs=self.n_jobs
             )
         else:  # standard
             self.logger.info(f"Performing {self.cv_folds}-fold standard cross-validation...")
@@ -290,7 +256,7 @@ class ModelTrainer:
                 pipeline, X, y,
                 cv=self.cv_folds,
                 scoring='roc_auc',
-                n_jobs=-1
+                n_jobs=self.n_jobs
             )
 
         # Train-test split for additional evaluation

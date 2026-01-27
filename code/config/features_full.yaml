@@ -1,0 +1,138 @@
+# Feature Definitions for Actionability Prediction (FULL SET)
+#
+# This is the FULL feature set with all 18 technical features.
+# Use this config for experiments requiring the complete feature set.
+#
+# Usage: python run_feature_set_experiment.py --feature-config code/config/features_full.yaml
+
+metadata:
+  version: "1.0"
+  description: "Feature definitions for OncoKB actionability prediction models (full technical features)"
+  notes: |
+    - Use 'demographic' feature set for biological insights
+    - Use 'both' for maximum predictive power (with caveats about interpretability)
+    - WARNING: 'both' feature set expands to 300-400 columns after one-hot encoding
+
+# Feature Sets - grouped by category
+feature_sets:
+  demographic:
+    description: "Patient and sample characteristics (no data leakage)"
+    features:
+      - SAMPLE_TYPE
+      - SAMPLE_TYPE_DETAILED
+      - SEX
+      - RACE
+      - ETHNICITY
+      - AGE_AT_SEQ_REPORT
+
+  technical:
+    description: "Sequencing and institutional feature"
+    features:
+      - SUBJECT_CENTER
+      - SEQ_ASSAY_ID
+      - is_paired_end
+      - library_selection
+      - library_strategy
+      - platform
+      - read_length
+      - target_capture_kit
+      - instrument_model
+      - gene_padding
+      - number_of_genes
+      - variant_classifications
+      - alteration_types
+      - preservation_technique
+      - specimen_tumor_cellularity
+      - calling_strategy
+      - coverage
+      - SEQ_PIPELINE_ID
+
+# Feature Types - for preprocessing pipeline
+feature_types:
+  numeric:
+    description: "Features processed with median imputation"
+    features:
+      - AGE_AT_SEQ_REPORT
+      - read_length
+      - gene_padding
+      - number_of_genes
+
+  categorical:
+    description: "Features processed with most frequent imputation + one-hot encoding"
+    features:
+      # Demographic categorical features
+      - SAMPLE_TYPE
+      - SAMPLE_TYPE_DETAILED
+      - SEX
+      - RACE
+      - ETHNICITY
+      # Technical categorical features
+      - SUBJECT_CENTER
+      - SEQ_ASSAY_ID
+      - is_paired_end
+      - library_selection
+      - library_strategy
+      - platform
+      - target_capture_kit
+      - instrument_model
+      - variant_classifications
+      - alteration_types
+      - preservation_technique
+      - specimen_tumor_cellularity
+      - calling_strategy
+      - coverage
+      - SEQ_PIPELINE_ID
+
+# Display Names - for SHAP visualizations and reports
+display_names:
+  # Demographic features
+  AGE_AT_SEQ_REPORT: "Age at Sequencing"
+  SEX: "Sex"
+  RACE: "Race"
+  ETHNICITY: "Ethnicity"
+  SAMPLE_TYPE: "Sample Type"
+  SAMPLE_TYPE_DETAILED: "Sample Type (Detailed)"
+
+  # Technical features
+  SUBJECT_CENTER: "Institution"
+  SEQ_ASSAY_ID: "Sequencing Assay"
+  SEQ_PIPELINE_ID: "Sequencing Pipeline"
+  is_paired_end: "Paired End Sequencing"
+  library_selection: "Library Selection"
+  library_strategy: "Library Strategy"
+  platform: "Sequencing Platform"
+  read_length: "Read Length"
+  target_capture_kit: "Capture Kit"
+  instrument_model: "Instrument Model"
+  gene_padding: "Gene Padding"
+  number_of_genes: "Number of Genes"
+  variant_classifications: "Variant Classifications"
+  alteration_types: "Alteration Types"
+  preservation_technique: "Preservation Technique"
+  specimen_tumor_cellularity: "Tumor Cellularity"
+  calling_strategy: "Variant Calling Strategy"
+  coverage: "Coverage"
+
+# Value Display Names - for categorical value labels
+value_display_names:
+  # Sex values
+  Male: "Male"
+  Female: "Female"
+
+  # Race values
+  White: "White"
+  Black: "Black or African American"
+  Asian: "Asian"
+  American Indian or Alaska Native: "Native American"
+  Native Hawaiian or Other Pacific Islander: "Pacific Islander"
+  Other: "Other"
+  Unknown: "Unknown"
+
+  # Ethnicity values
+  Not Hispanic or Latino: "Non-Hispanic"
+  Hispanic or Latino: "Hispanic"
+
+  # Sample type values
+  Metastatic: "Metastatic"
+  Primary: "Primary"
+  Local recurrence: "Local Recurrence"

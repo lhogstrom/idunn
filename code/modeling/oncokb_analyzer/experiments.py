@@ -40,9 +40,13 @@ class ExperimentConfig:
     # Train-test split settings
     institution_aware_test_split: bool = False  # Use GroupShuffleSplit for test splits
     test_split_group_column: str = "SUBJECT_CENTER"  # Column for institution-aware test splits
+    train_test_split_file: str = None  # Path to train/test split CSV file (PATIENT_ID, split columns)
+
+    # Parallel processing
+    n_jobs: int = -1  # Number of parallel jobs (-1 uses all cores, 1 for single-threaded to save memory)
 
     # Output settings
-    output_dir: str = "experiments/"
+    output_dir: str = "../../ml_experiments/"
     experiment_name: str = ""  # Will be auto-generated if empty
 
     # Statistical testing
@@ -90,7 +94,7 @@ class ExperimentConfig:
                 raise ValueError(f"Feature set '{fs}' not supported. Valid: {valid_feature_sets}")
 
         # Validate CV strategies
-        valid_cv_strategies = ["standard", "group"]
+        valid_cv_strategies = ["standard", "group", "stratified_group"]
         for cv_strat in self.cv_strategies:
             if cv_strat not in valid_cv_strategies:
                 raise ValueError(f"CV strategy '{cv_strat}' not supported. Valid: {valid_cv_strategies}")
@@ -121,6 +125,8 @@ class ExperimentConfig:
             'random_seeds': self.random_seeds,
             'institution_aware_test_split': self.institution_aware_test_split,
             'test_split_group_column': self.test_split_group_column,
+            'train_test_split_file': self.train_test_split_file,
+            'n_jobs': self.n_jobs,
             'output_dir': self.output_dir,
             'experiment_name': self.experiment_name,
             'statistical_tests': self.statistical_tests,
@@ -247,10 +253,12 @@ class FeatureSetExperiment:
             group_column=self.config.group_column,
             institution_aware_test_split=self.config.institution_aware_test_split,
             test_split_group_column=self.config.test_split_group_column,
+            train_test_split_file=self.config.train_test_split_file,
             random_state=random_seed,
             cv_folds=self.config.cv_folds,
             min_actionable_events=250,  # Use default threshold
-            outcome_column="isOncoKbLevel1"
+            outcome_column="isOncoKbLevel1",
+            n_jobs=self.config.n_jobs
         )
 
         # Run analysis

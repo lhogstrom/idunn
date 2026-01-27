@@ -5,8 +5,6 @@ Defines search spaces for hyperparameter optimization with RandomizedSearchCV
 and GridSearchCV. Based on best practices from scikit-learn documentation and
 cancer genomics ML literature.
 
-Author: Claude Code
-Date: December 2025
 """
 
 # ============================================================================
@@ -17,29 +15,30 @@ RF_PARAM_DISTRIBUTIONS = {
     # Number of trees in the forest
     # More trees = better performance but diminishing returns after ~200
     # Trade-off: Computation time vs stability
-    'n_estimators': [50, 100, 200, 500],
+    # Updated: Removed 50 (too few), focus on 100+ for stability
+    'n_estimators': [100, 200, 500],
 
     # Maximum depth of each tree
     # None = grow until pure (may overfit)
-    # 10-30 = reasonable range for medical data
-    # Shallower = more regularization
-    'max_depth': [10, 20, 30, None],
+    # Updated: Added 3, 5 for stronger regularization; removed None to prevent overfitting
+    # Shallower trees reduce train-test AUC gap caused by institutional concentration
+    'max_depth': [3, 5, 7, 10, 15],
 
     # Minimum samples required to split an internal node
     # Higher values = more regularization (prevent overfitting)
-    # Especially important for small datasets
-    'min_samples_split': [2, 5, 10, 20],
+    # Updated: Increased range significantly to address overfitting (was 2-20)
+    'min_samples_split': [10, 20, 50, 100],
 
     # Minimum samples required to be at a leaf node
     # Higher values = smoother decision boundaries
-    # Prevents creating leaves with very few samples
-    'min_samples_leaf': [1, 2, 4, 8],
+    # Updated: Increased minimum from 1 to 5 to address overfitting (was 1-8)
+    'min_samples_leaf': [5, 10, 20, 30],
 
     # Number of features to consider when looking for best split
     # 'sqrt' = sqrt(n_features) - standard for classification
     # 'log2' = log2(n_features) - more aggressive feature subsampling
-    # 0.3, 0.5 = fixed fractions (useful when n_features varies)
-    'max_features': ['sqrt', 'log2', 0.3, 0.5],
+    # Updated: Removed 0.5 (too many features can lead to overfitting)
+    'max_features': ['sqrt', 'log2', 0.3],
 
     # Weighting strategy for imbalanced classes
     # 'balanced' = weights inversely proportional to class frequencies
