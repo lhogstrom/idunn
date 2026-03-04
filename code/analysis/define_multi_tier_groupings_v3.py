@@ -22,12 +22,17 @@ Output:
 - patient_to_group_mapping.csv: Patient-level mapping (patient_id, tier, group_code, etc.)
 - group_summary_stats.csv: Summary statistics per group
 
-Author: Balder Analysis Pipeline
-Date: January 14, 2026
 """
 
 import sys
 import os
+import argparse
+
+# Add tools to path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
+from db_config import get_default_db_path
 import sqlite3
 import pandas as pd
 import numpy as np
@@ -35,15 +40,17 @@ from pathlib import Path
 from datetime import datetime
 
 # Database path
-DB_PATH = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
+DB_PATH = get_default_db_path()
 
-# Input CSV paths
-GROUPING_DIR = Path(__file__).parent.parent.parent / "analysis_output" / "oncotree_grouping_analysis"
-B1_UNDER250_CSV = GROUPING_DIR / "oncotree_grouping_B1_Under250.csv"
-A2_LEVEL3TO2_CSV = GROUPING_DIR / "oncotree_grouping_A2_Level3to2.csv"
+# Input CSV paths (defaults, overridden by --input-dir)
+DEFAULT_GROUPING_DIR = Path(__file__).parent.parent.parent / "analysis_output" / "oncotree_grouping_analysis"
+GROUPING_DIR = None  # Set by main()
+B1_UNDER250_CSV = None  # Set by main()
+A2_LEVEL3TO2_CSV = None  # Set by main()
 
 # Output directory
-OUTPUT_DIR = Path(__file__).parent.parent.parent / "analysis_output" / "multi_tier_groupings"
+DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent / "analysis_output" / "multi_tier_groupings"
+OUTPUT_DIR = None  # Set by main()
 
 # Minimum actionable threshold
 MIN_ACTIONABLE = 250
@@ -530,6 +537,32 @@ def save_outputs(all_groups, patient_mapping, summary_stats):
 
 def main():
     """Main execution function."""
+
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Multi-tier cancer type grouping definition')
+    parser.add_argument('--output-dir', type=str, default=None,
+                       help='Output directory for results')
+    parser.add_argument('--input-dir', type=str, default=None,
+                       help='Directory containing oncotree grouping CSVs (from oncotree_grouping_analysis.py)')
+    args = parser.parse_args()
+
+    # Set input directory for grouping files
+    global GROUPING_DIR, B1_UNDER250_CSV, A2_LEVEL3TO2_CSV
+    if args.input_dir:
+        GROUPING_DIR = Path(args.input_dir)
+    else:
+        GROUPING_DIR = DEFAULT_GROUPING_DIR
+    B1_UNDER250_CSV = GROUPING_DIR / "oncotree_grouping_B1_Under250.csv"
+    A2_LEVEL3TO2_CSV = GROUPING_DIR / "oncotree_grouping_A2_Level3to2.csv"
+
+    # Set output directory
+    global OUTPUT_DIR
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
+    else:
+        OUTPUT_DIR = DEFAULT_OUTPUT_DIR
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     print("\n" + "="*80)
     print("MULTI-TIER CANCER TYPE GROUPING DEFINITION (v3 - Level 1 Tier 3)")
     print("="*80)

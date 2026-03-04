@@ -5,6 +5,18 @@ Master Analysis Script for Balder Project
 Orchestrates execution of all analysis scripts and ML experiments in scientifically
 sound order. Handles environment switching, dependency management, and error reporting.
 
+Scientific Workflow Order (January 2026):
+    TIER 1: Independent Analyses (demographics, institutional, feature engineering)
+    TIER 2: Data Setup (multi-tier groupings + train/test split)
+    TIER 3: Hyperparameter Optimization (training data only)
+    TIER 4: Feature Set Comparison (training data only)
+    TIER 5: Final Model Training & Test Set Evaluation
+    TIER 6: SHAP Analysis
+    TIER 7: Post-Hoc Statistical Analysis (based on SHAP features)
+
+    IMPORTANT: Test set (20%) is held out BEFORE hyperparameter optimization.
+    All model development uses ONLY the 80% training data.
+
 Usage:
     python run_all_analyses.py --full              # Run everything (~5 hours)
     python run_all_analyses.py --quick             # Quick test run (~30 min, skips SHAP)
@@ -15,6 +27,7 @@ Usage:
     python run_all_analyses.py --list              # List all scripts
 
 Note: --quick mode automatically skips ALL SHAP analysis (TIER 6) to prevent memory issues.
+Note: --post-model-selection runs SHAP primary values (6a) but skips SHAP interactions (6b).
 """
 
 import argparse
@@ -75,7 +88,7 @@ class MasterAnalysis:
         self.parallel = parallel
         self.feature_config_path = feature_config_path  # Custom feature config path
         self.institution_weight_alpha = institution_weight_alpha  # Power weighting for TIER 5
-        self.base_run_dir = Path(base_run_dir) if base_run_dir else None  # Existing run to draw from
+        self.base_run_dir = Path(base_run_dir).resolve() if base_run_dir else None  # Existing run to draw from
 
         # Get repository root
         self.repo_root = Path(__file__).parent.parent
@@ -177,6 +190,18 @@ class MasterAnalysis:
     def _define_scripts(self) -> List[ScriptConfig]:
         """Define all analysis scripts with their configurations.
 
+        Scientific Workflow Order (January 2026 Reorganization):
+        - TIER 1: Independent Analyses (demographics, institutional, feature engineering)
+        - TIER 2a: Multi-Tier Grouping Definition (OncoTree hierarchy, patient groupings)
+        - TIER 2b: Train/Test Split Definition (80/20 stratified by cancer type)
+        - TIER 3: Hyperparameter Optimization (training data only)
+        - TIER 4: Feature Set Comparison (training data only)
+        - TIER 5: Final Model Training & Test Set Evaluation
+        - TIER 6: SHAP Analysis
+        - TIER 7: Post-Hoc Statistical Analysis (based on SHAP features)
+
+        IMPORTANT: Test set is held out BEFORE hyperparameter optimization to prevent
+        data leakage. All model development (TIER 3-4) uses only training data.
         """
 
         scripts = []
@@ -245,7 +270,8 @@ class MasterAnalysis:
                     env="primary",
                     runtime="quick",
                     tier=2,
-                    args=['--output-dir', tier2_dir + '/multi_tier_groupings']
+                    args=['--input-dir', tier2_dir + '/oncotree_grouping',
+                          '--output-dir', tier2_dir + '/multi_tier_groupings']
                 ),
             ])
 
@@ -482,6 +508,99 @@ class MasterAnalysis:
                         depends_on=["compute_shap_primary_values.py"]
                     )
                 )
+
+            # Post-hoc visualizations - publication-ready figures
+            # Creates forest plots, volcano plots, heatmaps for all significant associations
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/visualize_posthoc_results.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=7,
+                    args=[
+                        '--input-dir', str(self.tier_dirs[7]),
+                        '--output-dir', str(self.tier_dirs[7]) + '/visualizations'
+                    ],
+                    depends_on=["analyze_shap_feature_associations.py"]
+                )
+            )
+
+            # Raw data visualizations - detailed plots for significant associations
+            # Creates age distributions, sex contingency, race/ethnicity plots, technical features
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/visualize_raw_data.py",
+                    env="primary",
+                    runtime="medium",  # Generates many per-cancer-type plots
+                    tier=7,
+                    args=[
+                        '--input-dir', str(self.tier_dirs[7]),
+                        '--output-dir', str(self.tier_dirs[7]) + '/raw_data_plots'
+                    ],
+                    depends_on=["analyze_shap_feature_associations.py"]
+                )
+            )
+
+            # Gene-Stratified Post-Hoc Analysis (TIER 7 extension)
+            # Phase 1: Explore gene distributions per cancer type
+            gene_strat_dir = tier7_dir + '/gene_stratified'
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/explore_gene_distributions.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=7,
+                    args=['--output-dir', gene_strat_dir + '/gene_distributions', '--tier', 'all'],
+                    depends_on=[]  # Independent - queries database directly
+                )
+            )
+
+            # Phase 2: Gene-stratified association tests
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/analyze_gene_stratified_associations.py",
+                    env="primary",
+                    runtime="medium",
+                    tier=7,
+                    args=[
+                        '--input-dir', gene_strat_dir + '/gene_distributions',
+                        '--output-dir', gene_strat_dir,
+                        '--tier', 'all'
+                    ],
+                    depends_on=["explore_gene_distributions.py"]
+                )
+            )
+
+            # Phase 3: Gene-stratified visualizations
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/visualize_gene_stratified_results.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=7,
+                    args=[
+                        '--input-dir', gene_strat_dir,
+                        '--output-dir', gene_strat_dir + '/visualizations',
+                        '--raw-data-plots'
+                    ],
+                    depends_on=["analyze_gene_stratified_associations.py"]
+                )
+            )
+
+            # Phase 4: Gene-stratified summary tables
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/summarize_gene_stratified_results.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=7,
+                    args=[
+                        '--input-dir', gene_strat_dir,
+                        '--output-dir', gene_strat_dir
+                    ],
+                    depends_on=["analyze_gene_stratified_associations.py"]
+                )
+            )
 
         return scripts
 
