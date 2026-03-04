@@ -28,3 +28,8 @@
 05-Feb-26,code refactor,"refactor gene-based groupings for posthoc analysis. wrapping statistical tests for cohen's d, cramers v, odds ratio, etc",Claude Opus 4.5
 06-Feb-26,statistical model,"aggregate individual gene-based post hoc tests into a single table",Claude Opus 4.5
 12-Feb-26,code structure,"make helper function for gene-based testing",Claude Opus 4.5
+18-Feb-26,code structure,"testing and unit testing framework for modeling functions and data handling",Claude Opus 4.5
+23-Feb-26,code structure,"Revised oncotree group handling",Claude Opus 4.6
+26-Feb-26,statistical model brainstorm,"Select LR as default model over RF. Begin extraction of LR values. Assign to human-readable feature names.",Claude Opus 4.6
+28-Feb-26,statistical model brainstorm,"Draft code for LR-based hit list for associations for a subset of OT code groupings",Claude Opus 4.6
+01-Mar-26,statistical model brainstorm,"Draft code for the creation of p-values and confidence intervals based on LR scores. Wald test.",Claude Opus 4.6
