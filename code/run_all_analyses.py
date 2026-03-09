@@ -691,13 +691,25 @@ class MasterAnalysis:
         tools_dir = str(self.repo_root / "code" / "tools")
         env['PYTHONPATH'] = modeling_dir + os.pathsep + tools_dir + os.pathsep + env.get('PYTHONPATH', '')
 
+        # Per-tier timeouts (seconds) to accommodate HPC runtimes
+        tier_timeouts = {
+            1: 1800,    # 30 min  - independent analyses
+            2: 1800,    # 30 min  - data setup
+            3: 21600,   # 6 hours - hyperparameter optimization
+            4: 14400,   # 4 hours - feature set comparison
+            5: 7200,    # 2 hours - final model training
+            6: 14400,   # 4 hours - SHAP analysis
+            7: 3600,    # 1 hour  - post-hoc statistics
+        }
+        timeout_secs = tier_timeouts.get(script.tier, 7200)
+
         try:
             result = subprocess.run(
                 cmd,
                 cwd=self.repo_root,
                 capture_output=True,
                 text=True,
-                timeout=7200,  # 2 hour timeout
+                timeout=timeout_secs,
                 env=env
             )
 
@@ -730,8 +742,8 @@ class MasterAnalysis:
             duration = time.time() - start_time
             script.duration = duration
             script.status = 'failed'
-            script.error_message = "Timeout (>2 hours)"
-            self._log(f"✗ FAILED (timeout after {duration:.1f}s)", Colors.FAIL)
+            script.error_message = f"Timeout (>{timeout_secs}s)"
+            self._log(f"✗ FAILED (timeout after {duration:.1f}s, limit {timeout_secs}s)", Colors.FAIL)
             return False
 
         except Exception as e:

@@ -88,6 +88,20 @@ Set the `BALDER_DB_PATH` environment variable:
 export BALDER_DB_PATH="/path/to/balder-harmonized-biomarker-data-v*.sqlite"
 ```
 
+## Configuration on Cancell server
+(Utilize screen if running a larger job)
+module purge
+module load Miniconda3/23.5.2-0
+* Clone the repo into user dir such as: /data/nobackup/user
+
+### Activate env
+conda env create -f code/dependencies/balder_ml_env.yml
+source $(conda info --base)/etc/profile.d/conda.sh
+conda activate /home/user/miniconda3/envs/balder_conda_env
+
+### sym link for conda location
+ln -s /home/user/miniconda3/envs/balder_conda_env /home/user/.conda/envs/balder_conda_env
+
 ## Usage
 
 ### Master Analysis Script
