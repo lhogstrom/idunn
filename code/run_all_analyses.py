@@ -298,7 +298,7 @@ class MasterAnalysis:
             # Use train_test_split from tier2 directory within this run (or base_run_dir if specified)
             train_split_file = self._get_train_test_split_file()
             phase2b_args = [
-                '--algorithm', self.algorithm,
+                '--algorithm', 'all',  # TIER 3 always searches all algorithms (RF, LR, XGB)
                 '--n-jobs', '1',
                 '--n-iter', '500',
                 '--sample-fraction', '1.0',

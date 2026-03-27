@@ -377,14 +377,20 @@ class Phase2bUniversal:
         n_combos = count_grid_combinations(param_distributions)
         logger.info(f"Search space: {len(param_distributions)} parameters")
         logger.info(f"Grid combinations: {n_combos:,}")
-        logger.info(f"RandomizedSearchCV iterations: {self.n_iter}")
-        logger.info(f"Total models to fit (nested CV): ~{self.n_iter * 5 * 4:,}")
+        logger.info(f"RandomizedSearchCV iterations: {effective_n_iter}")
+        logger.info(f"Total models to fit (nested CV): ~{effective_n_iter * 5 * 4:,}")
+
+        # XGBoost gets reduced iterations (slower per iteration, exploratory only)
+        effective_n_iter = self.n_iter
+        if algorithm == 'xgboost' and self.n_iter > 100:
+            effective_n_iter = min(self.n_iter, 100)
+            logger.info(f"XGBoost: reducing n_iter from {self.n_iter} to {effective_n_iter} (slower algorithm)")
 
         # Create optimizer
         optimizer = NestedCVOptimizer(
             param_distributions=param_distributions,
             search_method='random',
-            n_iter=self.n_iter,
+            n_iter=effective_n_iter,
             scoring='roc_auc',
             n_jobs=self.n_jobs,  # Use configured n_jobs
             random_state=42,
@@ -397,7 +403,7 @@ class Phase2bUniversal:
 
         # Run nested CV optimization on pooled data
         logger.info(f"\nRunning nested cross-validation on pooled dataset...")
-        logger.info(f"This will take approximately {self._estimate_runtime(algorithm, n_combos)} minutes")
+        logger.info(f"This will take approximately {self._estimate_runtime(algorithm, n_combos, effective_n_iter)} minutes")
 
         results = optimizer.optimize(
             X=X_pooled,
@@ -564,11 +570,12 @@ class Phase2bUniversal:
         # Print to console
         print("\n" + report_text)
 
-    def _estimate_runtime(self, algorithm, n_combos):
+    def _estimate_runtime(self, algorithm, n_combos, n_iter=None):
         """Estimate runtime in minutes."""
         # Rough estimates based on Phase 2a experience
         # Nested CV: 5 outer × 4 inner = 20 fits per iteration
         # Total fits: n_iter * 20
+        n_iter = n_iter or self.n_iter
 
         if self.quick_mode:
             base_time = 0.5  # minutes per iteration (quick mode)
@@ -585,7 +592,7 @@ class Phase2bUniversal:
         # Adjust for large pooled dataset (~83k samples vs Phase 2a's ~20k per cancer type)
         pooled_multiplier = 2.0
 
-        estimated_minutes = self.n_iter * base_time * pooled_multiplier
+        estimated_minutes = n_iter * base_time * pooled_multiplier
         return int(estimated_minutes)
 
 
