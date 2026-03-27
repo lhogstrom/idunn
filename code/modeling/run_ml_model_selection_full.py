@@ -373,18 +373,18 @@ class Phase2bUniversal:
             param_distributions = get_param_distributions(algorithm)
             logger.info(f"Using full search space")
 
+        # XGBoost gets reduced iterations (slower per iteration, exploratory only)
+        effective_n_iter = self.n_iter
+        if algorithm == 'xgboost' and self.n_iter > 100:
+            effective_n_iter = min(self.n_iter, 100)
+            logger.info(f"XGBoost: reducing n_iter from {self.n_iter} to {effective_n_iter} (slower algorithm)")
+
         # Log search space statistics
         n_combos = count_grid_combinations(param_distributions)
         logger.info(f"Search space: {len(param_distributions)} parameters")
         logger.info(f"Grid combinations: {n_combos:,}")
         logger.info(f"RandomizedSearchCV iterations: {effective_n_iter}")
         logger.info(f"Total models to fit (nested CV): ~{effective_n_iter * 5 * 4:,}")
-
-        # XGBoost gets reduced iterations (slower per iteration, exploratory only)
-        effective_n_iter = self.n_iter
-        if algorithm == 'xgboost' and self.n_iter > 100:
-            effective_n_iter = min(self.n_iter, 100)
-            logger.info(f"XGBoost: reducing n_iter from {self.n_iter} to {effective_n_iter} (slower algorithm)")
 
         # Create optimizer
         optimizer = NestedCVOptimizer(
@@ -494,6 +494,10 @@ class Phase2bUniversal:
     def _generate_comparison_report(self, all_results):
         """Generate comparison report across all algorithms."""
         logger.info("\nGenerating algorithm comparison report...")
+
+        if not all_results:
+            logger.warning("No algorithm results to compare — all algorithms failed.")
+            return
 
         # Create summary table
         summary_data = []
