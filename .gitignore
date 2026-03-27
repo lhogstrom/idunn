@@ -6,3 +6,5 @@ code/.nextflow.log
 work/
 runs/
 code/oncokb_analyzer/__pycache__/
+code/modeling/oncokb_analyzer/__pycache__/
+code/tools/__pycache__/
