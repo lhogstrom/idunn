@@ -4,12 +4,24 @@ Feature Name Mapper for SHAP Interaction Analysis
 Converts sklearn's transformed feature names (e.g., 'num__x0', 'cat__x1_Male')
 to human-readable names for better interpretability in visualizations and outputs.
 
-Author: Balder Analysis Team
-Date: December 2025
+Feature definitions are loaded from the centralized config at code/config/features.yaml
+via code/tools/feature_config.py.
+
 """
 
 import re
+import sys
+from pathlib import Path
 from typing import List, Dict, Optional
+
+# Add tools to path for feature_config import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
+from feature_config import (
+    get_feature_list,
+    get_numeric_features,
+    get_all_display_names,
+    get_all_value_display_names,
+)
 
 
 class FeatureNameMapper:
@@ -28,49 +40,18 @@ class FeatureNameMapper:
         'Sex: Male'
     """
 
-    # Human-readable display names for demographic and technical features
+    # Human-readable display names loaded from centralized config (code/config/features.yaml)
+    # Merge config values with any additional mappings needed for SHAP
     DISPLAY_NAMES = {
-        # Demographic features
-        'AGE_AT_SEQ_REPORT': 'Age at Sequencing',
-        'SEX': 'Sex',
-        'RACE': 'Race',
-        'ETHNICITY': 'Ethnicity',
-        'SAMPLE_TYPE': 'Sample Type',
-        'SAMPLE_TYPE_DETAILED': 'Sample Type (Detailed)',
-        # Technical features - categorical
-        'SUBJECT_CENTER': 'Institution',
-        'SEQ_ASSAY_ID': 'Sequencing Assay',
+        **get_all_display_names(),
+        # Additional technical features that may not be in main config
         'SEQ_YEAR': 'Sequencing Year',
-        'SEQ_PIPELINE_ID': 'Sequencing Pipeline',
-        'library_selection': 'Library Selection',
-        'calling_strategy': 'Variant Calling Strategy',
-        'target_capture_kit': 'Capture Kit',
-        'platform': 'Sequencing Platform',
         'sample_preservation': 'Sample Preservation',
         'tumor_purity_bin': 'Tumor Purity',
-        # Technical features - numeric
-        'read_length': 'Read Length',
-        'gene_padding': 'Gene Padding',
-        'number_of_genes': 'Number of Genes',
     }
 
-    # Value-specific display names
-    VALUE_DISPLAY_NAMES = {
-        'Male': 'Male',
-        'Female': 'Female',
-        'White': 'White',
-        'Black': 'Black or African American',
-        'Asian': 'Asian',
-        'American Indian or Alaska Native': 'Native American',
-        'Native Hawaiian or Other Pacific Islander': 'Pacific Islander',
-        'Other': 'Other',
-        'Unknown': 'Unknown',
-        'Not Hispanic or Latino': 'Non-Hispanic',
-        'Hispanic or Latino': 'Hispanic',
-        'Metastatic': 'Metastatic',
-        'Primary': 'Primary',
-        'Local recurrence': 'Local Recurrence'
-    }
+    # Value-specific display names loaded from centralized config
+    VALUE_DISPLAY_NAMES = get_all_value_display_names()
 
     def __init__(self, original_feature_names: List[str],
                  numeric_features: Optional[List[str]] = None,
@@ -95,14 +76,8 @@ class FeatureNameMapper:
         # Create mapping indices
         self._create_mapping_indices()
 
-    # Known numeric features from preprocessing.py
-    # IMPORTANT: These must match exactly what's in preprocessing.py NUMERIC_FEATURES
-    KNOWN_NUMERIC_FEATURES = {
-        'AGE_AT_SEQ_REPORT',
-        'read_length',
-        'gene_padding',
-        'number_of_genes',
-    }
+    # Known numeric features loaded from centralized config (code/config/features.yaml)
+    KNOWN_NUMERIC_FEATURES = set(get_numeric_features())
 
     def _auto_detect_feature_types(self):
         """
@@ -402,25 +377,24 @@ class FeatureNameMapper:
 
 
 # Standalone function for feature type classification
-DEMOGRAPHIC_FEATURES = {
-    'AGE_AT_SEQ_REPORT', 'SEX', 'RACE', 'ETHNICITY',
-    'SAMPLE_TYPE', 'SAMPLE_TYPE_DETAILED',
+# Load base features from centralized config, then add display name variants
+_demographic_base = set(get_feature_list('demographic'))
+_technical_base = set(get_feature_list('technical'))
+
+# Build complete sets including display names for pattern matching
+DEMOGRAPHIC_FEATURES = _demographic_base | {
     'Age at Sequencing', 'Sex', 'Race', 'Ethnicity',
     'Sample Type', 'Sample Type (Detailed)'
 }
 
-TECHNICAL_FEATURES = {
-    'SUBJECT_CENTER', 'SEQ_ASSAY_ID', 'SEQ_YEAR', 'SEQ_PIPELINE_ID',
-    'library_selection', 'calling_strategy', 'target_capture_kit',
-    'platform', 'sample_preservation', 'tumor_purity_bin',
+TECHNICAL_FEATURES = _technical_base | {
+    # Display names
     'Institution', 'Sequencing Assay', 'Sequencing Year', 'Sequencing Pipeline',
     'Library Selection', 'Variant Calling Strategy', 'Capture Kit',
     'Sequencing Platform', 'Sample Preservation', 'Tumor Purity',
-    # Additional technical features that could match 'AGE' pattern falsely
+    # Variants for pattern matching
     'coverage', 'Coverage', 'COVERAGE',
-    'is_paired_end', 'instrument_model', 'gene_padding', 'read_length',
-    'library_strategy', 'preservation_technique', 'specimen_tumor_cellularity',
-    'alteration_types', 'number_of_genes', 'variant_classifications',
+    'SEQ_YEAR', 'sample_preservation', 'tumor_purity_bin',
 }
 
 
@@ -470,12 +444,15 @@ def create_mapper_from_data_loader(feature_cols: List[str]) -> FeatureNameMapper
     Returns:
         Configured FeatureNameMapper instance
     """
-    # Separate numeric and categorical features
+    # Known numeric features loaded from centralized config (code/config/features.yaml)
+    known_numeric = set(get_numeric_features())
+
+    # Separate numeric and categorical features using exact matching
     numeric_features = []
     categorical_features = []
 
     for feat in feature_cols:
-        if 'AGE' in feat or 'YEAR' in feat or 'PURITY' in feat:
+        if feat in known_numeric:
             numeric_features.append(feat)
         else:
             categorical_features.append(feat)

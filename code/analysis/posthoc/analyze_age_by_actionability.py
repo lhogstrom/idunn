@@ -9,19 +9,27 @@ For each cancer type:
 2. Performs Mann-Whitney U test (non-parametric)
 3. Performs t-test (parametric, for comparison)
 4. Applies Benjamini-Hochberg FDR correction across all tests
+
 """
 
 import sqlite3
 import pandas as pd
 import numpy as np
+import argparse
 from pathlib import Path
+
+# Add tools to path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
+from db_config import get_default_db_path
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 # Configuration
-DB_PATH = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
-OUTPUT_DIR = Path("../../../analysis_output/posthoc_statistics")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = get_default_db_path()
+DEFAULT_OUTPUT_DIR = Path("../../../analysis_output/posthoc_statistics")
+OUTPUT_DIR = None  # Set by main()
 
 # Table to use
 TABLE_NAME = "perPatientOncoKBFilteredForModeling"
@@ -96,6 +104,7 @@ def test_age_differences(df_cancer_type):
         return {
             'mann_whitney_u': np.nan,
             'mann_whitney_p': np.nan,
+            'rank_biserial_r': np.nan,
             't_statistic': np.nan,
             't_test_p': np.nan,
             'mean_diff': np.nan,
@@ -107,8 +116,12 @@ def test_age_differences(df_cancer_type):
     # Mann-Whitney U test (non-parametric)
     try:
         u_stat, p_mann = stats.mannwhitneyu(actionable, non_actionable, alternative='two-sided')
+        # Rank-biserial correlation (natural effect size for Mann-Whitney U)
+        n1, n2 = len(actionable), len(non_actionable)
+        rank_biserial_r = 1 - (2 * u_stat) / (n1 * n2)
     except Exception as e:
         u_stat, p_mann = np.nan, np.nan
+        rank_biserial_r = np.nan
         print(f"  Warning: Mann-Whitney U test failed - {e}")
 
     # T-test (parametric)
@@ -132,6 +145,7 @@ def test_age_differences(df_cancer_type):
     return {
         'mann_whitney_u': u_stat,
         'mann_whitney_p': p_mann,
+        'rank_biserial_r': rank_biserial_r,
         't_statistic': t_stat,
         't_test_p': p_ttest,
         'mean_diff': mean_diff,
@@ -208,6 +222,7 @@ def analyze_all_cancer_types(df):
             'mean_age_difference': test_results['mean_diff'],
             'median_age_difference': test_results['median_diff'],
             'cohens_d': test_results['cohens_d'],
+            'rank_biserial_r': test_results['rank_biserial_r'],
             'mann_whitney_u': test_results['mann_whitney_u'],
             'mann_whitney_p': test_results['mann_whitney_p'],
             't_statistic': test_results['t_statistic'],
@@ -221,6 +236,7 @@ def analyze_all_cancer_types(df):
             print(f"  Mean age diff: {test_results['mean_diff']:.2f} years")
             print(f"  Mann-Whitney p: {test_results['mann_whitney_p']:.4f}")
             print(f"  Cohen's d: {test_results['cohens_d']:.3f}")
+            print(f"  Rank-biserial r: {test_results['rank_biserial_r']:.3f}")
 
     results_df = pd.DataFrame(results)
 
@@ -375,6 +391,20 @@ def generate_summary_report(results_df, output_file):
 
 def main():
     """Main execution function"""
+
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Age by actionability statistical testing')
+    parser.add_argument('--output-dir', type=str, default=None,
+                       help='Output directory for results')
+    args = parser.parse_args()
+
+    # Set output directory
+    global OUTPUT_DIR
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
+    else:
+        OUTPUT_DIR = DEFAULT_OUTPUT_DIR
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("=" * 80)
     print("Post-Hoc Statistical Testing: Age by Actionability Status")

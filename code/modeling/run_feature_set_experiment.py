@@ -2,7 +2,7 @@
 """
 Feature Set Comparison Experiment
 
-Systematic comparison of demographic vs. technical features across cancer types and algorithms.
+Comparison of demographic vs. technical features across cancer types and algorithms.
 Provides comprehensive statistical analysis and reporting.
 
 Usage: python run_feature_set_experiment.py [options]
@@ -14,8 +14,11 @@ from pathlib import Path
 
 # Add the code directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
 
 from oncokb_analyzer.experiments import ExperimentConfig, FeatureSetExperiment
+from db_config import get_default_db_path
+from feature_config import load_feature_config, copy_config_to_run_dir, get_config_path
 
 
 def parse_arguments():
@@ -29,8 +32,8 @@ def parse_arguments():
     parser.add_argument(
         "--db-path",
         type=str,
-        default="/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite",
-        help="Path to SQLite database file"
+        default=get_default_db_path(),
+        help="Path to SQLite database file (default: from BALDER_DB_PATH env var or ../../../output/...)"
     )
 
     parser.add_argument(
@@ -73,7 +76,7 @@ def parse_arguments():
         type=str,
         nargs="+",
         default=["standard", "group"],
-        choices=["standard", "group"],
+        choices=["standard", "group", "stratified_group"],
         help="Cross-validation strategies to compare"
     )
 
@@ -100,6 +103,18 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--train-test-split-file",
+        type=str,
+        default=None,
+        help=(
+            "Path to train/test split CSV file. If provided, only training data "
+            "will be used for feature set comparison. File should have columns: "
+            "PATIENT_ID, split (with 'train'/'test' values). "
+            "Default location: ../../analysis_output/train_test_split/train_test_split.csv"
+        )
+    )
+
+    parser.add_argument(
         "--n-random-seeds",
         type=int,
         default=5,
@@ -118,7 +133,7 @@ def parse_arguments():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="experiments/",
+        default="../../ml_experiments/",
         help="Output directory for experiment results"
     )
 
@@ -143,6 +158,14 @@ def parse_arguments():
         help="Significance level for statistical tests"
     )
 
+    # Performance options
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=-1,
+        help="Number of parallel jobs for cross-validation (-1 uses all cores, 1 for single-threaded to save memory)"
+    )
+
     # Quick test options
     parser.add_argument(
         "--quick-test",
@@ -160,6 +183,18 @@ def parse_arguments():
         "--yes", "-y",
         action="store_true",
         help="Skip confirmation prompt and run immediately"
+    )
+
+    # Feature configuration
+    parser.add_argument(
+        "--feature-config",
+        type=str,
+        default=None,
+        help=(
+            "Path to custom feature configuration YAML file. "
+            "Default: code/config/features.yaml. "
+            "Can also be set via BALDER_FEATURES_CONFIG environment variable."
+        )
     )
 
     return parser.parse_args()
@@ -184,10 +219,12 @@ def create_experiment_config(args) -> ExperimentConfig:
             group_column=args.group_column,
             institution_aware_test_split=institution_aware,
             test_split_group_column=test_split_group_col,
+            train_test_split_file=args.train_test_split_file,
             n_random_seeds=2,                    # Fewer seeds for speed
             random_seeds=[42, 123],              # Just 2 seeds
+            n_jobs=args.n_jobs,
             output_dir=args.output_dir,
-            experiment_name=args.experiment_name or "quick_test",
+            experiment_name=args.experiment_name or "",  # Auto-generates timestamped name if empty
             statistical_tests=not args.no_statistical_tests,
             alpha=args.alpha
         )
@@ -202,8 +239,10 @@ def create_experiment_config(args) -> ExperimentConfig:
             group_column=args.group_column,
             institution_aware_test_split=institution_aware,
             test_split_group_column=test_split_group_col,
+            train_test_split_file=args.train_test_split_file,
             n_random_seeds=args.n_random_seeds,
             random_seeds=args.random_seeds,
+            n_jobs=args.n_jobs,
             output_dir=args.output_dir,
             experiment_name=args.experiment_name,
             statistical_tests=not args.no_statistical_tests,
@@ -219,14 +258,17 @@ def print_experiment_summary(config: ExperimentConfig):
     print("=" * 50)
     print(f"Experiment Name: {config.experiment_name}")
     print(f"Database: {config.db_path}")
+    print(f"Feature Config: {get_config_path()}")
     print(f"Cancer Types: {', '.join(config.cancer_types)}")
     print(f"Algorithms: {', '.join(config.algorithms)}")
     print(f"Feature Sets: {', '.join(config.feature_sets)}")
     print(f"CV Strategies: {', '.join(config.cv_strategies)}")
     print(f"Group Column (CV): {config.group_column}")
     print(f"Institution-Aware Test Split: {'Yes (' + config.test_split_group_column + ')' if config.institution_aware_test_split else 'No'}")
+    print(f"Train/Test Split File: {config.train_test_split_file or 'None (using all data)'}")
     print(f"CV Folds: {config.cv_folds}")
     print(f"Random Seeds: {config.n_random_seeds} seeds")
+    print(f"Parallel Jobs: {config.n_jobs} (-1 = all cores)")
     print(f"Statistical Tests: {'Yes' if config.statistical_tests else 'No'}")
     print(f"Output Directory: {config.output_dir}")
 
@@ -251,6 +293,15 @@ def main():
 
     # Parse arguments
     args = parse_arguments()
+
+    # Load feature configuration (before creating experiment config)
+    if args.feature_config:
+        print(f"Loading custom feature config: {args.feature_config}")
+        load_feature_config(args.feature_config)
+    else:
+        # Load default config to ensure it's initialized
+        load_feature_config()
+    print(f"Feature config loaded from: {get_config_path()}")
 
     # Create experiment configuration
     try:
@@ -293,6 +344,11 @@ def main():
         print("Starting experiment...")
         experiment = FeatureSetExperiment(config)
         results = experiment.run_full_experiment()
+
+        # Copy feature config to output directory for reproducibility
+        output_path = Path(config.output_dir) / config.experiment_name
+        copied_config = copy_config_to_run_dir(str(output_path), args.feature_config)
+        print(f"Feature config copied to: {copied_config}")
 
         print("\nExperiment completed successfully!")
         print(f"Results saved to: {config.output_dir}/{config.experiment_name}/")

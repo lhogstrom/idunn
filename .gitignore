@@ -5,6 +5,4 @@ code/.nextflow.log
 .nextflow*
 work/
 runs/
-code/oncokb_analyzer/__pycache__/
-code/modeling/oncokb_analyzer/__pycache__/
-code/tools/__pycache__/
+__pycache__/

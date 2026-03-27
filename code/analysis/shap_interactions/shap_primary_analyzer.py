@@ -5,16 +5,18 @@ Core analysis engine for computing primary SHAP values (mean absolute SHAP per f
 to determine feature importance rankings for actionability prediction.
 
 This module provides the SHAPPrimaryAnalyzer class which:
-- Calculates SHAP values using TreeExplainer with background data optimization
+- Calculates SHAP values using TreeExplainer or LinearExplainer with background data optimization
 - Ranks features by mean absolute SHAP value
 - Generates beeswarm summary plots
 - Handles pre-trained models from TIER 5
 
+Supported model families:
+- Tree-based: RandomForest, GradientBoosting, XGBoost, LightGBM (uses shap.TreeExplainer)
+- Linear: LogisticRegression (uses shap.LinearExplainer)
+
 Different from interaction_analyzer.py which computes pairwise interactions.
 This module focuses on individual feature importance.
 
-Author: Balder Analysis Team
-Date: January 2026
 """
 
 import numpy as np
@@ -77,13 +79,20 @@ class SHAPPrimaryAnalyzer:
         self.background_sample_size = background_sample_size
         self.random_seed = random_seed
 
-        # Validate model type (must be tree-based for TreeExplainer)
+        # Validate model type and determine explainer family
         model_type = type(self.model).__name__
-        supported_models = ['RandomForest', 'GradientBoosting', 'XGB', 'LightGBM']
-        if not any(s in model_type for s in supported_models):
+        supported_tree_models = ['RandomForest', 'GradientBoosting', 'XGB', 'LightGBM']
+        supported_linear_models = ['LogisticRegression']
+
+        if any(s in model_type for s in supported_tree_models):
+            self.model_family = 'tree'
+        elif any(s in model_type for s in supported_linear_models):
+            self.model_family = 'linear'
+        else:
             raise ValueError(
                 f"Model type {model_type} not supported. "
-                f"Use tree-based models: {supported_models}"
+                f"Use tree-based models: {supported_tree_models} "
+                f"or linear models: {supported_linear_models}"
             )
 
         # Get feature names after transformation
@@ -118,15 +127,17 @@ class SHAPPrimaryAnalyzer:
 
     def _create_explainer(self, X_train: pd.DataFrame):
         """
-        Create TreeExplainer with background data sample.
+        Create SHAP explainer with background data sample.
 
-        Uses a random sample of training data as background for faster computation
+        Uses TreeExplainer for tree-based models and LinearExplainer for linear models.
+        A random sample of training data is used as background for faster computation
         and reduced memory usage.
 
         Args:
             X_train: Training data (DataFrame with original feature columns)
         """
-        self.logger.info("Creating TreeExplainer with background data...")
+        explainer_name = 'TreeExplainer' if self.model_family == 'tree' else 'LinearExplainer'
+        self.logger.info(f"Creating {explainer_name} with background data...")
 
         # Transform training data
         X_train_transformed_raw = self.preprocessor.transform(X_train[self.feature_columns])
@@ -151,12 +162,18 @@ class SHAPPrimaryAnalyzer:
             background_data = X_train_transformed
             self.logger.info(f"  Using all {n_samples} samples as background")
 
-        # Create explainer with background data
-        self.explainer = shap.TreeExplainer(
-            self.model,
-            data=background_data,
-            feature_perturbation='interventional'
-        )
+        # Create explainer based on model family
+        if self.model_family == 'tree':
+            self.explainer = shap.TreeExplainer(
+                self.model,
+                data=background_data,
+                feature_perturbation='interventional'
+            )
+        else:  # linear
+            self.explainer = shap.LinearExplainer(
+                self.model,
+                background_data
+            )
 
         # Store expected value (base prediction)
         self.expected_value = self.explainer.expected_value
@@ -165,7 +182,7 @@ class SHAPPrimaryAnalyzer:
             self.expected_value = self.expected_value[1] if len(self.expected_value) > 1 else self.expected_value[0]
 
         self.logger.info(f"  Expected value (base): {self.expected_value:.4f}")
-        self.logger.info("TreeExplainer created successfully")
+        self.logger.info(f"{explainer_name} created successfully")
 
     def calculate_shap_values(
         self,
@@ -510,16 +527,21 @@ def create_analyzer_from_tier5_model(
     """
     Convenience function to create analyzer from TIER 5 saved model.
 
+    Supports both tree-based models (RandomForest, etc.) and linear models
+    (LogisticRegression). The appropriate SHAP explainer (TreeExplainer or
+    LinearExplainer) is selected automatically based on the model type.
+
     Args:
         model_file: Path to joblib model file from TIER 5
         feature_name_mapper: Optional custom feature name mapper
-        background_sample_size: Number of background samples for TreeExplainer
+        background_sample_size: Number of background samples for SHAP explainer
 
     Returns:
         Configured SHAPPrimaryAnalyzer instance
 
     Example:
         >>> analyzer = create_analyzer_from_tier5_model('LUAD_random_forest_model.joblib')
+        >>> analyzer = create_analyzer_from_tier5_model('LUAD_logistic_model.joblib')
     """
     import joblib
 

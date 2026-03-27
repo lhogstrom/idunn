@@ -44,10 +44,21 @@ class StratifiedGroupKFold:
         Random seed for shuffling
 
     min_fold_size : int, default=500
-        Minimum acceptable fold size (raise warning if violated)
+        Minimum acceptable fold size (raise warning if violated, or error if enforce_constraints=True)
 
     max_fold_ratio : float, default=2.5
-        Maximum acceptable ratio between largest and smallest fold (raise warning if violated)
+        Maximum acceptable ratio between largest and smallest fold
+        (raise warning if violated, or error if enforce_constraints=True)
+
+    min_fold_fraction : float, default=0.0
+        Minimum fold size as a fraction of total samples (e.g., 0.10 = 10%).
+        When enforce_constraints=True, raises ValueError if any fold is smaller
+        than this fraction of total samples. Set to 0.0 to disable.
+
+    enforce_constraints : bool, default=False
+        If True, raise ValueError when fold size constraints are violated instead
+        of just logging warnings. Use during extended hyperparameter searches to
+        prevent silent quality issues.
 
     Examples:
     --------
@@ -64,12 +75,15 @@ class StratifiedGroupKFold:
     """
 
     def __init__(self, n_splits=5, shuffle=True, random_state=None,
-                 min_fold_size=500, max_fold_ratio=2.5):
+                 min_fold_size=500, max_fold_ratio=2.5,
+                 min_fold_fraction=0.0, enforce_constraints=False):
         self.n_splits = n_splits
         self.shuffle = shuffle
         self.random_state = random_state
         self.min_fold_size = min_fold_size
         self.max_fold_ratio = max_fold_ratio
+        self.min_fold_fraction = min_fold_fraction
+        self.enforce_constraints = enforce_constraints
         self.logger = logging.getLogger(self.__class__.__name__)
 
         if n_splits < 2:
@@ -193,6 +207,7 @@ class StratifiedGroupKFold:
     def _report_fold_statistics(self, fold_sizes, fold_group_counts):
         """Calculate and report fold balance statistics."""
         fold_sizes_arr = np.array(fold_sizes)
+        n_total = fold_sizes_arr.sum()
         mean_size = fold_sizes_arr.mean()
         std_size = fold_sizes_arr.std()
         cv_size = std_size / mean_size if mean_size > 0 else 0
@@ -206,16 +221,8 @@ class StratifiedGroupKFold:
         self.logger.info(f"Fold size statistics: mean={mean_size:.0f}, std={std_size:.1f}, CV={cv_size:.3f}")
         self.logger.info(f"Size range: {min_size} to {max_size} (ratio: {size_ratio:.2f}×)")
 
-        # Check for warnings
-        if min_size < self.min_fold_size:
-            self.logger.warning(
-                f"WARNING: Smallest fold ({min_size}) is below minimum threshold ({self.min_fold_size})"
-            )
-
-        if size_ratio > self.max_fold_ratio:
-            self.logger.warning(
-                f"WARNING: Fold size ratio ({size_ratio:.2f}×) exceeds maximum threshold ({self.max_fold_ratio}×)"
-            )
+        # Validate constraints (warns or raises depending on enforce_constraints)
+        self._validate_fold_constraints(fold_sizes_arr, n_total)
 
         return {
             'fold_sizes': fold_sizes,
@@ -227,6 +234,49 @@ class StratifiedGroupKFold:
             'max_size': max_size,
             'size_ratio': size_ratio
         }
+
+    def _validate_fold_constraints(self, fold_sizes_arr, n_total):
+        """
+        Check fold size constraints and warn or raise errors.
+
+        When enforce_constraints=False (default), violations produce warnings.
+        When enforce_constraints=True, violations raise ValueError to reject
+        the CV split — useful during extended hyperparameter searches.
+        """
+        min_size = fold_sizes_arr.min()
+        max_size = fold_sizes_arr.max()
+        size_ratio = max_size / min_size if min_size > 0 else np.inf
+
+        violations = []
+
+        # Check absolute minimum fold size
+        if min_size < self.min_fold_size:
+            violations.append(
+                f"Smallest fold ({min_size}) is below minimum threshold ({self.min_fold_size})"
+            )
+
+        # Check fold size ratio
+        if size_ratio > self.max_fold_ratio:
+            violations.append(
+                f"Fold size ratio ({size_ratio:.2f}x) exceeds maximum threshold ({self.max_fold_ratio}x)"
+            )
+
+        # Check minimum fold fraction
+        if self.min_fold_fraction > 0 and n_total > 0:
+            min_fraction_size = int(n_total * self.min_fold_fraction)
+            if min_size < min_fraction_size:
+                violations.append(
+                    f"Smallest fold ({min_size}) is below {self.min_fold_fraction:.0%} "
+                    f"of total samples ({min_fraction_size})"
+                )
+
+        if violations:
+            if self.enforce_constraints:
+                msg = "Fold size constraint violation(s): " + "; ".join(violations)
+                raise ValueError(msg)
+            else:
+                for v in violations:
+                    self.logger.warning(f"WARNING: {v}")
 
 
 def calculate_fold_imbalance_metrics(X, y, groups, cv_splitter):

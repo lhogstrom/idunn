@@ -79,7 +79,8 @@ class MasterAnalysis:
                  continue_on_error: bool = True, skip_shap: bool = False,
                  skip_shap_interactions: bool = False, parallel: bool = False,
                  feature_config_path: str = None, institution_weight_alpha: float = 0.0,
-                 base_run_dir: str = None):
+                 base_run_dir: str = None, algorithm: str = 'random_forest',
+                 lr_significant_only: bool = False):
         self.mode = mode
         self.dry_run = dry_run
         self.continue_on_error = continue_on_error
@@ -89,6 +90,8 @@ class MasterAnalysis:
         self.feature_config_path = feature_config_path  # Custom feature config path
         self.institution_weight_alpha = institution_weight_alpha  # Power weighting for TIER 5
         self.base_run_dir = Path(base_run_dir).resolve() if base_run_dir else None  # Existing run to draw from
+        self.algorithm = algorithm  # ML algorithm: 'random_forest' or 'logistic'
+        self.lr_significant_only = lr_significant_only  # Filter LR rankings to Wald-significant only
 
         # Get repository root
         self.repo_root = Path(__file__).parent.parent
@@ -174,8 +177,9 @@ class MasterAnalysis:
                 run_dirs = sorted([d for d in tier3_dir.iterdir() if d.is_dir() and d.name.startswith('run_')])
                 if run_dirs:
                     latest_run = run_dirs[-1]
-                    # Look for random_forest_universal_params.json
-                    params_file = latest_run / 'random_forest_universal_params.json'
+                    # Look for algorithm-specific universal params
+                    params_filename = f'{self.algorithm}_universal_params.json'
+                    params_file = latest_run / params_filename
                     if params_file.exists():
                         return str(params_file)
         return None
@@ -323,10 +327,10 @@ class MasterAnalysis:
             # Use helper method to get train_split_file (respects base_run_dir)
             train_split_file = self._get_train_test_split_file()
 
-            # Use Random Forest (best from Phase 2b), demographic features only (memory-safe)
+            # Use selected algorithm, demographic features only (memory-safe)
             ml_args = [
                 '--cancer-types', 'LUAD', 'BRCA', 'MEL', 'GIST', 'COAD',
-                '--algorithms', 'random_forest',
+                '--algorithms', self.algorithm,
                 '--feature-sets', 'demographic',  # Memory-safe: avoids one-hot explosion
                 '--institution-aware-test-split',
                 '--n-random-seeds', '3',
@@ -371,7 +375,8 @@ class MasterAnalysis:
             tier5_args = [
                 '--train-test-split-file', train_split_file,
                 '--feature-set', 'both',
-                '--output-dir', tier5_dir
+                '--output-dir', tier5_dir,
+                '--algorithm', self.algorithm
             ]
             # Add institution weight alpha if specified (for overfitting reduction)
             if self.institution_weight_alpha > 0:
@@ -393,65 +398,100 @@ class MasterAnalysis:
                 )
             )
 
-        # TIER 6: SHAP Analysis
-        # TIER 6a: Primary SHAP values - runs in full and post-model-selection modes
-        # TIER 6b: SHAP interactions - skipped by default in post-model-selection (memory-intensive)
-        # Skip ALL SHAP in quick mode
-        if self.mode in ['full', 'post-model-selection'] and not self.skip_shap:
-            # Use absolute paths for TIER 6 (SHAP scripts resolve relative paths from script directory)
+        # TIER 6: Feature Importance Analysis
+        # RF pathway: SHAP analysis (TIER 6a primary values, 6b interactions)
+        # LR pathway: Coefficient extraction (replaces SHAP)
+        # Include 'quick' mode for LR pathway (fast extraction, no memory concerns)
+        tier6_modes = ['full', 'post-model-selection']
+        if self.algorithm == 'logistic':
+            tier6_modes.append('quick')
+        if self.mode in tier6_modes and not self.skip_shap:
+            # Use absolute paths for TIER 6 (scripts resolve relative paths from script directory)
             tier6_abs_dir = str(self.tier_dirs[6])
-
-            # TIER 6a: Primary SHAP values (feature importance rankings)
-            # Uses TIER 5 pre-trained models and ml env (for SHAP library)
             tier5_model_dir = str(self.tier_dirs[5])
             # Use helper method to get train_split_file (respects base_run_dir)
-            # Need absolute path for SHAP scripts
+            # Need absolute path for scripts
             train_split_file = self._get_train_test_split_file()
             if not train_split_file.startswith('/'):
                 train_split_file = str(self.repo_root / train_split_file)
 
-            shap_primary_args = [
-                '--model-dir', tier5_model_dir,
-                '--train-test-split-file', train_split_file,
-                '--output-dir', tier6_abs_dir + '/primary_values'
-            ]
-
-            scripts.append(
-                ScriptConfig(
-                    path="code/analysis/shap_interactions/compute_shap_primary_values.py",
-                    env="ml",  # Requires SHAP library (available in balder_ml_env)
-                    runtime="medium",
-                    tier=6,
-                    args=shap_primary_args,
-                    depends_on=["run_final_model_training.py"]
-                )
-            )
-
-            # TIER 6b: SHAP interactions (pairwise feature interactions)
-            # More memory-intensive, uses ml_env
-            # Skip if --skip-shap-interactions is set or in post-model-selection mode by default
-            if not self.skip_shap_interactions:
-                shap_interaction_args = [
-                    '--cancer-types', 'LUAD', 'BRCA', 'MEL', 'GIST',
-                    '--output-dir', tier6_abs_dir + '/interactions'
+            if self.algorithm == 'random_forest':
+                # RF pathway: SHAP analysis
+                # TIER 6a: Primary SHAP values (feature importance rankings)
+                shap_primary_args = [
+                    '--model-dir', tier5_model_dir,
+                    '--train-test-split-file', train_split_file,
+                    '--output-dir', tier6_abs_dir + '/primary_values'
                 ]
 
                 scripts.append(
                     ScriptConfig(
-                        path="code/analysis/shap_interactions/compute_shap_interactions.py",
-                        env="ml",
-                        runtime="long",
+                        path="code/analysis/shap_interactions/compute_shap_primary_values.py",
+                        env="ml",  # Requires SHAP library (available in balder_ml_env)
+                        runtime="medium",
                         tier=6,
-                        args=shap_interaction_args
+                        args=shap_primary_args,
+                        depends_on=["run_final_model_training.py"]
                     )
                 )
 
-        # TIER 7: Post-Hoc Statistical Analysis (based on SHAP features)
+                # TIER 6b: SHAP interactions (pairwise feature interactions)
+                if not self.skip_shap_interactions:
+                    shap_interaction_args = [
+                        '--cancer-types', 'LUAD', 'BRCA', 'MEL', 'GIST',
+                        '--output-dir', tier6_abs_dir + '/interactions'
+                    ]
+
+                    scripts.append(
+                        ScriptConfig(
+                            path="code/analysis/shap_interactions/compute_shap_interactions.py",
+                            env="ml",
+                            runtime="long",
+                            tier=6,
+                            args=shap_interaction_args
+                        )
+                    )
+
+            elif self.algorithm == 'logistic':
+                # LR pathway: Coefficient extraction (replaces SHAP)
+                lr_analysis_dir = tier6_abs_dir + '/lr_analysis'
+                lr_args = [
+                    '--model-dir', tier5_model_dir,
+                    '--train-test-split-file', train_split_file,
+                    '--output-dir', lr_analysis_dir,
+                    '--no-timestamp-subdir'
+                ]
+
+                scripts.append(
+                    ScriptConfig(
+                        path="code/analysis/posthoc/extract_lr_coefficients.py",
+                        env="primary",  # No SHAP dependency — runs in primary env
+                        runtime="quick",  # LR extraction is fast
+                        tier=6,
+                        args=lr_args,
+                        depends_on=["run_final_model_training.py"]
+                    )
+                )
+                # No SHAP interactions for LR pathway
+
+        # TIER 7: Post-Hoc Statistical Analysis (based on feature importance rankings)
         if self.mode in ['full', 'quick', 'analysis-only', 'post-model-selection']:
             tier7_dir = get_output_dir_for_tier(7, "code/analysis/")
             tier6_dir = get_output_dir_for_tier(6, "code/analysis/")
 
-            # Age analysis doesn't depend on SHAP file format
+            # Determine feature rankings file and dependencies based on algorithm
+            if self.algorithm == 'random_forest':
+                rankings_file = tier6_dir + '/primary_values/combined_feature_importance.csv'
+                rankings_depends = ["compute_shap_primary_values.py"]
+            elif self.algorithm == 'logistic':
+                rankings_file = str(self.tier_dirs[6]) + '/lr_analysis/combined_lr_grouped_importance.csv'
+                rankings_depends = ["extract_lr_coefficients.py"]
+            else:
+                rankings_file = None
+                rankings_depends = []
+
+            # Age analysis doesn't depend on feature rankings format
+            tier6_dep_script = rankings_depends[0] if rankings_depends else None
             scripts.append(
                 ScriptConfig(
                     path="code/analysis/posthoc/analyze_age_by_actionability.py",
@@ -459,23 +499,24 @@ class MasterAnalysis:
                     runtime="quick",
                     tier=7,
                     args=['--output-dir', tier7_dir + '/age_actionability'],
-                    depends_on=["compute_shap_primary_values.py"] if not self.skip_shap else []
+                    depends_on=rankings_depends if not self.skip_shap else []
                 )
             )
 
-            # SHAP feature associations - pass SHAP file from TIER 6a if available
+            # Feature associations - pass rankings file from TIER 6 if available
             shap_assoc_args = ['--output-dir', tier7_dir + '/shap_associations']
 
-            # If TIER 6a ran (SHAP primary values), pass the output file explicitly
-            if self.mode == 'full' and not self.skip_shap:
-                # SHAP primary values output from this run
-                shap_file = tier6_dir + '/primary_values/combined_feature_importance.csv'
-                shap_assoc_args.extend(['--shap-file', shap_file])
-                # Depends on TIER 6a completion
-                shap_depends = ["compute_shap_primary_values.py"]
+            # If TIER 6 ran, pass the output file explicitly
+            if self.mode in tier6_modes and not self.skip_shap and rankings_file:
+                shap_assoc_args.extend(['--shap-file', rankings_file])
+                shap_depends = rankings_depends
             else:
-                # In quick/post-model-selection modes, let the script find existing SHAP files
+                # In quick/analysis-only modes, let the script find existing files
                 shap_depends = []
+
+            # Pass --lr-significant-only to post-hoc scripts if set
+            if self.lr_significant_only:
+                shap_assoc_args.append('--lr-significant-only')
 
             scripts.append(
                 ScriptConfig(
@@ -488,10 +529,8 @@ class MasterAnalysis:
                 )
             )
 
-            # SHAP feature rank visualization - only runs if TIER 6a was run
-            # Generates heatmaps, boxplots, and ranking visualizations
-            if self.mode in ['full', 'post-model-selection'] and not self.skip_shap:
-                # Use absolute path for TIER 6 SHAP output directory
+            # SHAP feature rank visualization - only for RF pathway (SHAP-specific plots)
+            if self.mode in tier6_modes and not self.skip_shap and self.algorithm == 'random_forest':
                 tier6_abs_dir = str(self.tier_dirs[6])
                 shap_ranks_args = [
                     '--shap-dir', tier6_abs_dir + '/primary_values',
@@ -510,7 +549,6 @@ class MasterAnalysis:
                 )
 
             # Post-hoc visualizations - publication-ready figures
-            # Creates forest plots, volcano plots, heatmaps for all significant associations
             scripts.append(
                 ScriptConfig(
                     path="code/analysis/posthoc/visualize_posthoc_results.py",
@@ -526,7 +564,6 @@ class MasterAnalysis:
             )
 
             # Raw data visualizations - detailed plots for significant associations
-            # Creates age distributions, sex contingency, race/ethnicity plots, technical features
             scripts.append(
                 ScriptConfig(
                     path="code/analysis/posthoc/visualize_raw_data.py",
@@ -556,18 +593,28 @@ class MasterAnalysis:
             )
 
             # Phase 2: Gene-stratified association tests
+            gene_strat_args = [
+                '--input-dir', gene_strat_dir + '/gene_distributions',
+                '--output-dir', gene_strat_dir,
+                '--tier', 'all'
+            ]
+            # Pass rankings file for feature filtering
+            if self.mode in tier6_modes and not self.skip_shap and rankings_file:
+                gene_strat_args.extend(['--shap-file', rankings_file])
+            if self.lr_significant_only:
+                gene_strat_args.append('--lr-significant-only')
+            gene_strat_depends = ["explore_gene_distributions.py"]
+            if shap_depends:
+                gene_strat_depends.extend(shap_depends)
+
             scripts.append(
                 ScriptConfig(
                     path="code/analysis/posthoc/analyze_gene_stratified_associations.py",
                     env="primary",
                     runtime="medium",
                     tier=7,
-                    args=[
-                        '--input-dir', gene_strat_dir + '/gene_distributions',
-                        '--output-dir', gene_strat_dir,
-                        '--tier', 'all'
-                    ],
-                    depends_on=["explore_gene_distributions.py"]
+                    args=gene_strat_args,
+                    depends_on=gene_strat_depends
                 )
             )
 
@@ -1004,6 +1051,18 @@ Examples:
                            'Useful for re-running downstream tiers (e.g., TIER 4-7) with settings from a previous run. '
                            'Example: --base-run-dir runs/run_20260121_215129'
                        ))
+    parser.add_argument('--algorithm', type=str, default='random_forest',
+                       choices=['random_forest', 'logistic'],
+                       help=(
+                           'ML algorithm for TIER 3-5 (default: random_forest). '
+                           'logistic uses LR coefficient analysis instead of SHAP for feature rankings.'
+                       ))
+    parser.add_argument('--lr-significant-only', action='store_true',
+                       help=(
+                           'When --algorithm logistic, restrict TIER 7 post-hoc testing to only '
+                           'features with Wald-significant LR coefficients (FDR < 0.05). '
+                           'Without this flag, all features are ranked by effect size regardless of significance.'
+                       ))
 
     parser.set_defaults(mode='full')
 
@@ -1016,10 +1075,16 @@ Examples:
     skip_shap_interactions = args.skip_shap_interactions
 
     if args.mode == 'quick':
-        # Quick mode: skip ALL SHAP (both 6a and 6b)
-        skip_shap = True
-        print(f"{Colors.WARNING}Note: All SHAP analysis skipped in quick mode (memory-intensive).{Colors.ENDC}")
-        print(f"{Colors.WARNING}      Use --full mode or run SHAP separately if needed.{Colors.ENDC}")
+        if args.algorithm == 'logistic':
+            # LR extraction is fast, no need to skip TIER 6
+            skip_shap = False
+            skip_shap_interactions = True  # No interactions for LR
+            print(f"{Colors.WARNING}Note: LR coefficient extraction will run in quick mode (fast).{Colors.ENDC}")
+        else:
+            # Quick mode with RF: skip ALL SHAP (both 6a and 6b)
+            skip_shap = True
+            print(f"{Colors.WARNING}Note: All SHAP analysis skipped in quick mode (memory-intensive).{Colors.ENDC}")
+            print(f"{Colors.WARNING}      Use --full mode or run SHAP separately if needed.{Colors.ENDC}")
     elif args.mode == 'post-model-selection':
         # Post-model-selection mode: run SHAP primary (6a), skip interactions (6b)
         skip_shap_interactions = True
@@ -1036,7 +1101,9 @@ Examples:
         parallel=args.parallel,
         feature_config_path=args.feature_config,
         institution_weight_alpha=args.institution_weight_alpha,
-        base_run_dir=args.base_run_dir
+        base_run_dir=args.base_run_dir,
+        algorithm=args.algorithm,
+        lr_significant_only=args.lr_significant_only
     )
 
     # If --list, just show scripts and exit

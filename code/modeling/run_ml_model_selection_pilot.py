@@ -29,8 +29,6 @@ Outputs:
 - Decision recommendation
 - Detailed JSON results
 
-Author: Claude Code
-Date: December 2025
 """
 
 import sys

@@ -91,7 +91,7 @@ class Phase2bUniversal:
     Phase 2b Step 1: Universal hyperparameter optimization for 3 algorithms.
     """
 
-    def __init__(self, db_path, output_dir='../../ml_experiments/phase2b_universal', quick_mode=False, cv_strategy='group', n_jobs=-1, feature_set='both', sample_fraction=1.0, train_test_split_file=None):
+    def __init__(self, db_path, output_dir='../../ml_experiments/phase2b_universal', quick_mode=False, cv_strategy='group', n_jobs=-1, feature_set='both', sample_fraction=1.0, train_test_split_file=None, n_iter=None):
         """
         Initialize Phase 2b universal optimization.
 
@@ -116,6 +116,8 @@ class Phase2bUniversal:
         train_test_split_file : str, optional
             Path to train/test split CSV file. If provided, only training data will be used.
             File should have columns: PATIENT_ID, split (with 'train'/'test' values)
+        n_iter : int, optional
+            Number of RandomizedSearchCV iterations. Overrides the default (10 for quick, 200 for full).
         """
         self.db_path = db_path
         self.output_dir = Path(output_dir)
@@ -173,10 +175,12 @@ class Phase2bUniversal:
         self.algorithms = ['random_forest', 'logistic', 'xgboost']
 
         # CV configuration
-        if quick_mode:
+        if n_iter is not None:
+            self.n_iter = n_iter
+        elif quick_mode:
             self.n_iter = 10  # Reduced for testing
         else:
-            self.n_iter = 100  # Full Phase 2b search (increased from Phase 2a's 50)
+            self.n_iter = 200  # Full Phase 2b search (increased from 100 for thorough exploration)
 
         logger.info(f"Cancer types: {len(self.cancer_types)} types (pooled)")
         logger.info(f"Algorithms: {self.algorithms}")
@@ -606,6 +610,14 @@ def main():
              'PATIENT_ID, split (with "train"/"test" values). '
              'Default location: ../../analysis_output/train_test_split/train_test_split.csv'
     )
+    parser.add_argument(
+        '--n-iter',
+        type=int,
+        default=None,
+        help='Number of RandomizedSearchCV iterations. Overrides the default '
+             '(10 for --quick-test, 200 for full runs). Higher values explore '
+             'more of the hyperparameter space but take longer.'
+    )
 
     args = parser.parse_args()
 
@@ -636,7 +648,8 @@ def main():
         n_jobs=args.n_jobs,
         feature_set=args.feature_set,
         sample_fraction=args.sample_fraction,
-        train_test_split_file=args.train_test_split_file
+        train_test_split_file=args.train_test_split_file,
+        n_iter=args.n_iter
     )
 
     # Run optimization

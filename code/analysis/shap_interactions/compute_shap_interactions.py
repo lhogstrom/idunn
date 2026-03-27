@@ -23,8 +23,6 @@ Usage:
         --feature-set demographic \\
         --top-n-interactions 20
 
-Author: Balder Analysis Team
-Date: November 2025
 """
 
 import sys

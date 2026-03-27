@@ -26,8 +26,6 @@ Usage:
     # Custom cancer types
     python compute_shap_primary_values.py --cancer-types LUAD BRCA MEL --model-dir /path/to/models
 
-Author: Balder Analysis Team
-Date: January 2026
 """
 
 import argparse
@@ -85,29 +83,46 @@ def setup_logging(output_dir: Path, verbose: bool = False) -> logging.Logger:
     return logger
 
 
-def find_model_files(model_dir: Path, cancer_types: Optional[List[str]] = None) -> Dict[str, Path]:
+def find_model_files(
+    model_dir: Path,
+    cancer_types: Optional[List[str]] = None,
+    algorithm: str = 'random_forest'
+) -> Dict[str, Path]:
     """
     Find TIER 5 model files in directory.
 
     Args:
         model_dir: Path to TIER 5 models directory
         cancer_types: Optional list of cancer types to filter
+        algorithm: Algorithm type for model file discovery ('random_forest' or 'logistic')
 
     Returns:
         Dict mapping cancer type to model file path
     """
     model_files = {}
 
-    # Look for model files in both root and models/ subdirectory
+    # Look for model files in multiple possible locations:
+    # 1. model_dir (direct)
+    # 2. model_dir/models/ (subdirectory)
+    # 3. model_dir/run_*/models/ (nested run directory - from run_all_analyses.py)
     search_dirs = [model_dir, model_dir / 'models']
+
+    # Add nested run directories (e.g., tier5_final_models/run_20260119_162154/models/)
+    for run_dir in model_dir.glob('run_*'):
+        if run_dir.is_dir():
+            search_dirs.append(run_dir)
+            search_dirs.append(run_dir / 'models')
+
+    glob_pattern = f'*_{algorithm}_model.joblib'
+    suffix_to_strip = f'_{algorithm}_model'
 
     for search_dir in search_dirs:
         if not search_dir.exists():
             continue
 
-        for f in search_dir.glob('*_random_forest_model.joblib'):
+        for f in search_dir.glob(glob_pattern):
             # Extract cancer type from filename
-            cancer_type = f.stem.replace('_random_forest_model', '')
+            cancer_type = f.stem.replace(suffix_to_strip, '')
 
             if cancer_types is None or cancer_type in cancer_types:
                 model_files[cancer_type] = f
@@ -399,6 +414,13 @@ def main():
     )
 
     parser.add_argument(
+        '--algorithm', type=str,
+        choices=['random_forest', 'logistic'],
+        default='random_forest',
+        help='Algorithm type for model file discovery (default: random_forest)'
+    )
+
+    parser.add_argument(
         '--verbose', action='store_true',
         help='Enable verbose logging'
     )
@@ -424,7 +446,7 @@ def main():
     logger = setup_logging(output_dir, args.verbose)
 
     logger.info("=" * 70)
-    logger.info("SHAP PRIMARY FEATURE VALUES ANALYSIS")
+    logger.info(f"SHAP PRIMARY FEATURE VALUES ANALYSIS (algorithm={args.algorithm})")
     logger.info("=" * 70)
 
     # Database path
@@ -493,7 +515,7 @@ def main():
         cancer_types = ['LUAD']
         logger.info("Quick test mode: analyzing LUAD only")
 
-    model_files = find_model_files(model_dir, cancer_types)
+    model_files = find_model_files(model_dir, cancer_types, algorithm=args.algorithm)
 
     if not model_files:
         logger.error(f"No model files found in {model_dir}")

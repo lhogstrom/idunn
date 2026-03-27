@@ -249,6 +249,7 @@ def run_gene_stratified_age_test(
         'mean_age_difference': np.nan,
         'median_age_difference': np.nan,
         'cohens_d': np.nan,
+        'rank_biserial_r': np.nan,
         'mann_whitney_u': np.nan,
         'mann_whitney_p': np.nan,
         'warning': None
@@ -287,6 +288,8 @@ def run_gene_stratified_age_test(
         )
         result['mann_whitney_u'] = u_stat
         result['mann_whitney_p'] = p_value
+        # Rank-biserial correlation (natural effect size for Mann-Whitney U)
+        result['rank_biserial_r'] = 1 - (2 * u_stat) / (n_actionable * n_non_actionable)
     except Exception as e:
         result['warning'] = f'Mann-Whitney test failed: {e}'
 
@@ -356,25 +359,40 @@ def run_gene_stratified_sex_test(
         [non_act_female, non_act_male]
     ]
 
-    # Check for zero cells
-    if 0 in [gene_female, gene_male, non_act_female, non_act_male]:
-        result['warning'] = 'Zero cell in contingency table'
-        return result
+    # Odds ratio (with Haldane correction for zero cells)
+    cells = [gene_female, gene_male, non_act_female, non_act_male]
+    if any(c == 0 for c in cells):
+        # Haldane correction: add 0.5 to all cells for OR and CI calculation
+        ci_gf, ci_gm, ci_nf, ci_nm = [c + 0.5 for c in cells]
+        result['odds_ratio'] = (ci_gf * ci_nm) / (ci_gm * ci_nf)
+        result['warning'] = 'Zero cell corrected (Haldane +0.5)'
+    else:
+        ci_gf, ci_gm, ci_nf, ci_nm = cells
+        result['odds_ratio'] = (gene_female * non_act_male) / (gene_male * non_act_female)
 
-    # Odds ratio
-    result['odds_ratio'] = (gene_female * non_act_male) / (gene_male * non_act_female)
-
-    # Confidence interval for OR
+    # Confidence interval for OR (Woolf's method on corrected cells)
     log_or = np.log(result['odds_ratio'])
-    se_log_or = np.sqrt(1/gene_female + 1/gene_male + 1/non_act_female + 1/non_act_male)
+    se_log_or = np.sqrt(1/ci_gf + 1/ci_gm + 1/ci_nf + 1/ci_nm)
     result['or_ci_lower'] = np.exp(log_or - 1.96 * se_log_or)
     result['or_ci_upper'] = np.exp(log_or + 1.96 * se_log_or)
 
-    # Statistical test
-    min_cell = min(gene_female, gene_male, non_act_female, non_act_male)
+    # Compute expected frequencies for Fisher/chi-square decision
+    grand_total = sum(cells)
+    row1_total = gene_female + gene_male
+    row2_total = non_act_female + non_act_male
+    col1_total = gene_female + non_act_female
+    col2_total = gene_male + non_act_male
 
-    if min_cell < 5:
-        # Fisher's exact test
+    expected_cells = [
+        (row1_total * col1_total) / grand_total,
+        (row1_total * col2_total) / grand_total,
+        (row2_total * col1_total) / grand_total,
+        (row2_total * col2_total) / grand_total
+    ]
+    min_expected = min(expected_cells)
+
+    if min_expected < 5:
+        # Fisher's exact test for small expected frequencies
         try:
             _, p_value = fisher_exact(table)
             result['p_value'] = p_value
@@ -447,6 +465,15 @@ def run_gene_stratified_categorical_test(
         result['chi2'] = chi2
         result['p_value'] = p_value
         result['dof'] = dof
+
+        # Check expected frequency assumption
+        min_expected_freq = expected.min()
+        pct_below_5 = (expected < 5).sum() / expected.size * 100
+        result['min_expected_freq'] = min_expected_freq
+        if min_expected_freq < 1:
+            result['warning'] = f'Chi-square unreliable: {pct_below_5:.0f}% expected freqs < 5 (min={min_expected_freq:.1f})'
+        elif min_expected_freq < 5:
+            result['warning'] = f'Chi-square may be unreliable: {pct_below_5:.0f}% expected freqs < 5 (min={min_expected_freq:.1f})'
 
         # Cramer's V effect size
         n = contingency.sum().sum()
@@ -833,6 +860,9 @@ Examples:
                        help='Disable multi-tier filtering (use all cancer types)')
     parser.add_argument('--groupings-file', type=str, default=None,
                        help='Path to multi_tier_group_definitions.csv (auto-detected if not specified)')
+    parser.add_argument('--lr-significant-only', action='store_true',
+                       help='When using LR rankings, only include features with Wald-significant '
+                            'coefficients (FDR < 0.05)')
 
     args = parser.parse_args()
 
@@ -869,7 +899,7 @@ Examples:
             shap_file = get_default_shap_file()
 
         if shap_file and Path(shap_file).exists():
-            shap_df = load_shap_rankings_adaptive(shap_file)
+            shap_df = load_shap_rankings_adaptive(shap_file, lr_significant_only=args.lr_significant_only)
         else:
             print("\nWARNING: No SHAP file found - testing all features")
             print("  Run TIER 6a (compute_shap_primary_values.py) for SHAP-filtered testing")

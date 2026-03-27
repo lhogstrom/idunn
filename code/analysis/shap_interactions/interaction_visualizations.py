@@ -10,8 +10,6 @@ Provides functions to visualize:
 - Interaction dependence plots (how interactions vary with feature values)
 - Demographic-specific interaction matrices
 
-Author: Balder Analysis Team
-Date: November 2025
 """
 
 import numpy as np

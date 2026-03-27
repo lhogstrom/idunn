@@ -8,12 +8,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+# Add tools to path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'tools''))
+from db_config import get_default_db_path
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-DB_PATH = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite"
-OUTPUT_DIR = Path("experiments/simple_institutional_plots")
+DB_PATH = get_default_db_path()
+OUTPUT_DIR = Path("../../analysis_output/simple_institutional_plots")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MIN_ACTIONABLE_EVENTS = 250

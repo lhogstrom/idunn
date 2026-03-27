@@ -30,11 +30,11 @@ LEGACY_SHAP_FILE = "/Users/larsonhogstrom/Documents/balder_analysis/output/actio
 # Old format uses sklearn-style names: "cat__SEX_Male"
 # New format uses readable names: "Sex: Male"
 FEATURE_PATTERNS = {
-    'SEX': ['SEX_', 'Sex:'],
-    'RACE': ['RACE_', 'Race:'],
-    'ETHNICITY': ['ETHNICITY_', 'Ethnicity:'],
-    'RACE_ETHNICITY': ['RACE_', 'ETHNICITY_', 'Race:', 'Ethnicity:'],
-    'SAMPLE_TYPE': ['SAMPLE_TYPE_', 'Sample Type'],
+    'SEX': ['SEX_', 'Sex:', 'SEX'],
+    'RACE': ['RACE_', 'Race:', 'RACE'],
+    'ETHNICITY': ['ETHNICITY_', 'Ethnicity:', 'ETHNICITY'],
+    'RACE_ETHNICITY': ['RACE_', 'ETHNICITY_', 'Race:', 'Ethnicity:', 'RACE', 'ETHNICITY'],
+    'SAMPLE_TYPE': ['SAMPLE_TYPE_', 'Sample Type', 'SAMPLE_TYPE'],
     'AGE': ['AGE_AT_SEQ_REPORT', 'Age at Sequencing', 'Age'],
     'TECHNICAL': [
         # Subject Center (categorical)
@@ -104,18 +104,67 @@ def get_default_shap_file(repo_root=None):
     return None
 
 
-def load_shap_rankings_adaptive(shap_file):
+def get_default_feature_rankings_file(algorithm='random_forest', repo_root=None):
+    """Get default feature rankings file based on algorithm.
+
+    Args:
+        algorithm: 'random_forest' (uses SHAP) or 'logistic' (uses LR coefficients)
+        repo_root: Repository root path (optional, uses default if not provided)
+
+    Returns:
+        str: Path to rankings file, or None if not found
     """
-    Load SHAP rankings, auto-detecting format (new vs legacy).
+    if algorithm == 'logistic':
+        return get_default_lr_rankings_file(repo_root)
+    else:
+        return get_default_shap_file(repo_root)
+
+
+def get_default_lr_rankings_file(repo_root=None):
+    """Find LR grouped importance file in standard locations.
+
+    Args:
+        repo_root: Repository root path (optional, uses default if not provided)
+
+    Returns:
+        str: Path to LR rankings file, or None if not found
+    """
+    if repo_root is None:
+        repo_root = REPO_ROOT
+    repo_root = Path(repo_root)
+
+    # Check runs directory for LR analysis output
+    runs_dir = repo_root / "runs"
+    if runs_dir.exists():
+        runs = sorted(runs_dir.glob("run_*"), reverse=True)
+        for run_dir in runs:
+            # Check tier6 LR analysis subdirectory
+            lr_file = run_dir / "tier6_shap_analysis" / "lr_analysis" / "combined_lr_grouped_importance.csv"
+            if lr_file.exists():
+                print(f"Found LR rankings file: {lr_file}")
+                return str(lr_file)
+
+    return None
+
+
+def load_shap_rankings_adaptive(shap_file, lr_significant_only=False):
+    """
+    Load SHAP rankings, auto-detecting format (new vs legacy vs LR).
 
     New format (from shap_primary_analyzer.py):
         - cancer_type, feature_name, feature_name_raw, mean_abs_shap, rank
+
+    LR grouped importance format (from extract_lr_coefficients.py):
+        - feature_group, cancer_type, max_abs_std_log_odds, rank, any_significant_fdr
 
     Legacy format:
         - ONCOTREE_CODE, feature, mean_abs_shap, feature_rank
 
     Args:
         shap_file: Path to SHAP rankings CSV file
+        lr_significant_only: If True and LR format detected, filter to only
+            features with any_significant_fdr=True (Wald test, FDR-corrected),
+            then re-rank within each cancer type.
 
     Returns:
         pd.DataFrame with standardized columns:
@@ -147,6 +196,33 @@ def load_shap_rankings_adaptive(shap_file):
         if 'feature_name_raw' in df.columns:
             df['feature_raw'] = df['feature_name_raw']
 
+    elif 'feature_group' in df.columns and 'cancer_type' in df.columns:
+        # LR grouped importance format (from extract_lr_coefficients.py)
+        print("  Detected LR GROUPED IMPORTANCE format")
+
+        # Filter to Wald-significant features if requested
+        if lr_significant_only and 'any_significant_fdr' in df.columns:
+            before_count = len(df)
+            df = df[df['any_significant_fdr'] == True].copy()
+            after_count = len(df)
+            print(f"  Filtered to Wald-significant only: {after_count}/{before_count} feature-cancer pairs retained")
+
+            if len(df) == 0:
+                print("  WARNING: No Wald-significant features found in any cancer type")
+            else:
+                # Re-rank within each cancer type after filtering
+                df['rank'] = df.groupby('cancer_type')['max_abs_std_log_odds' if 'max_abs_std_log_odds' in df.columns else 'sum_abs_std_log_odds'].rank(ascending=False, method='min').astype(int)
+
+        # Use max_abs_std_log_odds as the importance metric (analogous to mean_abs_shap)
+        importance_col = 'max_abs_std_log_odds' if 'max_abs_std_log_odds' in df.columns else 'sum_abs_std_log_odds'
+
+        df = df.rename(columns={
+            'cancer_type': 'ONCOTREE_CODE',
+            'feature_group': 'feature',
+            importance_col: 'mean_abs_shap',
+            'rank': 'feature_rank'
+        })
+
     elif 'ONCOTREE_CODE' in df.columns and 'feature' in df.columns:
         # Legacy format
         print("  Detected LEGACY format")
@@ -154,7 +230,8 @@ def load_shap_rankings_adaptive(shap_file):
     else:
         raise ValueError(
             f"Unrecognized SHAP file format. "
-            f"Expected columns 'cancer_type'/'feature_name' (new) or 'ONCOTREE_CODE'/'feature' (legacy). "
+            f"Expected columns 'cancer_type'/'feature_name' (new), "
+            f"'feature_group'/'cancer_type' (LR), or 'ONCOTREE_CODE'/'feature' (legacy). "
             f"Found: {df.columns.tolist()}"
         )
 

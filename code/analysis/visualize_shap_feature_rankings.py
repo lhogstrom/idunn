@@ -7,8 +7,6 @@ Creates comprehensive heatmap visualizations of ML feature importance rankings:
 3. Top features comparison across cancer types
 4. Feature category analysis
 
-Author: Analysis Pipeline
-Date: December 2025
 """
 
 import pandas as pd
@@ -19,6 +17,12 @@ from pathlib import Path
 from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy.spatial.distance import pdist
 import warnings
+
+# Add tools to path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'tools''))
+from db_config import get_default_db_path
 warnings.filterwarnings('ignore')
 
 # Configuration

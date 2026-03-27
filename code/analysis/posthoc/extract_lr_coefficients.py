@@ -857,6 +857,10 @@ def main():
         '--verbose', action='store_true',
         help='Enable verbose logging'
     )
+    parser.add_argument(
+        '--no-timestamp-subdir', action='store_true',
+        help='Write directly to output-dir without creating timestamp subdirectory (for pipeline integration)'
+    )
 
     args = parser.parse_args()
 
@@ -870,9 +874,10 @@ def main():
     else:
         output_dir = script_dir / args.output_dir
 
-    # Add timestamp to output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = output_dir / f"run_{timestamp}"
+    # Add timestamp subdirectory unless --no-timestamp-subdir is set
+    if not args.no_timestamp_subdir:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = output_dir / f"run_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging

@@ -10,8 +10,6 @@ This module provides the SHAPInteractionAnalyzer class which:
 - Identifies strongest pairwise feature interactions
 - Focuses on demographic feature interactions for biological interpretation
 
-Author: Balder Analysis Team
-Date: November 2025
 """
 
 import numpy as np
