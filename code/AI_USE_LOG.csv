@@ -35,3 +35,4 @@
 01-Mar-26,statistical model brainstorm,"Draft code for the creation of p-values and confidence intervals based on LR scores. Wald test.",Claude Opus 4.6
 02-Mar-26,documentation,"Readme update, code tree formating, and example usage of run all script.",Claude Opus 4.6
 27-Mar-26,documentation,"adjustments to CLI flags and workflow for run all scripts. Increased niter on ML hyperparemeter testing.",Claude Opus 4.6
+28-Mar-26,documentation,"Used AI to make sugguestions to select configuration for extendend hyperparam search.",Claude Opus 4.6
