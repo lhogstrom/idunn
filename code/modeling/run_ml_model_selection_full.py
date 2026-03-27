@@ -91,7 +91,7 @@ class Phase2bUniversal:
     Phase 2b Step 1: Universal hyperparameter optimization for 3 algorithms.
     """
 
-    def __init__(self, db_path, output_dir='../../ml_experiments/phase2b_universal', quick_mode=False, cv_strategy='group', n_jobs=-1, feature_set='both', sample_fraction=1.0, train_test_split_file=None, n_iter=None):
+    def __init__(self, db_path, output_dir='../../ml_experiments/phase2b_universal', quick_mode=False, cv_strategy='group', n_jobs=-1, feature_set='both', sample_fraction=1.0, train_test_split_file=None, n_iter=None, institution_weight_alpha=0.0, institution_column='SUBJECT_CENTER'):
         """
         Initialize Phase 2b universal optimization.
 
@@ -118,6 +118,11 @@ class Phase2bUniversal:
             File should have columns: PATIENT_ID, split (with 'train'/'test' values)
         n_iter : int, optional
             Number of RandomizedSearchCV iterations. Overrides the default (10 for quick, 200 for full).
+        institution_weight_alpha : float
+            Power parameter for institutional sample weighting (0.0 to 1.0).
+            0.0 = no weighting (default), 0.5 = moderate correction, 1.0 = full inverse frequency.
+        institution_column : str
+            Column name for institution grouping (default: 'SUBJECT_CENTER')
         """
         self.db_path = db_path
         self.output_dir = Path(output_dir)
@@ -127,6 +132,8 @@ class Phase2bUniversal:
         self.feature_set = feature_set
         self.sample_fraction = sample_fraction
         self.train_test_split_file = train_test_split_file
+        self.institution_weight_alpha = institution_weight_alpha
+        self.institution_column = institution_column
         self.train_patient_ids = None
 
         # Load train/test split if provided
@@ -152,6 +159,8 @@ class Phase2bUniversal:
         logger.info(f"Feature set: {feature_set}")
         logger.info(f"Parallel jobs (n_jobs): {n_jobs}")
         logger.info(f"Sample fraction: {sample_fraction:.1%}")
+        if self.institution_weight_alpha > 0:
+            logger.info(f"Institution weighting: alpha={institution_weight_alpha} on '{institution_column}'")
         if self.train_patient_ids:
             logger.info(f"Train/test split: TRAINING DATA ONLY ({len(self.train_patient_ids):,} patients)")
 
@@ -295,6 +304,44 @@ class Phase2bUniversal:
 
         return X_pooled, y_pooled, groups_pooled, cancer_type_pooled
 
+    def _compute_institution_weights(self, groups: pd.Series) -> np.ndarray:
+        """
+        Compute sample weights based on institution frequency using power weighting.
+
+        Weights are computed as: weight_i = (1 / count_i) ^ alpha
+        where count_i is the number of samples from that institution.
+
+        Parameters
+        ----------
+        groups : pd.Series
+            Institution group labels for each sample
+
+        Returns
+        -------
+        weights : np.ndarray or None
+            Normalized sample weights (sum to N, mean of 1.0), or None if alpha <= 0
+        """
+        if self.institution_weight_alpha <= 0:
+            return None
+
+        institution_counts = groups.value_counts()
+
+        # weight = (1 / count) ^ alpha
+        raw_weights = (1.0 / groups.map(institution_counts)) ** self.institution_weight_alpha
+
+        # Normalize so weights sum to N (mean weight = 1.0)
+        normalized_weights = raw_weights / raw_weights.sum() * len(raw_weights)
+
+        # Log weight statistics
+        weight_by_inst = pd.DataFrame({'group': groups, 'weight': normalized_weights.values}).groupby('group')['weight'].mean().sort_values(ascending=False)
+
+        logger.info(f"  Institution weights (alpha={self.institution_weight_alpha}):")
+        logger.info(f"    Weight range: [{normalized_weights.min():.3f}, {normalized_weights.max():.3f}]")
+        logger.info(f"    Top 3 weighted: {dict(weight_by_inst.head(3).round(3))}")
+        logger.info(f"    Bottom 3 weighted: {dict(weight_by_inst.tail(3).round(3))}")
+
+        return normalized_weights.values
+
     def optimize_universal_hyperparameters(self, algorithm='random_forest'):
         """
         Run universal hyperparameter optimization for one algorithm.
@@ -345,6 +392,9 @@ class Phase2bUniversal:
             cv_strategy=self.cv_strategy  # Use configured CV strategy
         )
 
+        # Compute institution sample weights if alpha > 0
+        sample_weight = self._compute_institution_weights(groups_pooled)
+
         # Run nested CV optimization on pooled data
         logger.info(f"\nRunning nested cross-validation on pooled dataset...")
         logger.info(f"This will take approximately {self._estimate_runtime(algorithm, n_combos)} minutes")
@@ -353,7 +403,8 @@ class Phase2bUniversal:
             X=X_pooled,
             y=y_pooled,
             groups=groups_pooled,
-            algorithm=algorithm
+            algorithm=algorithm,
+            sample_weight=sample_weight
         )
 
         # Add metadata
@@ -618,6 +669,14 @@ def main():
              '(10 for --quick-test, 200 for full runs). Higher values explore '
              'more of the hyperparameter space but take longer.'
     )
+    parser.add_argument(
+        '--institution-weight-alpha',
+        type=float,
+        default=0.0,
+        help='Power parameter for institutional sample weighting (0.0 to 1.0). '
+             '0.0 = no weighting (default), 0.5 = moderate correction, 1.0 = full inverse frequency. '
+             'Higher values reduce the influence of dominant institutions (MSK, DFCI) during training.'
+    )
 
     args = parser.parse_args()
 
@@ -649,7 +708,8 @@ def main():
         feature_set=args.feature_set,
         sample_fraction=args.sample_fraction,
         train_test_split_file=args.train_test_split_file,
-        n_iter=args.n_iter
+        n_iter=args.n_iter,
+        institution_weight_alpha=args.institution_weight_alpha
     )
 
     # Run optimization

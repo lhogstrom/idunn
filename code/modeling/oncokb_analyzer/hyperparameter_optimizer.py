@@ -124,7 +124,8 @@ class NestedCVOptimizer:
         groups: Optional[np.ndarray] = None,
         outer_cv: Optional = None,
         inner_cv: Optional = None,
-        algorithm: str = 'random_forest'
+        algorithm: str = 'random_forest',
+        sample_weight: Optional[np.ndarray] = None
     ) -> Dict:
         """
         Perform nested cross-validation for hyperparameter optimization.
@@ -152,6 +153,10 @@ class NestedCVOptimizer:
         algorithm : str, default='random_forest'
             Algorithm to optimize: 'random_forest' or 'logistic'
 
+        sample_weight : np.ndarray, shape (n_samples,), optional
+            Sample weights for training (e.g., institution frequency weighting).
+            Passed to classifier via fit_params during inner CV and final model fitting.
+
         Returns
         -------
         results : dict
@@ -174,6 +179,8 @@ class NestedCVOptimizer:
         y = np.asarray(y)
         if groups is not None:
             groups = np.asarray(groups)
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)
 
         if self.verbose >= 1:
             print(f"\n{'='*80}")
@@ -277,14 +284,23 @@ class NestedCVOptimizer:
                     error_score='raise'
                 )
 
+            # Prepare fit params for sample weights
+            fit_params = {}
+            weights_train = None
+            if sample_weight is not None:
+                weights_train = sample_weight[train_idx]
+                fit_params['classifier__sample_weight'] = weights_train
+
             # Fit inner CV
             if self.verbose >= 1:
                 print(f"Running inner CV hyperparameter search...")
+                if weights_train is not None:
+                    print(f"Using sample weights (range: [{weights_train.min():.3f}, {weights_train.max():.3f}])")
 
             if use_groups:
-                search.fit(X_train, y_train, groups=groups_train)
+                search.fit(X_train, y_train, groups=groups_train, **fit_params)
             else:
-                search.fit(X_train, y_train)
+                search.fit(X_train, y_train, **fit_params)
 
             # Store best params from this fold (remove 'classifier__' prefix for storage)
             best_params_unprefixed = {
@@ -300,7 +316,10 @@ class NestedCVOptimizer:
             # Train final model with best params on FULL training data
             final_model = self._get_estimator(algorithm, X=X_train, column_names=column_names)
             final_model.set_params(**search.best_params_)  # Use prefixed params for pipeline
-            final_model.fit(X_train, y_train)
+            if weights_train is not None:
+                final_model.fit(X_train, y_train, classifier__sample_weight=weights_train)
+            else:
+                final_model.fit(X_train, y_train)
 
             # Evaluate on outer test fold (NEVER seen during hyperparameter search)
             y_pred_proba = final_model.predict_proba(X_test)[:, 1]

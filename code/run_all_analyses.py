@@ -298,11 +298,16 @@ class MasterAnalysis:
             # Use train_test_split from tier2 directory within this run (or base_run_dir if specified)
             train_split_file = self._get_train_test_split_file()
             phase2b_args = [
+                '--algorithm', self.algorithm,
                 '--n-jobs', '1',
-                '--sample-fraction', '0.5',
+                '--n-iter', '500',
+                '--sample-fraction', '1.0',
+                '--feature-set', 'both',
                 '--train-test-split-file', train_split_file,
                 '--output-dir', tier3_dir
             ]
+            if self.institution_weight_alpha > 0:
+                phase2b_args.extend(['--institution-weight-alpha', str(self.institution_weight_alpha)])
             if self.mode == 'quick':
                 phase2b_args.append('--quick-test')
 
@@ -742,7 +747,7 @@ class MasterAnalysis:
         tier_timeouts = {
             1: 1800,    # 30 min  - independent analyses
             2: 1800,    # 30 min  - data setup
-            3: 21600,   # 6 hours - hyperparameter optimization
+            3: 259200,  # 72 hours - hyperparameter optimization (Option B extended search)
             4: 14400,   # 4 hours - feature set comparison
             5: 7200,    # 2 hours - final model training
             6: 14400,   # 4 hours - SHAP analysis
