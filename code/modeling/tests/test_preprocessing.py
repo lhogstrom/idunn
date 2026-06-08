@@ -128,20 +128,41 @@ class TestCreatePreprocessor:
     """Tests for create_preprocessor() function."""
 
     def test_create_preprocessor_default(self):
-        """Test creating preprocessor with default settings."""
+        """Test creating preprocessor with default settings (no available_columns).
+
+        Updated 2026-05-22 (pre-lock review #8): when `available_columns is
+        None`, create_preprocessor returns the bare ColumnTransformer (no
+        missingness step). The previous contract — unconditionally adding the
+        missingness step for ANCESTRY/ETHNICITY — crashed any caller whose
+        data lacked those columns (e.g. legacy array entrypoints in
+        hyperparameter_optimizer.py). Callers that want the missingness step
+        must pass `available_columns` explicitly.
+        """
+        from sklearn.compose import ColumnTransformer
+
         preprocessor = create_preprocessor()
 
         assert preprocessor is not None
-        # Check that it has transformers
-        assert hasattr(preprocessor, 'transformers')
+        # No available_columns → bare ColumnTransformer, no missingness step.
+        assert isinstance(preprocessor, ColumnTransformer)
         assert len(preprocessor.transformers) == 2  # num and cat
 
     def test_create_preprocessor_with_columns(self):
-        """Test creating preprocessor with specific columns."""
-        columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'RACE']
+        """Test creating preprocessor with specific columns.
+
+        When ANCESTRY (and/or ETHNICITY) are listed, create_preprocessor
+        returns a sklearn Pipeline wrapping the MissingnessIndicatorTransformer
+        plus the ColumnTransformer (Feature Review Fix b, 2026-05-21).
+        """
+        from sklearn.pipeline import Pipeline
+
+        columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'ANCESTRY']
         preprocessor = create_preprocessor(available_columns=columns)
 
         assert preprocessor is not None
+        assert isinstance(preprocessor, Pipeline)
+        step_names = [name for name, _ in preprocessor.steps]
+        assert step_names == ['missingness', 'column_transformer']
 
     def test_preprocessor_fits_data(self, toy_dataframe):
         """Test that preprocessor can fit data."""
@@ -188,7 +209,7 @@ class TestCreatePipeline:
         """Test that pipeline can fit and predict."""
         from sklearn.ensemble import RandomForestClassifier
 
-        feature_cols = ['SEX', 'AGE_AT_SEQ_REPORT', 'RACE', 'SUBJECT_CENTER']
+        feature_cols = ['SEX', 'AGE_AT_SEQ_REPORT', 'ANCESTRY', 'SUBJECT_CENTER']
         X = toy_dataframe[feature_cols]
         y = toy_dataframe['isOncoKbLevel1']
 
@@ -213,7 +234,7 @@ class TestGetColumnTypes:
 
     def test_classify_known_columns(self):
         """Test classifying known columns."""
-        columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'RACE']
+        columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'ANCESTRY']
         types = get_column_types(columns)
 
         assert 'numeric' in types
@@ -224,7 +245,7 @@ class TestGetColumnTypes:
 
         # SEX and RACE should be categorical
         assert 'SEX' in types['categorical']
-        assert 'RACE' in types['categorical']
+        assert 'ANCESTRY' in types['categorical']
 
     def test_classify_empty_list(self):
         """Test classifying empty column list."""

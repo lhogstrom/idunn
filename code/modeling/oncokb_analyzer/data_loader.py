@@ -49,8 +49,19 @@ class DataLoader:
         try:
             self.logger.info(f"Loading patient data from {self.db_path}")
 
-            # Load from the main patient table
+            # Load from the main patient table.
+            # DB schema stores ancestry under the legacy column name RACE; we
+            # rename to ANCESTRY here so downstream Python code uses the
+            # publication-facing label (Feature Review Fix b, 2026-05-21).
             data = pd.read_sql_table('perPatientOncoKBFilteredForModeling', con=self.engine)
+            # pd.read_sql_table returns sqlalchemy `quoted_name` column types; the
+            # rename below introduces a plain Python str, producing a mixed-type
+            # column index that sklearn 1.3+ rejects. Force per-element coercion:
+            # Index.astype(str) is a no-op here because quoted_name IS a subclass
+            # of str (pandas sees object dtype and skips the conversion).
+            data.columns = [str(c) for c in data.columns]
+            if 'RACE' in data.columns:
+                data = data.rename(columns={'RACE': 'ANCESTRY'})
 
             self.logger.info(f"Loaded {len(data)} patient records with {data.shape[1]} columns")
 

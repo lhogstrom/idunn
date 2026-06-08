@@ -9,25 +9,25 @@ params.dbName = "balder-harmonized-biomarker-data-v20250522.sqlite"
 params.dbName2 = "balder-compiled-raw-data-v20250522.sqlite"
 params.tmpVarTbl = "compiled_mutations_all_studies.txt"
 params.oncokbOut = "compiled_mutations_all_studies.oncokb.txt"
-params.scripts_dir = '../code'
+params.scripts_dir = '../code/pipeline/r_pipeline_scripts'
 // scripts for primary data products
-params.scripts1 = file('../code/clinical_annotation_db_curration.r')
-params.scripts2 = file('../code/cancer_genomics_studies_db_curration.r')
-params.scripts3 = file('../code/setup_and_structure_oncokb_run.r')
-params.scripts4 = file('../code/run_oncokb_annotator.sh')
-params.scripts5 = file('../code/load_oncokb_run.r')
-params.scripts6 = file('../code/clinical_annotation_variant_matching.r')
-params.scripts7 = file('../code/targeted_panel_coordinate_lookup.r')
-params.scripts8 = file('../code/generate_perPatientOncoKBLevelSorted.r')
+params.scripts1 = file('../code/pipeline/r_pipeline_scripts/clinical_annotation_db_curration.r')
+params.scripts2 = file('../code/pipeline/r_pipeline_scripts/cancer_genomics_studies_db_curration.r')
+params.scripts3 = file('../code/pipeline/r_pipeline_scripts/setup_and_structure_oncokb_run.r')
+params.scripts4 = file('../code/pipeline/r_pipeline_scripts/run_oncokb_annotator.sh')
+params.scripts5 = file('../code/pipeline/r_pipeline_scripts/load_oncokb_run.r')
+params.scripts6 = file('../code/pipeline/r_pipeline_scripts/clinical_annotation_variant_matching.r')
+params.scripts7 = file('../code/pipeline/r_pipeline_scripts/targeted_panel_coordinate_lookup.r')
+params.scripts8 = file('../code/pipeline/r_pipeline_scripts/generate_perPatientOncoKBLevelSorted.r')
 
 // scripts for reporting and analysis
-params.scripts9 = file('../code/incidence_of_clinically_annotated_mutations_reporting.r')
-params.scripts10 = file('../code/MAF_and_prognostic_marker_analysis.r')
-params.scripts11 = file('../code/summary_oncokb_by_cancer_type.r')
-params.scripts12 = file('../code/clinical_technical_feature_description.R')
+params.scripts9 = file('../code/pipeline/r_pipeline_scripts/incidence_of_clinically_annotated_mutations_reporting.r')
+params.scripts10 = file('../code/pipeline/r_pipeline_scripts/MAF_and_prognostic_marker_analysis.r')
+params.scripts11 = file('../code/pipeline/r_pipeline_scripts/summary_oncokb_by_cancer_type.r')
+params.scripts12 = file('../code/pipeline/r_pipeline_scripts/clinical_technical_feature_description.R')
 
-params.scripts13 = file('../code/filter_and_structure_genie_data_for_modeling.r')
-params.scripts14 = file('../code/oncoKB_level1_ML_modeling_by_cType.py')
+params.scripts13 = file('../code/pipeline/r_pipeline_scripts/filter_and_structure_genie_data_for_modeling.r')
+params.scripts14 = file('../code/modeling/legacy/oncoKB_level1_ML_modeling_by_cType.py')
 
 log.info """\
     B A L D E R - N F   P I P E L I N E

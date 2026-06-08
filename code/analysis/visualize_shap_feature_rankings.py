@@ -367,8 +367,14 @@ def create_demographic_vs_technical_comparison(df, output_file=None):
     """
     print("\nCreating demographic vs technical comparison...")
 
-    # Define categories
-    demographic_keywords = ['SEX', 'RACE', 'ETHNICITY', 'AGE']
+    # Define categories. 'ANCESTRY' added 2026-05-22 (pre-lock review #6); the
+    # Python identifier was renamed RACE → ANCESTRY by Feature Review Fix b
+    # (2026-05-21), so post-rename SHAP feature names use 'Ancestry: ...' /
+    # 'ANCESTRY_...' forms. RACE is kept for back-compat with pre-rename
+    # rankings. _MISSING is added so the new ANCESTRY_missing / ETHNICITY_missing
+    # indicator features also bucket as Demographic (their institutional-signal
+    # interpretation is still a demographic-pipeline concern).
+    demographic_keywords = ['SEX', 'RACE', 'ANCESTRY', 'ETHNICITY', 'AGE', '_MISSING']
     technical_keywords = ['library', 'calling', 'coverage', 'instrument', 'platform',
                          'target', 'CENTER', 'SUBJECT', 'pipeline', 'assay']
 

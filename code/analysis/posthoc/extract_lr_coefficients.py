@@ -218,7 +218,8 @@ def get_reference_categories(preprocessor, feature_columns: List[str]) -> Dict[s
     Extract reference (dropped) categories from the preprocessor's OneHotEncoder.
 
     Args:
-        preprocessor: Fitted ColumnTransformer
+        preprocessor: Fitted ColumnTransformer, OR a sklearn Pipeline wrapping
+            one (post-Feature-Review-Fix-b: missingness step → column_transformer).
         feature_columns: Original feature column names
 
     Returns:
@@ -226,18 +227,31 @@ def get_reference_categories(preprocessor, feature_columns: List[str]) -> Dict[s
     """
     reference_cats = {}
 
-    for name, transformer, columns in preprocessor.transformers_:
+    # Post-Feature-Review-Fix-b (2026-05-21), create_preprocessor returns a
+    # Pipeline when ANCESTRY/ETHNICITY are in scope. Unwrap to the inner
+    # ColumnTransformer; otherwise the .transformers_ access below crashes.
+    if hasattr(preprocessor, 'named_steps') and 'column_transformer' in preprocessor.named_steps:
+        column_transformer = preprocessor.named_steps['column_transformer']
+    else:
+        column_transformer = preprocessor
+
+    for name, transformer, columns in column_transformer.transformers_:
         if name == 'cat' and hasattr(transformer, 'named_steps'):
             encoder = transformer.named_steps.get('encoder') or transformer.named_steps.get('onehot')
             if encoder is not None and hasattr(encoder, 'categories_') and hasattr(encoder, 'drop_idx_'):
-                # Get the categorical feature names
-                from oncokb_analyzer.preprocessing import CATEGORICAL_FEATURES, NUMERIC_FEATURES
-                cat_features_used = [f for f in feature_columns if f not in set(NUMERIC_FEATURES)]
-
+                # `columns` is the categorical column list as configured on
+                # the ColumnTransformer's ('cat', transformer, columns) tuple —
+                # by construction it matches encoder.categories_ order. The
+                # previous implementation reconstructed cat_features_used from
+                # feature_columns (which is feature_sets.demographic order in
+                # features.yaml) and zipped it against encoder.categories_
+                # (which is feature_types.categorical order). They coincided
+                # only by author convention; reordering either yaml block, or
+                # a feature_set=both run, silently swapped reference categories.
                 if encoder.drop_idx_ is not None:
-                    for i, (cats, drop_idx) in enumerate(zip(encoder.categories_, encoder.drop_idx_)):
-                        if i < len(cat_features_used) and drop_idx is not None:
-                            reference_cats[cat_features_used[i]] = str(cats[int(drop_idx)])
+                    for col_name, cats, drop_idx in zip(columns, encoder.categories_, encoder.drop_idx_):
+                        if drop_idx is not None:
+                            reference_cats[col_name] = str(cats[int(drop_idx)])
 
     return reference_cats
 

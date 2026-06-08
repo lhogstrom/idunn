@@ -1,0 +1,81 @@
+digraph Tier7Workflow {
+    rankdir=TB
+    size="9,14"
+    bgcolor="#ffffff"
+    node [shape=box, style="filled,rounded", fontname="Helvetica", color=black, fontsize=10]
+    edge [color=gray50, arrowsize=0.7]
+    compound=true
+    newrank=true
+    ranksep=0.5
+    nodesep=0.4
+
+    // Title
+    labelloc="t"
+    label="Post-Hoc Statistical Analysis"
+    fontsize=16
+    fontname="Helvetica-Bold"
+
+    // Input dependency
+    TIER6a [label="SHAP Feature Rankings", shape=folder, fillcolor="#e8f5e9", style="filled", fontsize=9]
+
+    // ===== Cancer-Level Associations =====
+    subgraph cluster_7a {
+        label="Cancer-Level Associations"
+        fontname="Helvetica-Bold"
+        fontsize=12
+        style="rounded,dashed"
+        color="#2e7d32"
+        bgcolor="#f1f8e9"
+
+        // Analysis row
+        {rank=same
+            AgeTest [label="Age × Actionability\nMann-Whitney U | Cohen's d", fillcolor="#2e7d32", fontcolor=white]
+            FeatAssoc [label="Feature × Actionability\nSex, Race, Sample Type, Technical\nChi-square | Fisher's exact", fillcolor="#2e7d32", fontcolor=white]
+        }
+
+        // FDR
+        FDR_7a [label="FDR Correction\nper feature category", fillcolor="#388e3c", fontcolor=white, fontsize=9]
+
+        // Internal edges
+        AgeTest -> FDR_7a
+        FeatAssoc -> FDR_7a
+
+        // Result
+        Result7a [label="~77 tests | 54 significant (70%)", shape=note, fillcolor="#c8e6c9", style="filled", fontsize=9]
+        FDR_7a -> Result7a
+    }
+
+    // ===== Gene-Stratified Associations =====
+    subgraph cluster_7b {
+        label="Gene-Stratified Associations"
+        fontname="Helvetica-Bold"
+        fontsize=12
+        style="rounded,dashed"
+        color="#1565c0"
+        bgcolor="#e3f2fd"
+
+        // Phase 1
+        GeneExplore [label="Phase 1: Identify top 2\nactionable genes\nper cancer type (33 types)", fillcolor="#1565c0", fontcolor=white]
+
+        // Phase 2
+        GeneAssoc [label="Phase 2: Gene-Stratified Tests\nAge, Sex, Race, Ethnicity,\nSample Type, Technical\n48 gene-cancer combos (n ≥ 50)", fillcolor="#1565c0", fontcolor=white]
+
+        // FDR
+        FDR_7b [label="FDR Correction\nper feature category", fillcolor="#1976d2", fontcolor=white, fontsize=9]
+
+        // Internal edges
+        GeneExplore -> GeneAssoc
+        GeneAssoc -> FDR_7b
+
+        // Result
+        Result7b [label="193 tests | 134 significant (69%)", shape=note, fillcolor="#bbdefb", style="filled", fontsize=9]
+        FDR_7b -> Result7b
+    }
+
+    // External edges - SHAP dependencies (grey)
+    TIER6a -> FeatAssoc [style=dashed, color=gray50, penwidth=1.5, label="top-5\nfilter", fontsize=8, fontcolor=gray40]
+    TIER6a -> GeneAssoc [style=dashed, color=gray50, penwidth=1.5, label="top-5\nfilter", fontsize=8, fontcolor=gray40]
+
+    // Invisible edge to enforce vertical stacking
+    Result7a -> GeneExplore [style=invis]
+}

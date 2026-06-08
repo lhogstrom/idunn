@@ -171,7 +171,7 @@ def get_feature_list(feature_set: str = 'demographic', config_path: Optional[str
     Examples
     --------
     >>> get_feature_list('demographic')
-    ['SAMPLE_TYPE', 'SAMPLE_TYPE_DETAILED', 'SEX', 'RACE', 'ETHNICITY', 'AGE_AT_SEQ_REPORT']
+    ['SAMPLE_TYPE_DETAILED', 'SEX', 'ANCESTRY', 'ETHNICITY', 'AGE_AT_SEQ_REPORT', 'ANCESTRY_missing', 'ETHNICITY_missing']
     """
     valid_sets = ['demographic', 'technical', 'both']
     if feature_set not in valid_sets:

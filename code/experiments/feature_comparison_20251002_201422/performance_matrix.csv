@@ -1,9 +1,0 @@
-Cancer_Type,Algorithm,both,demographic,technical
-BRCA,logistic,0.542,0.588,0.422
-BRCA,random_forest,0.520,0.571,0.432
-GIST,logistic,0.410,0.540,0.338
-GIST,random_forest,0.352,0.513,0.333
-LUAD,logistic,0.510,0.596,0.441
-LUAD,random_forest,0.486,0.587,0.443
-MEL,logistic,0.534,0.592,0.421
-MEL,random_forest,0.504,0.564,0.425

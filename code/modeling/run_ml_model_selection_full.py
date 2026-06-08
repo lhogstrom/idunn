@@ -625,9 +625,13 @@ def main():
     parser.add_argument(
         '--algorithm',
         type=str,
-        choices=['random_forest', 'logistic', 'xgboost', 'all'],
-        default='all',
-        help='Algorithm to optimize (default: all)'
+        default='rf,lr',
+        help=(
+            'Algorithm(s) to optimize. Accepts a single canonical name '
+            '(random_forest, logistic, xgboost), the literal "all" '
+            '(= rf,lr,xgb), or a comma-separated list of shorthand '
+            '(rf, lr, xgb). Default: rf,lr'
+        ),
     )
     parser.add_argument(
         '--cv-strategy',
@@ -723,11 +727,27 @@ def main():
         institution_weight_alpha=args.institution_weight_alpha
     )
 
-    # Run optimization
-    if args.algorithm == 'all':
-        results = phase2b.run_all_algorithms()
+    # Resolve --algorithm: accept canonical names, "all", or comma-separated shorthand.
+    SHORTHAND = {'rf': 'random_forest', 'lr': 'logistic', 'xgb': 'xgboost'}
+    CANONICAL = {'random_forest', 'logistic', 'xgboost'}
+
+    raw = args.algorithm.strip()
+    if raw == 'all':
+        selected = ['random_forest', 'logistic', 'xgboost']
     else:
-        results = {args.algorithm: phase2b.optimize_universal_hyperparameters(args.algorithm)}
+        tokens = [t.strip() for t in raw.split(',') if t.strip()]
+        selected = [SHORTHAND.get(t, t) for t in tokens]
+        invalid = [t for t in selected if t not in CANONICAL]
+        if invalid:
+            logger.error(f"Unknown algorithm(s): {invalid}. Valid: {sorted(CANONICAL)} or shorthand rf/lr/xgb.")
+            sys.exit(1)
+
+    if len(selected) == 1:
+        results = {selected[0]: phase2b.optimize_universal_hyperparameters(selected[0])}
+    else:
+        phase2b.algorithms = selected
+        logger.info(f"Optimizing {len(selected)} algorithms: {selected}")
+        results = phase2b.run_all_algorithms()
 
     logger.info("\n✓ Phase 2b Step 1 complete!")
     logger.info(f"Results saved to: {phase2b.output_dir}")

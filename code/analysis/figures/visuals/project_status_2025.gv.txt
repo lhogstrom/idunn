@@ -1,0 +1,76 @@
+// PhD 2025 Project Status
+digraph {
+	bgcolor="#f9f9f9" rankdir=LR size="12,8"
+	node [fillcolor=lightblue2 fontname=Helvetica shape=ellipse style=filled]
+	edge [arrowsize=0.8 color=gray50]
+	A [label="Larson's PhD 2025" fillcolor=lightgoldenrod1 shape=box style="filled,bold"]
+	subgraph cluster_ttf3 {
+		color=lightblue fillcolor="#e6f2ff" label="TTF3 Manuscript" style="rounded,filled"
+		B [label="TTF3 Manuscript" fillcolor="#cce5ff" shape=box]
+		B1 [label=Submission fillcolor="#f0f8ff"]
+		B -> B1
+	}
+	A -> B
+	subgraph cluster_courses {
+		color=lightgreen fillcolor="#eaffea" label=Courses style="rounded,filled"
+		C [label=Courses fillcolor="#c6f7c6" shape=box]
+		C1 [label="Intro I"]
+		C2 [label="Intro II"]
+		C -> C1
+		C -> C2
+	}
+	A -> C
+	subgraph cluster_kappa {
+		color=lightcoral fillcolor="#ffe6e6" label="Kappa Text" style="rounded,filled"
+		D [label="Kappa Text" fillcolor="#ffd6d6" shape=box]
+		D1 [label="Expanded methods text"]
+		D2 [label="Expanded lit reviews"]
+		D -> D1
+		D -> D2
+	}
+	A -> D
+	subgraph cluster_other {
+		color=mediumpurple fillcolor="#f3e6ff" label="Other Projects" style="rounded,filled"
+		E [label="Other Projects" fillcolor="#e0ccff" shape=box]
+		E1 [label="Targeted panel evaluation"]
+		E2 [label="Transcript ambiguity"]
+		E3 [label="Health economics and
+drug pricing"]
+		E -> E1
+		E -> E2
+		E -> E3
+	}
+	A -> E
+	subgraph cluster_ml {
+		color=orange fillcolor="#fff0e6" label="ML Manuscript" style="rounded,filled"
+		F [label="ML Manuscript" fillcolor="#ffd9b3" shape=box]
+		F1 [label="Key Results" fillcolor="#ffe6cc" shape=box]
+		F2 [label="Code Improvements" fillcolor="#ffe6cc" shape=box]
+		F3 [label=Manuscript fillcolor="#ffe6cc" shape=box]
+		F1a [label="Data visualizations +
+reporting"]
+		F1b [label="Institutional variability"]
+		F1c [label="ML modeling"]
+		F1d [label="Post-hoc analysis"]
+		F2a [label="Data processing pipeline"]
+		F2b [label="Filter steps review"]
+		F2c [label="ML experiments"]
+		F3a [label="Revised intro"]
+		F3b [label="Figure legends"]
+		F3c [label="New results text"]
+		F -> F1
+		F -> F2
+		F -> F3
+		F1 -> F1a
+		F1 -> F1b
+		F1 -> F1c
+		F1 -> F1d
+		F2 -> F2a
+		F2 -> F2b
+		F2 -> F2c
+		F3 -> F3a
+		F3 -> F3b
+		F3 -> F3c
+	}
+	A -> F
+}

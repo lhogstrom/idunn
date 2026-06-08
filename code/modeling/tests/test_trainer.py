@@ -75,7 +75,7 @@ class TestPrepareFeatures:
 
         # Check that only demographic columns are included
         assert 'SEX' in X.columns
-        assert 'RACE' in X.columns
+        assert 'ANCESTRY' in X.columns
         assert 'AGE_AT_SEQ_REPORT' in X.columns
 
         # Technical columns should not be included
@@ -100,7 +100,7 @@ class TestPrepareFeatures:
 
         # Demographic columns should not be included
         assert 'SEX' not in X.columns
-        assert 'RACE' not in X.columns
+        assert 'ANCESTRY' not in X.columns
 
     def test_prepare_both_features(self, toy_dataframe):
         """Test preparing both feature sets."""
@@ -176,7 +176,7 @@ class TestCreatePipeline:
     def test_pipeline_with_available_columns(self):
         """Test creating pipeline with specific columns."""
         trainer = ModelTrainer()
-        columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'RACE']
+        columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'ANCESTRY']
         pipeline = trainer.create_pipeline(available_columns=columns)
 
         assert pipeline is not None

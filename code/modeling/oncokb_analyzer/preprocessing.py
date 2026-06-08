@@ -26,6 +26,15 @@ from feature_config import (
     get_categorical_features as _get_categorical_features,
 )
 
+from .missingness_indicator import MissingnessIndicatorTransformer
+
+# Columns where the string "Unknown" should be split into a binary indicator
+# and mode-imputed (Feature Review Fix b, 2026-05-21). NKI and CRUK are 100%
+# Unknown for both — treating Unknown as a one-hot category turned those
+# institutions into a covert demographic signal.
+MISSINGNESS_INDICATOR_COLS = ['ANCESTRY', 'ETHNICITY']
+MISSINGNESS_INDICATOR_SUFFIX = '_missing'
+
 
 # ============================================================================
 # Feature Definitions (loaded from centralized config)
@@ -71,7 +80,7 @@ def get_feature_list(feature_set: str = 'demographic') -> List[str]:
     Examples
     --------
     >>> get_feature_list('demographic')
-    ['SAMPLE_TYPE', 'SAMPLE_TYPE_DETAILED', 'SEX', 'RACE', 'ETHNICITY', 'AGE_AT_SEQ_REPORT']
+    ['SAMPLE_TYPE_DETAILED', 'SEX', 'ANCESTRY', 'ETHNICITY', 'AGE_AT_SEQ_REPORT', 'ANCESTRY_missing', 'ETHNICITY_missing']
     """
     valid_feature_sets = ['demographic', 'technical', 'both']
     if feature_set not in valid_feature_sets:
@@ -87,78 +96,116 @@ def get_feature_list(feature_set: str = 'demographic') -> List[str]:
         return DEMOGRAPHIC_FEATURES + TECHNICAL_FEATURES
 
 
-def create_preprocessor(available_columns: Optional[List[str]] = None) -> ColumnTransformer:
+def _expand_for_missingness(
+    available_columns: Optional[List[str]],
+) -> Optional[List[str]]:
+    """
+    Append `<col>_missing` indicator columns to `available_columns` for each
+    source column in MISSINGNESS_INDICATOR_COLS that's present.
+
+    The MissingnessIndicatorTransformer prepended to the preprocessor will
+    create these columns at fit/transform time; advertising them in
+    `available_columns` lets the downstream ColumnTransformer route them as
+    numeric features.
+    """
+    if available_columns is None:
+        return None
+    expanded = list(available_columns)
+    for src in MISSINGNESS_INDICATOR_COLS:
+        if src in available_columns:
+            indicator = f"{src}{MISSINGNESS_INDICATOR_SUFFIX}"
+            if indicator not in expanded:
+                expanded.append(indicator)
+    return expanded
+
+
+def create_preprocessor(available_columns: Optional[List[str]] = None):
     """
     Create preprocessing pipeline for OncoKB data.
 
-    This pipeline handles:
-    - Numeric features: Median imputation
-    - Categorical features: Most frequent imputation + one-hot encoding
+    Pipeline structure (Feature Review Fix b, 2026-05-21):
+      1. MissingnessIndicatorTransformer — for each col in
+         MISSINGNESS_INDICATOR_COLS that's present, emits a binary indicator
+         column and mode-imputes the "Unknown" sentinel using the training-set
+         mode.
+      2. ColumnTransformer — numeric features get median imputation;
+         categorical features get most-frequent imputation + one-hot encoding.
+
+    When none of the missingness source columns are present, step 1 is
+    skipped and the returned value is the bare ColumnTransformer (same
+    contract as before).
 
     Parameters
     ----------
     available_columns : list of str, optional
-        List of columns actually present in the data.
-        If provided, filters numeric_cols and categorical_cols to only
-        include columns in this list. This handles cases where some
-        features are missing from the dataset.
+        List of columns actually present in the input DataFrame at fit time
+        (typically `X.columns.tolist()`). If provided, the returned pipeline
+        is configured to handle exactly those columns plus any indicator
+        columns the missingness step will add.
 
     Returns
     -------
-    preprocessor : ColumnTransformer
-        Scikit-learn preprocessing pipeline
-
-    Notes
-    -----
-    Uses integer indices instead of column names to ensure compatibility
-    with numpy arrays (which scikit-learn's cross-validation produces).
-
-    Examples
-    --------
-    >>> preprocessor = create_preprocessor()
-    >>> # Use in a full pipeline:
-    >>> from sklearn.ensemble import RandomForestClassifier
-    >>> from sklearn.pipeline import Pipeline
-    >>> model = Pipeline([
-    ...     ('preprocessor', preprocessor),
-    ...     ('classifier', RandomForestClassifier())
-    ... ])
-    >>> model.fit(X, y)
+    preprocessor : Pipeline or ColumnTransformer
+        Scikit-learn preprocessor. Always returns a Pipeline when any
+        MISSINGNESS_INDICATOR_COLS source is present; otherwise returns the
+        bare ColumnTransformer for backwards compatibility.
     """
-    # Start with all possible numeric and categorical columns
+    # Determine which missingness source columns apply, if any.
+    #
+    # When `available_columns is None`, we have no way to know whether the
+    # caller's DataFrame actually contains ANCESTRY/ETHNICITY. Configuring the
+    # missingness step unconditionally would crash any caller whose data lacks
+    # those columns — including the legacy numpy-array entrypoint in
+    # hyperparameter_optimizer.py that wraps arrays as DataFrames with synthetic
+    # integer column names (pre-lock review #8, 2026-05-22). Skip the step in
+    # that case; callers that actually have ANCESTRY/ETHNICITY should pass
+    # `available_columns` explicitly so the step gets configured.
+    if available_columns is None:
+        missingness_cols = []
+    else:
+        missingness_cols = [
+            c for c in MISSINGNESS_INDICATOR_COLS if c in available_columns
+        ]
+
+    # Expand the column manifest with indicator names so the ColumnTransformer
+    # below routes them as numeric features.
+    available_columns = _expand_for_missingness(available_columns)
+
+    # Start with all possible numeric and categorical columns (NUMERIC_FEATURES
+    # already contains ANCESTRY_missing / ETHNICITY_missing via features.yaml).
     numeric_cols = NUMERIC_FEATURES.copy()
     categorical_cols = CATEGORICAL_FEATURES.copy()
 
-    # Filter to only available columns if specified
     if available_columns is not None:
         numeric_cols = [col for col in numeric_cols if col in available_columns]
         categorical_cols = [col for col in categorical_cols if col in available_columns]
 
-        # Convert column names to indices (for numpy array compatibility)
-        numeric_indices = [available_columns.index(col) for col in numeric_cols]
-        categorical_indices = [available_columns.index(col) for col in categorical_cols]
-    else:
-        # If no available columns specified, use column names
-        # (assumes input will be DataFrame)
-        numeric_indices = numeric_cols
-        categorical_indices = categorical_cols
-
-    # Create preprocessing transformers
-    preprocessor = ColumnTransformer(
+    # Use column NAMES (not indices). The MissingnessIndicatorTransformer
+    # produces a DataFrame, so the ColumnTransformer can address columns by
+    # name. This also keeps the contract uniform whether or not the
+    # missingness step is present.
+    column_transformer = ColumnTransformer(
         transformers=[
-            # Numeric features: median imputation
-            ('num', SimpleImputer(strategy='median'), numeric_indices),
-
-            # Categorical features: most frequent imputation + one-hot encoding
+            ('num', SimpleImputer(strategy='median'), numeric_cols),
             ('cat', Pipeline([
                 ('imputer', SimpleImputer(strategy='most_frequent')),
                 ('onehot', OneHotEncoder(drop='first', handle_unknown='ignore'))
-            ]), categorical_indices)
+            ]), categorical_cols)
         ],
-        remainder='drop'  # Drop any columns not explicitly handled
+        remainder='drop',
     )
 
-    return preprocessor
+    if not missingness_cols:
+        return column_transformer
+
+    return Pipeline([
+        ('missingness', MissingnessIndicatorTransformer(
+            columns=missingness_cols,
+            missing_value='Unknown',
+            indicator_suffix=MISSINGNESS_INDICATOR_SUFFIX,
+        )),
+        ('column_transformer', column_transformer),
+    ])
 
 
 def create_pipeline(estimator, available_columns: Optional[List[str]] = None) -> Pipeline:
@@ -183,7 +230,7 @@ def create_pipeline(estimator, available_columns: Optional[List[str]] = None) ->
     --------
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> rf = RandomForestClassifier(n_estimators=100, random_state=42)
-    >>> pipeline = create_pipeline(rf, available_columns=['SEX', 'RACE', 'AGE_AT_SEQ_REPORT'])
+    >>> pipeline = create_pipeline(rf, available_columns=['SEX', 'ANCESTRY', 'AGE_AT_SEQ_REPORT'])
     >>> pipeline.fit(X_train, y_train)
     >>> predictions = pipeline.predict(X_test)
     """
@@ -216,12 +263,12 @@ def get_column_types(columns: List[str]) -> dict:
 
     Examples
     --------
-    >>> cols = ['SEX', 'AGE_AT_SEQ_REPORT', 'RACE']
+    >>> cols = ['SEX', 'AGE_AT_SEQ_REPORT', 'ANCESTRY']
     >>> types = get_column_types(cols)
     >>> print(types['numeric'])
     ['AGE_AT_SEQ_REPORT']
     >>> print(types['categorical'])
-    ['SEX', 'RACE']
+    ['SEX', 'ANCESTRY']
     """
     numeric = [col for col in columns if col in NUMERIC_FEATURES]
     categorical = [col for col in columns if col in CATEGORICAL_FEATURES]

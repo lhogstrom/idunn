@@ -61,9 +61,11 @@ def _create_realistic_dataframe(n_samples: int, random_state: int, class_weights
         # Add some NaN values for testing imputation
         'number_of_genes': np.random.randint(100, 600, n_samples).astype(float),
 
-        # Categorical features
+        # Categorical features. ANCESTRY (was RACE) includes 'Unknown' so the
+        # MissingnessIndicatorTransformer branch is exercised; values use the
+        # post-R-pipeline ancestry labels (European/African/Asian/Other/Unknown).
         'SEX': np.random.choice(['Male', 'Female'], n_samples),
-        'RACE': np.random.choice(['White', 'Black', 'Asian', 'Other'], n_samples),
+        'ANCESTRY': np.random.choice(['European', 'African', 'Asian', 'Other', 'Unknown'], n_samples),
         'ETHNICITY': np.random.choice(['Hispanic', 'Non-Hispanic', 'Unknown'], n_samples),
         'SAMPLE_TYPE': np.random.choice(['Primary', 'Metastasis', 'Other'], n_samples),
         'SAMPLE_TYPE_DETAILED': np.random.choice(['Primary Tumor', 'Metastatic', 'Local Recurrence'], n_samples),

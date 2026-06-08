@@ -188,14 +188,13 @@ class FeatureNameMapper:
         if value in ['Male', 'Female']:
             return 'SEX'
 
-        # RACE values (these are unique to RACE)
-        if value in ['European', 'Asian', 'African', 'White', 'Black', 'Native American',
-                     'American Indian or Alaska Native', 'Native Hawaiian or Other Pacific Islander']:
-            return 'RACE'
+        # ANCESTRY values (DB column is RACE; renamed to ANCESTRY at the Python
+        # boundary in data_loader.py, Feature Review Fix b 2026-05-21).
+        if value in ['European', 'Asian', 'African', 'Native American', 'Pacific Islander']:
+            return 'ANCESTRY'
 
         # ETHNICITY values (these are unique to ETHNICITY)
-        if value in ['Non-Spanish/non-Hispanic', 'Spanish/Hispanic', 'Not Hispanic or Latino',
-                     'Hispanic or Latino']:
+        if value in ['Non-Spanish/non-Hispanic', 'Spanish/Hispanic']:
             return 'ETHNICITY'
 
         # SAMPLE_TYPE values (simple, short values)
@@ -253,15 +252,18 @@ class FeatureNameMapper:
         if re.match(r'^[<>=]?\d+%?$', value):
             return 'tumor_purity_bin'
 
-        # Handle ambiguous "Unknown" and "Other" by context
+        # Handle ambiguous "Unknown" and "Other" by context.
+        # Updated 2026-05-22 (pre-lock review #13): SAMPLE_TYPE was dropped
+        # from modeling features (Feature Review Fix a) and ANCESTRY's Unknown
+        # is now mode-imputed away into a named indicator (Fix b). SEX has
+        # never had 'Unknown'. So 'Unknown' reaching this fallback now almost
+        # certainly came from ETHNICITY in a legacy pre-rename SHAP file.
         if value == 'Unknown':
-            # "Unknown" could be SEX, RACE, ETHNICITY, or SAMPLE_TYPE
-            # Without more context, default to SEX (most common)
-            return 'SEX'
+            return 'ETHNICITY'
 
         if value == 'Other':
-            # "Other" most commonly appears in RACE
-            return 'RACE'
+            # "Other" most commonly appears in ANCESTRY (renamed from RACE).
+            return 'ANCESTRY'
 
         # Default: return value itself if we can't determine
         return f'UNKNOWN_FEATURE_{value}'
@@ -383,7 +385,7 @@ _technical_base = set(get_feature_list('technical'))
 
 # Build complete sets including display names for pattern matching
 DEMOGRAPHIC_FEATURES = _demographic_base | {
-    'Age at Sequencing', 'Sex', 'Race', 'Ethnicity',
+    'Age at Sequencing', 'Sex', 'Race', 'Ancestry', 'Ethnicity',
     'Sample Type', 'Sample Type (Detailed)'
 }
 
@@ -417,7 +419,7 @@ def classify_feature_type(feature_name: str) -> str:
         return 'technical'
 
     # Check by pattern - demographic patterns
-    demographic_patterns = ['SEX', 'RACE', 'ETHNICITY', 'AGE', 'SAMPLE_TYPE']
+    demographic_patterns = ['SEX', 'RACE', 'ANCESTRY', 'ETHNICITY', 'AGE', 'SAMPLE_TYPE']
     if any(pattern in feature_name.upper() for pattern in demographic_patterns):
         return 'demographic'
 

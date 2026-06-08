@@ -5,29 +5,33 @@ Master Analysis Script for Balder Project
 Orchestrates execution of all analysis scripts and ML experiments in scientifically
 sound order. Handles environment switching, dependency management, and error reporting.
 
-Scientific Workflow Order (January 2026):
+Scientific Workflow Order:
     TIER 1: Independent Analyses (demographics, institutional, feature engineering)
     TIER 2: Data Setup (multi-tier groupings + train/test split)
-    TIER 3: Hyperparameter Optimization (training data only)
+    TIER 3: Hyperparameter Optimization (training data only; default RF + LR)
     TIER 4: Feature Set Comparison (training data only)
     TIER 5: Final Model Training & Test Set Evaluation
-    TIER 6: SHAP Analysis
-    TIER 7: Post-Hoc Statistical Analysis (based on SHAP features)
+    TIER 6: Feature Importance (RF: SHAP primary; LR: coefficient extraction)
+    TIER 7: Post-Hoc Statistical Analysis
 
     IMPORTANT: Test set (20%) is held out BEFORE hyperparameter optimization.
     All model development uses ONLY the 80% training data.
 
+Pathways:
+    By default, both RF and LR pathways run in a single invocation. RF runs first;
+    LR is then re-invoked internally with --base-run-dir set to the RF run, which
+    automatically triggers the cross-pathway plots in TIER 7. Pass --algorithm
+    explicitly to run a single pathway only.
+
 Usage:
-    python run_all_analyses.py --full              # Run everything (~5 hours)
-    python run_all_analyses.py --quick             # Quick test run (~30 min, skips SHAP)
+    python run_all_analyses.py --full              # Run everything (RF+LR), ~5 hours
+    python run_all_analyses.py --quick             # Quick test run (~30 min)
     python run_all_analyses.py --ml-only           # Only ML experiments (TIER 2-5)
     python run_all_analyses.py --analysis-only     # Only analysis scripts (TIER 1, 7)
-    python run_all_analyses.py --post-model-selection      # Only downstream of Phase 2b (TIER 4-7, includes SHAP primary)
-    python run_all_analyses.py --dry-run           # Show what would run
-    python run_all_analyses.py --list              # List all scripts
-
-Note: --quick mode automatically skips ALL SHAP analysis (TIER 6) to prevent memory issues.
-Note: --post-model-selection runs SHAP primary values (6a) but skips SHAP interactions (6b).
+    python run_all_analyses.py --post-model-selection  # Downstream of Phase 2b (TIER 4-7)
+    python run_all_analyses.py --algorithm logistic    # Single-pathway run (LR only)
+    python run_all_analyses.py --include-xgboost       # Add XGBoost to TIER 3 search
+    python run_all_analyses.py --dry-run --list        # Preview without running
 """
 
 import argparse
@@ -77,28 +81,43 @@ class MasterAnalysis:
 
     def __init__(self, mode: str = 'full', dry_run: bool = False,
                  continue_on_error: bool = True, skip_shap: bool = False,
-                 skip_shap_interactions: bool = False, parallel: bool = False,
+                 parallel: bool = False,
                  feature_config_path: str = None, institution_weight_alpha: float = 0.0,
                  base_run_dir: str = None, algorithm: str = 'random_forest',
-                 lr_significant_only: bool = False):
+                 lr_significant_only: bool = False, shap_file_override: str = None,
+                 tier3_algorithms: str = 'rf,lr', run_dir_suffix: str = ''):
         self.mode = mode
         self.dry_run = dry_run
         self.continue_on_error = continue_on_error
-        self.skip_shap = skip_shap  # Skip ALL SHAP (both 6a and 6b)
-        self.skip_shap_interactions = skip_shap_interactions  # Skip only 6b (interactions)
+        self.skip_shap = skip_shap  # Skip TIER 6 entirely (RF SHAP primary or LR coefficients)
         self.parallel = parallel
+        self.tier3_algorithms = tier3_algorithms  # Comma list for TIER 3 search
+        self.run_dir_suffix = run_dir_suffix  # Suffix appended to run_<TS>; used by dual-pathway loop
         self.feature_config_path = feature_config_path  # Custom feature config path
         self.institution_weight_alpha = institution_weight_alpha  # Power weighting for TIER 5
         self.base_run_dir = Path(base_run_dir).resolve() if base_run_dir else None  # Existing run to draw from
         self.algorithm = algorithm  # ML algorithm: 'random_forest' or 'logistic'
         self.lr_significant_only = lr_significant_only  # Filter LR rankings to Wald-significant only
+        self.shap_file_override = shap_file_override  # Optional explicit TIER 6 rankings path for TIER 7
+
+        # Invocation context (recorded in run_summary.json for reproducibility — the
+        # lock manifest references this). Capture sys.argv at construction time so
+        # the LR pass records the same args the user typed, not the synthesized
+        # internal re-invocation.
+        self.invocation = {
+            'argv': list(sys.argv),
+            'cwd': os.getcwd(),
+            'algorithm': algorithm,
+            'base_run_dir': str(base_run_dir) if base_run_dir else None,
+        }
 
         # Get repository root
         self.repo_root = Path(__file__).parent.parent
 
         # Create unified timestamped run directory
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir = self.repo_root / "runs" / f"run_{self.timestamp}"
+        suffix = f"_{self.run_dir_suffix}" if self.run_dir_suffix else ""
+        self.run_dir = self.repo_root / "runs" / f"run_{self.timestamp}{suffix}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         # Create tier subdirectories
@@ -151,20 +170,36 @@ class MasterAnalysis:
         }
 
     def _get_train_test_split_file(self) -> str:
-        """Get train-test split file path, using base_run_dir if specified."""
+        """Get train-test split file path, using base_run_dir if specified.
+
+        Fail-closed: if base_run_dir is set but lacks a split, or if
+        post-model-selection mode is requested without a usable split,
+        raise FileNotFoundError rather than silently returning a stale
+        legacy path (the pre-2026-05-23 fallback to
+        '../../analysis_output/train_test_split/train_test_split.csv' was a
+        Bug A class silent fallback — same provenance failure mode as the
+        2026-05-07 SHAP-gate audit).
+        """
         if self.base_run_dir:
             split_file = self.base_run_dir / 'tier2_data_setup' / 'train_test_split' / 'train_test_split.csv'
             if split_file.exists():
                 return str(split_file)
-            else:
-                print(f"{Colors.WARNING}Warning: Train-test split not found in base run: {split_file}{Colors.ENDC}")
-                print(f"{Colors.WARNING}Falling back to default location{Colors.ENDC}")
+            raise FileNotFoundError(
+                f"base_run_dir is set but no train_test_split.csv found at:\n"
+                f"  {split_file}\n"
+                f"This typically happens with --post-model-selection + dual-pathway, "
+                f"where the RF re-run skipped TIER 2 and the LR pass points base_run_dir "
+                f"at the RF re-run's dir. Pass --base-run-dir explicitly to the dir that "
+                f"contains TIER 2 outputs, or run without --post-model-selection."
+            )
 
-        # Default for post-model-selection mode
         if self.mode == 'post-model-selection':
-            return '../../analysis_output/train_test_split/train_test_split.csv'
+            raise FileNotFoundError(
+                "post-model-selection mode requires --base-run-dir to point at a run "
+                "containing tier2_data_setup/train_test_split/train_test_split.csv."
+            )
 
-        # Default: use this run's tier2 directory
+        # Default: use this run's tier2 directory (will be created by TIER 2b)
         return str(self.tier_dirs[2] / 'train_test_split' / 'train_test_split.csv')
 
     def _get_hyperparams_file(self) -> Optional[str]:
@@ -218,7 +253,8 @@ class MasterAnalysis:
             return str(tier_dir.relative_to(self.repo_root))
 
         # TIER 1: Independent analysis scripts (can run in parallel)
-        if self.mode in ['full', 'quick', 'analysis-only']:
+        # Skip when reusing a base run — its TIER 1 outputs are already current.
+        if self.mode in ['full', 'quick', 'analysis-only'] and not self.base_run_dir:
             tier1_dir = get_output_dir_for_tier(1, "code/analysis/")
             scripts.extend([
                 ScriptConfig(
@@ -226,7 +262,17 @@ class MasterAnalysis:
                     env="primary",
                     runtime="quick",
                     tier=1,
-                    args=['--output-dir', tier1_dir + '/cancer_type_summary_stats']
+                    args=['--output-dir', tier1_dir + '/cancer_type_summary_stats',
+                          '--format-table1', '--markdown', '--latex',
+                          '--base-run-dir', str(self.run_dir.relative_to(self.repo_root))]
+                ),
+                ScriptConfig(
+                    path="code/analysis/figures/generate_strobe_flow_diagram.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=1,
+                    args=['--output-dir', tier1_dir + '/strobe_diagram',
+                          '--base-run-dir', str(self.run_dir.relative_to(self.repo_root))]
                 ),
                 ScriptConfig(
                     path="code/analysis/demographics/analyze_demographics_by_cancer_type.py",
@@ -256,31 +302,32 @@ class MasterAnalysis:
                     tier=1,
                     args=['--output-dir', tier1_dir + '/variants']
                 ),
+                ScriptConfig(
+                    path="code/analysis/institutional/plot_cv_and_forest_simple.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=1,
+                    args=['--output-dir', tier1_dir + '/cv_forest_plots']
+                ),
             ])
 
-        # TIER 2a: Multi-Tier Grouping Definition
-        if self.mode in ['full', 'quick', 'ml-only']:
+        # TIER 2a: Cancer-Type Grouping Definition
+        # Skip when reusing a base run — its groupings are already canonical.
+        if self.mode in ['full', 'quick', 'ml-only'] and not self.base_run_dir:
             tier2_dir = get_output_dir_for_tier(2, "code/analysis/")
-            scripts.extend([
+            scripts.append(
                 ScriptConfig(
-                    path="code/analysis/oncotree_grouping_analysis.py",
+                    path="code/analysis/define_cancer_type_groupings.py",
                     env="primary",
                     runtime="quick",
                     tier=2,
-                    args=['--output-dir', tier2_dir + '/oncotree_grouping']
+                    args=['--output-dir', tier2_dir + '/cancer_type_groupings']
                 ),
-                ScriptConfig(
-                    path="code/analysis/define_multi_tier_groupings_v3.py",
-                    env="primary",
-                    runtime="quick",
-                    tier=2,
-                    args=['--input-dir', tier2_dir + '/oncotree_grouping',
-                          '--output-dir', tier2_dir + '/multi_tier_groupings']
-                ),
-            ])
+            )
 
         # TIER 2b: Train/Test Split Definition (MUST run before any modeling)
-        if self.mode in ['full', 'quick', 'ml-only']:
+        # Skip when reusing a base run — its split is already canonical.
+        if self.mode in ['full', 'quick', 'ml-only'] and not self.base_run_dir:
             tier2_dir = get_output_dir_for_tier(2, "code/analysis/")
             scripts.append(
                 ScriptConfig(
@@ -293,12 +340,13 @@ class MasterAnalysis:
             )
 
         # TIER 3: Hyperparameter Optimization & Model Selection (TRAINING DATA ONLY)
-        if self.mode in ['full', 'quick', 'ml-only']:
+        # Skip when reusing a base run — its hyperparameters are already canonical.
+        if self.mode in ['full', 'quick', 'ml-only'] and not self.base_run_dir:
             tier3_dir = get_output_dir_for_tier(3, "code/modeling/")
             # Use train_test_split from tier2 directory within this run (or base_run_dir if specified)
             train_split_file = self._get_train_test_split_file()
             phase2b_args = [
-                '--algorithm', 'all',  # TIER 3 always searches all algorithms (RF, LR, XGB)
+                '--algorithm', self.tier3_algorithms,
                 '--n-jobs', '1',
                 '--n-iter', '500',
                 '--sample-fraction', '1.0',
@@ -423,10 +471,13 @@ class MasterAnalysis:
             if self.algorithm == 'random_forest':
                 # RF pathway: SHAP analysis
                 # TIER 6a: Primary SHAP values (feature importance rankings)
+                # --no-timestamp-subdir keeps the output at a stable path so
+                # TIER 7 can find it via the rankings_file constructed below.
                 shap_primary_args = [
                     '--model-dir', tier5_model_dir,
                     '--train-test-split-file', train_split_file,
-                    '--output-dir', tier6_abs_dir + '/primary_values'
+                    '--output-dir', tier6_abs_dir + '/primary_values',
+                    '--no-timestamp-subdir'
                 ]
 
                 scripts.append(
@@ -439,23 +490,6 @@ class MasterAnalysis:
                         depends_on=["run_final_model_training.py"]
                     )
                 )
-
-                # TIER 6b: SHAP interactions (pairwise feature interactions)
-                if not self.skip_shap_interactions:
-                    shap_interaction_args = [
-                        '--cancer-types', 'LUAD', 'BRCA', 'MEL', 'GIST',
-                        '--output-dir', tier6_abs_dir + '/interactions'
-                    ]
-
-                    scripts.append(
-                        ScriptConfig(
-                            path="code/analysis/shap_interactions/compute_shap_interactions.py",
-                            env="ml",
-                            runtime="long",
-                            tier=6,
-                            args=shap_interaction_args
-                        )
-                    )
 
             elif self.algorithm == 'logistic':
                 # LR pathway: Coefficient extraction (replaces SHAP)
@@ -493,6 +527,24 @@ class MasterAnalysis:
                 rankings_depends = ["extract_lr_coefficients.py"]
             else:
                 rankings_file = None
+                rankings_depends = []
+
+            # Allow user to override the auto-built rankings_file path. Required
+            # for short-term re-runs that consume an existing TIER 6 output
+            # written before --no-timestamp-subdir was wired in (see ROADMAP.md
+            # "ACTIVE DATA-QUALITY ISSUE: Post-hoc SHAP-gate provenance audit").
+            if self.shap_file_override:
+                override_path = Path(self.shap_file_override)
+                if not override_path.is_absolute():
+                    override_path = (self.repo_root / override_path).resolve()
+                if not override_path.exists():
+                    raise FileNotFoundError(
+                        f"--shap-file override does not exist: {override_path}"
+                    )
+                print(f"{Colors.OKBLUE}TIER 7 rankings_file overridden via --shap-file: {override_path}{Colors.ENDC}")
+                rankings_file = str(override_path)
+                # The override file already exists, so TIER 7 no longer depends
+                # on the TIER 6 script having run in this session.
                 rankings_depends = []
 
             # Age analysis doesn't depend on feature rankings format
@@ -553,6 +605,32 @@ class MasterAnalysis:
                     )
                 )
 
+            # Cross-pathway feature-rank comparison - LR pathway against an RF base run.
+            # Requires both: this run is LR (so LR coefficients exist here) and a
+            # base_run_dir was supplied that already has RF SHAP outputs.
+            if (self.mode in tier6_modes
+                    and not self.skip_shap
+                    and self.algorithm == 'logistic'
+                    and self.base_run_dir is not None):
+                base_shap_dir = self.base_run_dir / 'tier6_shap_analysis' / 'primary_values'
+                if base_shap_dir.exists() and any(
+                    base_shap_dir.rglob('combined_feature_importance.csv')
+                ):
+                    scripts.append(
+                        ScriptConfig(
+                            path="code/analysis/posthoc/plot_rf_shap_lr_or_feature_ranks.py",
+                            env="primary",
+                            runtime="quick",
+                            tier=7,
+                            args=[
+                                '--shap-run-dir', str(self.base_run_dir),
+                                '--lr-run-dir',   str(self.run_dir),
+                                '--output-dir',   str(self.tier_dirs[7]) + '/cross_pathway',
+                            ],
+                            depends_on=["extract_lr_coefficients.py"],
+                        )
+                    )
+
             # Post-hoc visualizations - publication-ready figures
             scripts.append(
                 ScriptConfig(
@@ -603,9 +681,12 @@ class MasterAnalysis:
                 '--output-dir', gene_strat_dir,
                 '--tier', 'all'
             ]
-            # Pass rankings file for feature filtering
+            # Pass rankings file for feature filtering, OR opt out of the SHAP gate
+            # entirely when no rankings file will be produced (e.g., --quick + RF).
             if self.mode in tier6_modes and not self.skip_shap and rankings_file:
                 gene_strat_args.extend(['--shap-file', rankings_file])
+            else:
+                gene_strat_args.append('--no-shap-filter')
             if self.lr_significant_only:
                 gene_strat_args.append('--lr-significant-only')
             gene_strat_depends = ["explore_gene_distributions.py"]
@@ -654,6 +735,93 @@ class MasterAnalysis:
                 )
             )
 
+            # Phase 5a: Cancer-level hit list composite figures
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/create_hit_list_composite_figures.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=7,
+                    args=[
+                        '--input-dir', str(self.tier_dirs[7]),
+                        '--output-dir', str(self.tier_dirs[7]) + '/hit_list_figures',
+                        '--level', 'cancer'
+                    ],
+                    depends_on=["analyze_shap_feature_associations.py"]
+                )
+            )
+
+            # Phase 5b: Gene-level hit list composite figures
+            scripts.append(
+                ScriptConfig(
+                    path="code/analysis/posthoc/create_hit_list_composite_figures.py",
+                    env="primary",
+                    runtime="quick",
+                    tier=7,
+                    args=[
+                        '--input-dir', str(self.tier_dirs[7]),
+                        '--output-dir', str(self.tier_dirs[7]) + '/hit_list_figures',
+                        '--level', 'gene'
+                    ],
+                    depends_on=["analyze_gene_stratified_associations.py"]
+                )
+            )
+
+            # Cross-pathway hit-set Venn - LR pathway against an RF base run.
+            # Requires both: this run is LR (so its gene-stratified hits exist
+            # here) and a base_run_dir with gene-stratified hits already
+            # computed.
+            if (self.mode in tier6_modes
+                    and not self.skip_shap
+                    and self.algorithm == 'logistic'
+                    and self.base_run_dir is not None):
+                base_gene_strat = (
+                    self.base_run_dir / 'tier7_posthoc_statistics' / 'gene_stratified'
+                )
+                if base_gene_strat.exists() and any(
+                    base_gene_strat.rglob('*_gene_significant.csv')
+                ):
+                    scripts.append(
+                        ScriptConfig(
+                            path="code/analysis/posthoc/visualize_rf_lr_hit_venn.py",
+                            env="primary",
+                            runtime="quick",
+                            tier=7,
+                            args=[
+                                '--rf-run-dir', str(self.base_run_dir),
+                                '--lr-run-dir', str(self.run_dir),
+                                '--output-dir', str(self.tier_dirs[7]) + '/cross_pathway',
+                            ],
+                            depends_on=["analyze_gene_stratified_associations.py"],
+                        )
+                    )
+
+            # Cross-pathway per-cancer-type AUC bar plot - LR pathway against
+            # an RF base run. DeLong 95% CIs render automatically when both
+            # runs have test_predictions.csv (saved in TIER 5).
+            if (self.mode in tier6_modes
+                    and not self.skip_shap
+                    and self.algorithm == 'logistic'
+                    and self.base_run_dir is not None):
+                base_tier5 = self.base_run_dir / 'tier5_final_models'
+                if base_tier5.exists() and any(
+                    base_tier5.rglob('performance_summary.csv')
+                ):
+                    scripts.append(
+                        ScriptConfig(
+                            path="code/analysis/posthoc/plot_rf_vs_lr_auc_per_cancer.py",
+                            env="primary",
+                            runtime="quick",
+                            tier=7,
+                            args=[
+                                '--rf-run-dir', str(self.base_run_dir),
+                                '--lr-run-dir', str(self.run_dir),
+                                '--output-dir', str(self.tier_dirs[7]) + '/cross_pathway',
+                            ],
+                            depends_on=["run_final_model_training.py"],
+                        )
+                    )
+
         return scripts
 
     def _log(self, message: str, color: str = ''):
@@ -692,10 +860,10 @@ class MasterAnalysis:
                 return False
             self._log(f"✓ Found conda environment: {self.primary_env}", Colors.OKGREEN)
 
-            if not self.skip_shap and self.ml_env not in result.stdout:
+            if not self.skip_shap and self.algorithm == 'random_forest' and self.ml_env not in result.stdout:
                 self._log(f"WARNING: Conda environment '{self.ml_env}' not found (needed for SHAP)", Colors.WARNING)
-                self._log(f"  Consider running with --skip-shap-interactions", Colors.WARNING)
-            elif not self.skip_shap:
+                self._log(f"  Run TIER 6 SHAP separately or use --algorithm logistic", Colors.WARNING)
+            elif not self.skip_shap and self.algorithm == 'random_forest':
                 self._log(f"✓ Found conda environment: {self.ml_env}", Colors.OKGREEN)
 
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -970,6 +1138,7 @@ class MasterAnalysis:
             'mode': self.mode,
             'run_directory': str(self.run_dir),
             'timestamp': self.timestamp,
+            'invocation': self.invocation,
             'start_time': self.results['start_time'].isoformat(),
             'end_time': self.results['end_time'].isoformat(),
             'duration_seconds': duration.total_seconds(),
@@ -998,42 +1167,71 @@ class MasterAnalysis:
 
         self._log(f"Summary saved to: {summary_file}")
 
+def _skip_shap_for_quick(algorithm: str) -> bool:
+    """Quick mode: RF SHAP is memory-heavy → skip; LR coefficient extraction is fast → keep."""
+    if algorithm == 'random_forest':
+        print(f"{Colors.WARNING}Note: RF SHAP analysis skipped in quick mode (memory-intensive).{Colors.ENDC}")
+        return True
+    print(f"{Colors.WARNING}Note: LR coefficient extraction will run in quick mode (fast).{Colors.ENDC}")
+    return False
+
+
+def _build_runner(args, algorithm: str, base_run_dir, run_dir_suffix: str) -> 'MasterAnalysis':
+    """Construct a MasterAnalysis runner for a single pathway."""
+    skip_shap = args.mode == 'quick' and _skip_shap_for_quick(algorithm)
+    tier3_algorithms = 'rf,lr,xgb' if args.include_xgboost else args.tier3_algorithms
+
+    return MasterAnalysis(
+        mode=args.mode,
+        dry_run=args.dry_run,
+        continue_on_error=not args.stop_on_error,
+        skip_shap=skip_shap,
+        parallel=args.parallel,
+        feature_config_path=args.feature_config,
+        institution_weight_alpha=args.institution_weight_alpha,
+        base_run_dir=str(base_run_dir) if base_run_dir else None,
+        algorithm=algorithm,
+        lr_significant_only=args.lr_significant_only,
+        shap_file_override=args.shap_file,
+        tier3_algorithms=tier3_algorithms,
+        run_dir_suffix=run_dir_suffix,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Master script to run all Balder analyses and ML experiments',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_all_analyses.py --full                    # Run everything
-  python run_all_analyses.py --quick                   # Quick test run
-  python run_all_analyses.py --analysis-only           # Skip ML experiments
-  python run_all_analyses.py --ml-only                 # Only ML experiments
-  python run_all_analyses.py --post-model-selection            # Downstream of Phase 2b (TIER 4-7)
-  python run_all_analyses.py --skip-shap-interactions  # Skip SHAP (no env switch)
-  python run_all_analyses.py --dry-run --list          # Preview without running
+  python run_all_analyses.py --full                       # RF+LR, all tiers (~5 hours)
+  python run_all_analyses.py --quick                      # RF+LR smoke test (~30 min)
+  python run_all_analyses.py --algorithm logistic         # Single-pathway run (LR only)
+  python run_all_analyses.py --post-model-selection \\
+      --algorithm logistic --base-run-dir runs/<rf>       # Downstream-only LR re-run
+  python run_all_analyses.py --include-xgboost            # Add XGBoost to TIER 3 search
+  python run_all_analyses.py --analysis-only              # Skip ML experiments
+  python run_all_analyses.py --ml-only                    # Only ML (TIER 2-5)
+  python run_all_analyses.py --dry-run --list             # Preview without running
         """
     )
 
-    # Execution modes
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument('--full', action='store_const', const='full', dest='mode',
                            help='Run all analyses (hours)')
     mode_group.add_argument('--quick', action='store_const', const='quick', dest='mode',
-                           help='Quick test run (~30 min, skips SHAP to save memory)')
+                           help='Quick test run (~30 min; skips RF SHAP to save memory)')
     mode_group.add_argument('--ml-only', action='store_const', const='ml-only', dest='mode',
                            help='Only ML experiments')
     mode_group.add_argument('--analysis-only', action='store_const', const='analysis-only', dest='mode',
                            help='Only analysis scripts')
     mode_group.add_argument('--post-model-selection', action='store_const', const='post-model-selection', dest='mode',
-                           help='Only downstream of Phase 2b (TIER 4-7, includes SHAP primary)')
+                           help='Downstream-only re-run (TIER 4-7); requires --base-run-dir')
 
-    # Options
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would run without executing')
     parser.add_argument('--list', action='store_true',
                        help='List all scripts and exit')
-    parser.add_argument('--skip-shap-interactions', action='store_true',
-                       help='Skip SHAP interactions (avoid env switch)')
     parser.add_argument('--stop-on-error', action='store_true',
                        help='Stop execution if any script fails (default: continue)')
     parser.add_argument('--parallel', action='store_true',
@@ -1046,78 +1244,105 @@ Examples:
                        ))
     parser.add_argument('--institution-weight-alpha', type=float, default=0.0,
                        help=(
-                           'Power parameter for institutional sample weighting in TIER 5 (0.0 to 1.0). '
-                           '0.0 = no weighting (default), 0.5 = moderate correction, 1.0 = full inverse frequency. '
-                           'Higher values reduce the influence of dominant institutions (MSK, DFCI) during training.'
+                           'Power parameter for institutional sample weighting (0.0 to 1.0). '
+                           '0.0 = no weighting (default), 0.5 = moderate correction, 1.0 = full inverse frequency.'
                        ))
     parser.add_argument('--base-run-dir', type=str, default=None,
                        help=(
-                           'Path to an existing run directory to use for train-test split and hyperparameter results. '
-                           'Useful for re-running downstream tiers (e.g., TIER 4-7) with settings from a previous run. '
+                           'Path to an existing run directory to reuse train-test split and hyperparameter results. '
+                           'Skips TIER 1, 2, and 3 in the new run. '
                            'Example: --base-run-dir runs/run_20260121_215129'
                        ))
-    parser.add_argument('--algorithm', type=str, default='random_forest',
+    parser.add_argument('--algorithm', type=str, default=None,
                        choices=['random_forest', 'logistic'],
                        help=(
-                           'ML algorithm for TIER 3-5 (default: random_forest). '
-                           'logistic uses LR coefficient analysis instead of SHAP for feature rankings.'
+                           'ML algorithm for TIER 4-7. Default (omitted) runs BOTH RF and LR pathways '
+                           'in a single invocation: RF first, then LR with --base-run-dir set to RF, '
+                           'which auto-fires the cross-pathway plots in TIER 7.'
                        ))
+    parser.add_argument('--tier3-algorithms', type=str, default='rf,lr',
+                       help=(
+                           'Comma-separated algorithm shorthand for TIER 3 hyperparameter search '
+                           '(default: rf,lr). Use --include-xgboost as a convenient override.'
+                       ))
+    parser.add_argument('--include-xgboost', action='store_true',
+                       help='Include XGBoost in TIER 3 search (overrides --tier3-algorithms to rf,lr,xgb)')
     parser.add_argument('--lr-significant-only', action='store_true',
                        help=(
-                           'When --algorithm logistic, restrict TIER 7 post-hoc testing to only '
-                           'features with Wald-significant LR coefficients (FDR < 0.05). '
-                           'Without this flag, all features are ranked by effect size regardless of significance.'
+                           'When the LR pathway runs, restrict TIER 7 post-hoc testing to features '
+                           'with Wald-significant LR coefficients (FDR < 0.05).'
+                       ))
+    parser.add_argument('--shap-file', type=str, default=None,
+                       help=(
+                           'Override the auto-constructed TIER 6 rankings file passed to TIER 7 '
+                           'post-hoc scripts. Pass an absolute path or a path relative to the repo root.'
                        ))
 
     parser.set_defaults(mode='full')
 
     args = parser.parse_args()
 
-    # Determine SHAP skip flags:
-    # - skip_shap: Skip ALL SHAP (both 6a primary values and 6b interactions)
-    # - skip_shap_interactions: Skip only 6b (interactions), but run 6a (primary values)
-    skip_shap = False
-    skip_shap_interactions = args.skip_shap_interactions
+    if args.mode == 'post-model-selection' and not args.base_run_dir:
+        parser.error('--post-model-selection requires --base-run-dir')
 
-    if args.mode == 'quick':
-        if args.algorithm == 'logistic':
-            # LR extraction is fast, no need to skip TIER 6
-            skip_shap = False
-            skip_shap_interactions = True  # No interactions for LR
-            print(f"{Colors.WARNING}Note: LR coefficient extraction will run in quick mode (fast).{Colors.ENDC}")
-        else:
-            # Quick mode with RF: skip ALL SHAP (both 6a and 6b)
-            skip_shap = True
-            print(f"{Colors.WARNING}Note: All SHAP analysis skipped in quick mode (memory-intensive).{Colors.ENDC}")
-            print(f"{Colors.WARNING}      Use --full mode or run SHAP separately if needed.{Colors.ENDC}")
-    elif args.mode == 'post-model-selection':
-        # Post-model-selection mode: run SHAP primary (6a), skip interactions (6b)
-        skip_shap_interactions = True
-        print(f"{Colors.WARNING}Note: SHAP interactions (6b) skipped in post-model-selection mode.{Colors.ENDC}")
-        print(f"{Colors.WARNING}      Running TIER 4, 5, 6a (SHAP Primary), and 7.{Colors.ENDC}")
+    # Single-pathway invocation: --algorithm explicitly set, OR a mode that doesn't run modeling
+    # (analysis-only). For analysis-only, RF/LR is irrelevant since TIER 4-7 don't run; pin to RF.
+    single_pathway = args.algorithm is not None or args.mode == 'analysis-only'
 
-    # Create runner
-    runner = MasterAnalysis(
-        mode=args.mode,
-        dry_run=args.dry_run,
-        continue_on_error=not args.stop_on_error,
-        skip_shap=skip_shap,
-        skip_shap_interactions=skip_shap_interactions,
-        parallel=args.parallel,
-        feature_config_path=args.feature_config,
-        institution_weight_alpha=args.institution_weight_alpha,
+    if single_pathway:
+        algorithm = args.algorithm or 'random_forest'
+        runner = _build_runner(
+            args,
+            algorithm=algorithm,
+            base_run_dir=args.base_run_dir,
+            run_dir_suffix='',
+        )
+        if args.list:
+            runner.list_scripts()
+            sys.exit(0)
+        runner.run()
+        # Propagate non-zero exit on any tier failure — a CI/HPC orchestrator
+        # otherwise treats a broken run identical to a successful one.
+        sys.exit(1 if runner.results['failed'] > 0 else 0)
+
+    # Dual-pathway: RF then LR, with LR reusing RF's run_dir as --base-run-dir.
+    print(f"{Colors.HEADER}{Colors.BOLD}Dual-pathway run: RF then LR{Colors.ENDC}")
+
+    rf_runner = _build_runner(
+        args,
+        algorithm='random_forest',
         base_run_dir=args.base_run_dir,
-        algorithm=args.algorithm,
-        lr_significant_only=args.lr_significant_only
+        run_dir_suffix='rf',
     )
-
-    # If --list, just show scripts and exit
     if args.list:
-        runner.list_scripts()
+        print(f"{Colors.OKCYAN}--- RF pathway ---{Colors.ENDC}")
+        rf_runner.list_scripts()
+        lr_preview = _build_runner(
+            args, algorithm='logistic', base_run_dir=rf_runner.run_dir, run_dir_suffix='lr'
+        )
+        print(f"{Colors.OKCYAN}--- LR pathway ---{Colors.ENDC}")
+        lr_preview.list_scripts()
         sys.exit(0)
 
-    # Run
-    runner.run()
+    rf_runner.run()
+
+    lr_runner = _build_runner(
+        args,
+        algorithm='logistic',
+        base_run_dir=rf_runner.run_dir,
+        run_dir_suffix='lr',
+    )
+    lr_runner.run()
+
+    print(f"\n{Colors.OKGREEN}{Colors.BOLD}Dual-pathway run complete.{Colors.ENDC}")
+    print(f"  RF run: {rf_runner.run_dir}")
+    print(f"  LR run: {lr_runner.run_dir}")
+
+    # Propagate non-zero exit if either pathway had any tier failure.
+    total_failed = rf_runner.results['failed'] + lr_runner.results['failed']
+    if total_failed > 0:
+        print(f"{Colors.FAIL}{total_failed} tier script(s) failed across the two pathways.{Colors.ENDC}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

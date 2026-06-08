@@ -21,7 +21,10 @@ from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, reca
 import logging
 
 from .stratified_group_kfold import StratifiedGroupKFold
-from .preprocessing import DEMOGRAPHIC_FEATURES, TECHNICAL_FEATURES, NUMERIC_FEATURES, CATEGORICAL_FEATURES
+from .preprocessing import (
+    DEMOGRAPHIC_FEATURES, TECHNICAL_FEATURES, NUMERIC_FEATURES, CATEGORICAL_FEATURES,
+    create_preprocessor,
+)
 
 
 class ModelTrainer:
@@ -147,26 +150,11 @@ class ModelTrainer:
         Returns:
             Scikit-learn Pipeline object
         """
-        # Feature type lists imported from preprocessing.py (centralized in config/features.yaml)
-        all_numeric_cols = NUMERIC_FEATURES.copy()
-        all_categorical_cols = CATEGORICAL_FEATURES.copy()
-
-        # Filter to only available columns if specified
-        if available_columns is not None:
-            numeric_cols = [col for col in all_numeric_cols if col in available_columns]
-            categorical_cols = [col for col in all_categorical_cols if col in available_columns]
-        else:
-            numeric_cols = all_numeric_cols
-            categorical_cols = all_categorical_cols
-
-        # Create preprocessor
-        preprocessor = ColumnTransformer([
-            ('num', SimpleImputer(strategy='median'), numeric_cols),
-            ('cat', Pipeline([
-                ('imputer', SimpleImputer(strategy='most_frequent')),
-                ('onehot', OneHotEncoder(drop='first', handle_unknown='ignore'))
-            ]), categorical_cols)
-        ], remainder='drop')  # Drop any columns not explicitly handled
+        # Delegate to the shared preprocessor factory in preprocessing.py.
+        # It handles the MissingnessIndicatorTransformer for ANCESTRY/ETHNICITY
+        # (Feature Review Fix b, 2026-05-21) and the ColumnTransformer for
+        # numeric/categorical encoding in one returned step.
+        preprocessor = create_preprocessor(available_columns=available_columns)
 
         # Select model
         if self.algorithm == "random_forest":

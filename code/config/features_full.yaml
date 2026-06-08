@@ -119,20 +119,22 @@ value_display_names:
   Male: "Male"
   Female: "Female"
 
-  # Race values
-  White: "White"
-  Black: "Black or African American"
+  # Ancestry values (DB stores recoded values: White→European, Black→African)
+  European: "European"
+  African: "African"
   Asian: "Asian"
-  American Indian or Alaska Native: "Native American"
-  Native Hawaiian or Other Pacific Islander: "Pacific Islander"
+  Native American: "Native American"
+  Pacific Islander: "Pacific Islander"
   Other: "Other"
   Unknown: "Unknown"
 
-  # Ethnicity values
-  Not Hispanic or Latino: "Non-Hispanic"
-  Hispanic or Latino: "Hispanic"
+  # Ethnicity values (DB uses GENIE labels)
+  Non-Spanish/non-Hispanic: "Non-Hispanic"
+  Spanish/Hispanic: "Hispanic"
 
-  # Sample type values
-  Metastatic: "Metastatic"
+  # Sample type values (SAMPLE_TYPE column)
   Primary: "Primary"
-  Local recurrence: "Local Recurrence"
+  Metastasis: "Metastasis"
+  Not Collected: "Not Collected"
+  Unspecified: "Unspecified"
+  Not Applicable or Heme: "Hematologic"

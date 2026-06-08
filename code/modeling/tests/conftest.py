@@ -58,9 +58,13 @@ def toy_dataframe():
     n_samples = 500
 
     df = pd.DataFrame({
-        # Demographic features
+        # Demographic features. ANCESTRY (was RACE) and ETHNICITY include
+        # 'Unknown' so the MissingnessIndicatorTransformer branch is exercised.
+        # SAMPLE_TYPE is kept here to emulate the post-load DataFrame (DB still
+        # has the column); it's no longer a modeling feature so the
+        # preprocessor will drop it.
         'SEX': np.random.choice(['Male', 'Female'], n_samples),
-        'RACE': np.random.choice(['White', 'Black', 'Asian', 'Other'], n_samples),
+        'ANCESTRY': np.random.choice(['European', 'African', 'Asian', 'Other', 'Unknown'], n_samples),
         'ETHNICITY': np.random.choice(['Hispanic', 'Non-Hispanic', 'Unknown'], n_samples),
         'AGE_AT_SEQ_REPORT': np.random.randint(20, 90, n_samples),
         'SAMPLE_TYPE': np.random.choice(['Primary', 'Metastasis', 'Other'], n_samples),

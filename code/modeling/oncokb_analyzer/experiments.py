@@ -361,7 +361,16 @@ class FeatureSetExperiment:
                     feature_set_aucs = {}
                     for feature_set in self.config.feature_sets:
                         if feature_set in self.results[cancer_type][algorithm][cv_strategy]:
-                            runs = self.results[cancer_type][algorithm][cv_strategy][feature_set]['individual_runs']
+                            entry = self.results[cancer_type][algorithm][cv_strategy][feature_set]
+                            # _compute_summary_statistics only rewrites the entry
+                            # to a dict ({'individual_runs': ..., 'summary': ...})
+                            # when at least one run succeeded; otherwise the entry
+                            # stays a list (the original initialization at line ~194).
+                            # Skip cleanly rather than crashing with
+                            # "list indices must be integers or slices, not str".
+                            if not isinstance(entry, dict) or 'individual_runs' not in entry:
+                                continue
+                            runs = entry['individual_runs']
                             if runs:  # Only if we have successful runs
                                 aucs = [run['cv_auc_mean'] for run in runs]
                                 feature_set_aucs[feature_set] = aucs

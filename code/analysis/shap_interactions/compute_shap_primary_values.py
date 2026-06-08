@@ -425,6 +425,13 @@ def main():
         help='Enable verbose logging'
     )
 
+    parser.add_argument(
+        '--no-timestamp-subdir', action='store_true',
+        help='Write outputs directly to --output-dir without a run_<timestamp>/ '
+             'subdirectory. Used by run_all_analyses.py so the orchestrator can '
+             'pass a deterministic path to TIER 7 via --shap-file.'
+    )
+
     args = parser.parse_args()
 
     # Resolve paths
@@ -437,9 +444,10 @@ def main():
     else:
         output_dir = script_dir / args.output_dir
 
-    # Add timestamp to output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = output_dir / f"run_{timestamp}"
+    # Add timestamp to output directory unless --no-timestamp-subdir was passed
+    if not args.no_timestamp_subdir:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = output_dir / f"run_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging

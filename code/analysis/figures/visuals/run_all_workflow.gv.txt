@@ -1,0 +1,151 @@
+digraph RunAllWorkflow {
+    rankdir=TB
+    size="10,14"
+    bgcolor="#ffffff"
+    node [shape=box, style="filled,rounded", fontname="Helvetica", color=black, fontsize=11]
+    edge [color=gray40, arrowsize=0.8]
+
+    // Title
+    labelloc="t"
+    label="ML Analysis Pipeline (run_all_analyses.py)\n7-Tier Scientific Workflow"
+    fontsize=16
+    fontname="Helvetica-Bold"
+
+    // TIER 1: Independent Analyses
+    subgraph cluster_tier1 {
+        label="TIER 1: Independent Analyses"
+        style="rounded,filled"
+        fillcolor="#e8f5e9"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T1_demo [label="Demographics\nAnalysis", fillcolor="#c8e6c9"]
+        T1_inst [label="Institutional\nStatistics", fillcolor="#c8e6c9"]
+        T1_feat [label="Feature\nEngineering", fillcolor="#c8e6c9"]
+        T1_summary [label="Cancer Type\nSummary", fillcolor="#c8e6c9"]
+        T1_variant [label="Variant\nAnalysis", fillcolor="#c8e6c9"]
+    }
+
+    // TIER 2: Data Setup
+    subgraph cluster_tier2 {
+        label="TIER 2: Data Setup"
+        style="rounded,filled"
+        fillcolor="#e3f2fd"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T2a [label="2a: Multi-Tier Groupings\n(OncoTree hierarchy)", fillcolor="#bbdefb"]
+        T2b [label="2b: Train/Test Split\n80% / 20%\n(stratified by cancer type)", fillcolor="#90caf9", style="filled,rounded,bold"]
+    }
+
+    // Data split visualization
+    subgraph cluster_split {
+        label=""
+        style="invis"
+
+        TrainData [label="TRAINING DATA\n(80%)\nUsed for TIER 3-4", shape=folder, fillcolor="#fff9c4", style="filled"]
+        TestData [label="TEST DATA\n(20%)\nHeld out until TIER 5", shape=folder, fillcolor="#ffcdd2", style="filled"]
+    }
+
+    // TIER 3: Hyperparameter Optimization
+    subgraph cluster_tier3 {
+        label="TIER 3: Hyperparameter Optimization"
+        style="rounded,filled"
+        fillcolor="#fff3e0"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T3 [label="RandomizedSearchCV\n(training data only)\n\nResult: Random Forest\nAUC = 0.5913", fillcolor="#ffe0b2"]
+    }
+
+    // TIER 4: Feature Set Comparison
+    subgraph cluster_tier4 {
+        label="TIER 4: Feature Set Comparison"
+        style="rounded,filled"
+        fillcolor="#fce4ec"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T4 [label="Compare Feature Sets\n(training data only)\n\ndemographic vs technical vs both", fillcolor="#f8bbd9"]
+    }
+
+    // TIER 5: Final Model Training
+    subgraph cluster_tier5 {
+        label="TIER 5: Final Model Training"
+        style="rounded,filled"
+        fillcolor="#f3e5f5"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T5_train [label="Train Random Forest\non Training Data (80%)", fillcolor="#e1bee7"]
+        T5_eval [label="Evaluate on Test Data (20%)\nFIRST AND ONLY USE", fillcolor="#ce93d8", style="filled,rounded,bold"]
+        T5_save [label="Save Models\n(.joblib files)", fillcolor="#e1bee7"]
+    }
+
+    // TIER 6: SHAP Analysis
+    subgraph cluster_tier6 {
+        label="TIER 6: SHAP Analysis"
+        style="rounded,filled"
+        fillcolor="#e0f7fa"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T6a [label="6a: Primary Feature Values\n\nMean |SHAP| rankings\nBeeswarm plots\nBar charts", fillcolor="#b2ebf2"]
+        T6b [label="6b: Feature Interactions\n\nPairwise interactions\nHeatmaps", fillcolor="#b2ebf2"]
+    }
+
+    // TIER 7: Post-Hoc Statistics
+    subgraph cluster_tier7 {
+        label="TIER 7: Post-Hoc Statistics"
+        style="rounded,filled"
+        fillcolor="#efebe9"
+        fontname="Helvetica-Bold"
+        fontsize=12
+
+        T7_age [label="Age by Actionability\n\nMann-Whitney U test\nFDR correction", fillcolor="#d7ccc8"]
+        T7_shap [label="SHAP Feature Associations\n\nFisher's exact test\nChi-square test", fillcolor="#d7ccc8"]
+    }
+
+    // Output
+    Output [label="Output Directory\nruns/run_YYYYMMDD_HHMMSS/\n\ntier1_independent_analyses/\ntier2_data_setup/\ntier3_hyperparameter_optimization/\ntier4_feature_comparison/\ntier5_final_models/\ntier6_shap_analysis/\ntier7_posthoc_statistics/", shape=note, fillcolor="#e8eaf6", fontsize=9]
+
+    // Edges - Main flow
+    T1_demo -> T2a [style=invis]
+    T1_inst -> T2a [style=invis]
+    T1_feat -> T2a [style=invis]
+    T1_summary -> T2a [style=invis]
+    T1_variant -> T2a [style=invis]
+
+    // Tier 1 to Tier 2
+    {T1_demo T1_inst T1_feat T1_summary T1_variant} -> T2a [style=invis]
+    T2a -> T2b
+
+    // Split
+    T2b -> TrainData
+    T2b -> TestData
+
+    // Training path
+    TrainData -> T3
+    T3 -> T4
+    T4 -> T5_train
+
+    // Test data to evaluation
+    T5_train -> T5_eval
+    TestData -> T5_eval [style=dashed, color=red, label="first use", fontsize=9]
+    T5_eval -> T5_save
+
+    // TIER 6
+    T5_save -> T6a
+    T5_save -> T6b
+
+    // TIER 7
+    T6a -> T7_age [style=invis]
+    T6b -> T7_shap [style=invis]
+    {T6a T6b} -> T7_age [style=invis]
+    T6a -> T7_age
+    T6b -> T7_shap
+
+    // Output
+    T7_age -> Output [style=invis]
+    T7_shap -> Output [style=invis]
+}

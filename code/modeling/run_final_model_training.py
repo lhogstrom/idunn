@@ -337,6 +337,26 @@ class FinalModelTrainer:
         summary_df.to_csv(summary_file, index=False)
         logger.info(f"\nSaved performance summary: {summary_file}")
 
+        # Save per-sample test predictions (powers DeLong CIs in downstream plots)
+        pred_rows = []
+        for cancer_type, result in all_results.items():
+            if result.get('status') != 'completed' or 'patient_ids' not in result:
+                continue
+            for pid, yt, yp in zip(result['patient_ids'],
+                                   result['y_test'],
+                                   result['y_test_proba']):
+                pred_rows.append({
+                    'cancer_type': cancer_type,
+                    'patient_id': pid,
+                    'y_true': int(yt),
+                    'y_pred_proba': float(yp),
+                })
+        if pred_rows:
+            preds_df = pd.DataFrame(pred_rows)
+            preds_file = self.output_dir / 'test_predictions.csv'
+            preds_df.to_csv(preds_file, index=False)
+            logger.info(f"Saved test predictions: {preds_file} ({len(preds_df):,} rows)")
+
         # Generate AUC summary plots
         self._plot_auc_summary(summary_df)
 
@@ -507,6 +527,7 @@ class FinalModelTrainer:
             'test_recall': float(test_recall),
             'test_f1': float(test_f1),
             'brier_score': float(brier_score),
+            'patient_ids': test_data['PATIENT_ID'].tolist(),
             'y_test': y_test.tolist(),
             'y_test_proba': y_test_proba.tolist(),
             'y_test_pred': y_test_pred.tolist(),

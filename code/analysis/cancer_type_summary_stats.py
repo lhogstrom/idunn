@@ -7,7 +7,7 @@ Creates a publication-ready table with demographics, actionability, and institut
 Usage:
     python cancer_type_summary_stats.py [--output-dir PATH]
     python cancer_type_summary_stats.py --format-table1 [--latex] [--markdown]
-    python cancer_type_summary_stats.py --format-table1 --include-multi-tier --base-run-dir RUNS/run_YYYYMMDD
+    python cancer_type_summary_stats.py --format-table1 --base-run-dir RUNS/run_YYYYMMDD
 """
 
 import sqlite3
@@ -490,85 +490,6 @@ def generate_overall_row(df):
     return row
 
 
-def _find_multi_tier_mapping_file(base_run_dir=None):
-    """
-    Locate the patient_to_group_mapping.csv file.
-
-    Priority:
-    1. If base_run_dir provided, look at {base_run_dir}/tier2_data_setup/multi_tier_groupings/
-    2. Auto-search via multi_tier_utils.get_patient_to_group_mapping_file()
-
-    Returns:
-        Path to mapping file, or None if not found.
-    """
-    if base_run_dir:
-        explicit_path = Path(base_run_dir) / "tier2_data_setup" / "multi_tier_groupings" / "patient_to_group_mapping.csv"
-        if explicit_path.exists():
-            return explicit_path
-        print(f"  NOTE: No mapping at {explicit_path}; falling back to auto-search")
-
-    sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
-    from multi_tier_utils import get_patient_to_group_mapping_file
-    return get_patient_to_group_mapping_file()
-
-
-def add_multi_tier_rows(df, base_run_dir=None):
-    """
-    Add Tier 2 and Tier 3 cancer group rows using multi_tier_utils.
-
-    The multi-tier mapping is loaded from:
-    1. {base_run_dir}/tier2_data_setup/multi_tier_groupings/ (if base_run_dir provided)
-    2. Auto-search (latest run with multi-tier groupings)
-
-    Args:
-        df: Full patient DataFrame
-        base_run_dir: Optional path to a specific run directory
-
-    Returns:
-        List of summary row dicts for Tier 2/3 groups (empty list if mapping not found)
-    """
-    mapping_file = _find_multi_tier_mapping_file(base_run_dir)
-    if mapping_file is None:
-        print("  WARNING: Could not locate multi-tier mapping; skipping Tier 2/3 rows")
-        print("  Run define_multi_tier_groupings_v3.py first to generate the mapping")
-        return []
-
-    print(f"  Loading multi-tier mapping from: {mapping_file}")
-    mapping_df = pd.read_csv(mapping_file)
-
-    # Get Tier 2 and Tier 3 groups
-    tier23_mask = mapping_df['tier_prefixed_code'].str.startswith(('tier2_', 'tier3_'))
-    tier23_groups = sorted(mapping_df[tier23_mask]['tier_prefixed_code'].unique())
-
-    rows = []
-    for group in tier23_groups:
-        patient_ids = mapping_df[mapping_df['tier_prefixed_code'] == group]['PATIENT_ID'].unique()
-        group_df = df[df['PATIENT_ID'].isin(patient_ids)].copy()
-
-        if len(group_df) == 0:
-            continue
-
-        row = {
-            'Cancer_Type': group,
-            'N_Patients': len(group_df),
-            'N_Actionable': int((group_df['isOncoKbLevel1'] == 1).sum()),
-            'Actionable_Rate': float((group_df['isOncoKbLevel1'] == 1).sum() / len(group_df)),
-        }
-        row.update(calculate_sex_stats(group_df))
-        row.update(calculate_age_stats(group_df))
-        row.update(calculate_race_stats(group_df))
-        row.update(calculate_ethnicity_stats(group_df))
-        row.update(calculate_institutional_stats(group_df))
-        row.update(calculate_detailed_race_stats(group_df))
-        row.update(calculate_sample_type_stats(group_df))
-        rows.append(row)
-
-    n_tier2 = sum(1 for r in rows if r['Cancer_Type'].startswith('tier2_'))
-    n_tier3 = sum(1 for r in rows if r['Cancer_Type'].startswith('tier3_'))
-    print(f"  Added {len(rows)} multi-tier rows ({n_tier2} Tier 2, {n_tier3} Tier 3)")
-    return rows
-
-
 def format_n_pct(n, total):
     """Format as 'N (XX.X%)' for Table 1 presentation."""
     if total == 0:
@@ -704,32 +625,22 @@ def render_markdown_to_pdf(md_path, pdf_path, fontsize='9pt'):
 
 def _load_oncotree_name_mapping(base_run_dir=None):
     """
-    Build a {tier_prefixed_code: (group_code, group_name)} mapping from
-    multi_tier_group_definitions.csv. Returns empty dict if file not found.
+    Build a {ONCOTREE_CODE: ot_name} mapping from cancer_type_group_definitions.csv.
+    Returns empty dict if file not found.
     """
-    # Try explicit base-run-dir first
-    defs_path = None
-    if base_run_dir:
-        candidate = Path(base_run_dir) / "tier2_data_setup" / "multi_tier_groupings" / "multi_tier_group_definitions.csv"
-        if candidate.exists():
-            defs_path = candidate
-
-    if defs_path is None:
-        sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
-        try:
-            from multi_tier_utils import get_group_definitions_file
-            defs_path = get_group_definitions_file()
-        except Exception:
-            defs_path = None
-
-    if defs_path is None or not Path(defs_path).exists():
+    if base_run_dir is None:
+        return {}
+    defs_path = (
+        Path(base_run_dir)
+        / "tier2_data_setup"
+        / "cancer_type_groupings"
+        / "cancer_type_group_definitions.csv"
+    )
+    if not defs_path.exists():
         return {}
 
     defs = pd.read_csv(defs_path)
-    return {
-        row['tier_prefixed_code']: (row['group_code'], row['group_name'])
-        for _, row in defs.iterrows()
-    }
+    return {row['ONCOTREE_CODE']: row['ot_name'] for _, row in defs.iterrows()}
 
 
 def format_table1_narrow(summary_df, oncotree_name_map):
@@ -750,10 +661,8 @@ def format_table1_narrow(summary_df, oncotree_name_map):
         # OncoTree full name
         if cancer_type == 'Overall':
             oncotree_name = 'All cancer types'
-        elif cancer_type in oncotree_name_map:
-            _, oncotree_name = oncotree_name_map[cancer_type]
         else:
-            oncotree_name = 'NA'
+            oncotree_name = oncotree_name_map.get(cancer_type, 'NA')
 
         # Non-European count = African + Asian + Other (excludes Missing)
         n_non_european = (
@@ -859,10 +768,7 @@ def _resolve_oncotree_name(cancer_type, oncotree_name_map):
     """Map cancer_type to OncoTree display name."""
     if cancer_type == 'Overall':
         return 'All cancer types'
-    if cancer_type in oncotree_name_map:
-        _, name = oncotree_name_map[cancer_type]
-        return name
-    return 'NA'
+    return oncotree_name_map.get(cancer_type, 'NA')
 
 
 def _export_supplement_markdown(formatted_df, col_map, output_path, label='supplement'):
@@ -1027,11 +933,9 @@ def main():
                        help='Output directory for results (default: analysis_output/cancer_type_summary_stats)')
     parser.add_argument('--format-table1', action='store_true',
                        help='Generate publication-formatted Table 1 with N (%%) columns')
-    parser.add_argument('--include-multi-tier', action='store_true',
-                       help='Include Tier 2 and Tier 3 cancer groups as additional rows '
-                            '(auto-detects mapping file if --base-run-dir not provided)')
     parser.add_argument('--base-run-dir', type=str, default=None,
-                       help='Run directory for multi-tier mapping (optional; falls back to auto-search)')
+                       help='Run directory whose TIER 2a cancer_type_group_definitions.csv '
+                            'supplies OncoTree display names for the narrow Table 1 variant')
     parser.add_argument('--latex', action='store_true',
                        help='Export Table 1 as LaTeX tabular')
     parser.add_argument('--markdown', action='store_true',
@@ -1079,38 +983,14 @@ def main():
         print("GENERATING PUBLICATION TABLE 1")
         print("=" * 80)
 
-        # Add tier prefix for Tier 1 cancer types
-        summary_df['Cancer_Type'] = summary_df['Cancer_Type'].apply(
-            lambda x: f"tier1_{x}" if x != 'Overall' else x
-        )
-
-        # Add multi-tier rows if requested
-        if args.include_multi_tier:
-            print("\nAdding Tier 2/3 cancer group rows...")
-            tier23_rows = add_multi_tier_rows(df, args.base_run_dir)
-            if tier23_rows:
-                tier23_df = pd.DataFrame(tier23_rows)
-                summary_df = pd.concat([summary_df, tier23_df], ignore_index=True)
-
         # Add overall row
         overall_row = generate_overall_row(df)
         summary_df = pd.concat([summary_df, pd.DataFrame([overall_row])], ignore_index=True)
 
-        # Sort: Tier 1 by N desc, then Tier 2 by N desc, then Tier 3 by N desc, Overall last
-        def sort_key(cancer_type):
-            if cancer_type == 'Overall':
-                return (3, 0)
-            elif cancer_type.startswith('tier1_'):
-                return (0, 0)
-            elif cancer_type.startswith('tier2_'):
-                return (1, 0)
-            elif cancer_type.startswith('tier3_'):
-                return (2, 0)
-            return (0, 0)
-
-        summary_df['_sort_tier'] = summary_df['Cancer_Type'].apply(lambda x: sort_key(x)[0])
-        summary_df = summary_df.sort_values(['_sort_tier', 'N_Patients'], ascending=[True, False])
-        summary_df = summary_df.drop(columns=['_sort_tier'])
+        # Sort: cancer types by N desc, Overall last
+        summary_df['_is_overall'] = (summary_df['Cancer_Type'] == 'Overall').astype(int)
+        summary_df = summary_df.sort_values(['_is_overall', 'N_Patients'], ascending=[True, False])
+        summary_df = summary_df.drop(columns=['_is_overall'])
 
         # Save raw Table 1 CSV
         raw_path = OUTPUT_DIR / "table1_patient_characteristics.csv"

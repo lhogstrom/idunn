@@ -4,23 +4,38 @@
 # All Python modules import from this configuration via feature_config.py
 
 metadata:
-  version: "2.0"
+  version: "2.1"
   description: "Feature definitions for OncoKB actionability prediction models (reduced technical features)"
   notes: |
     - Use 'demographic' feature set for biological insights
     - Use 'both' for maximum predictive power (with caveats about interpretability)
+    - v2.1 (2026-05-21): dropped SAMPLE_TYPE (Feature Review Fix a); renamed
+      RACE → ANCESTRY (Feature Review Fix b; DB column unchanged, renamed at
+      Python boundary in data_loader.py); added ANCESTRY_missing and
+      ETHNICITY_missing binary indicators produced by MissingnessIndicatorTransformer.
 
 # Feature Sets - grouped by category
 feature_sets:
   demographic:
+    # SAMPLE_TYPE removed 2026-05-21 (Feature Review Fix a): strict coarsening of
+    # SAMPLE_TYPE_DETAILED, structural multicollinearity inflates LR SEs and
+    # splits SHAP importance. The DB column survives for cohort description in
+    # Table 1 / STROBE; only the modeling use is dropped.
+    # ANCESTRY (was RACE; renamed 2026-05-21 Feature Review Fix b). The DB column
+    # is still named RACE; data_loader.py renames it to ANCESTRY after load.
+    # ANCESTRY_missing / ETHNICITY_missing: binary indicators added 2026-05-21
+    # to capture institution-encoded "Unknown" (NKI/CRUK are 100% Unknown for
+    # RACE and ETHNICITY) before the Unknown category is mode-imputed in
+    # preprocessing.py.
     description: "Patient and sample characteristics (no data leakage)"
     features:
-      - SAMPLE_TYPE
       - SAMPLE_TYPE_DETAILED
       - SEX
-      - RACE
+      - ANCESTRY
       - ETHNICITY
       - AGE_AT_SEQ_REPORT
+      - ANCESTRY_missing
+      - ETHNICITY_missing
 
   technical:
     description: "Sequencing and institutional features (may cause data leakage)"
@@ -37,15 +52,20 @@ feature_types:
     features:
       - AGE_AT_SEQ_REPORT
       - number_of_genes
+      # Missingness indicators (0/1; median imputation is a no-op for binary cols).
+      - ANCESTRY_missing
+      - ETHNICITY_missing
 
   categorical:
     description: "Features processed with most frequent imputation + one-hot encoding"
     features:
       # Demographic categorical features
-      - SAMPLE_TYPE
+      # SAMPLE_TYPE removed 2026-05-21 (Feature Review Fix a); see feature_sets above.
+      # RACE renamed to ANCESTRY 2026-05-21 (Feature Review Fix b); DB column
+      # is still RACE — data_loader.py renames the column on load.
       - SAMPLE_TYPE_DETAILED
       - SEX
-      - RACE
+      - ANCESTRY
       - ETHNICITY
       # Technical categorical features
       - SUBJECT_CENTER
@@ -57,8 +77,12 @@ display_names:
   # Demographic features
   AGE_AT_SEQ_REPORT: "Age at Sequencing"
   SEX: "Sex"
-  RACE: "Race"
+  ANCESTRY: "Ancestry"
   ETHNICITY: "Ethnicity"
+  ANCESTRY_missing: "Ancestry Missing (Indicator)"
+  ETHNICITY_missing: "Ethnicity Missing (Indicator)"
+  # SAMPLE_TYPE kept here for Table 1 / STROBE cohort description (DB column
+  # still exists); SAMPLE_TYPE was removed from modeling features 2026-05-21.
   SAMPLE_TYPE: "Sample Type"
   SAMPLE_TYPE_DETAILED: "Sample Type (Detailed)"
 
@@ -74,20 +98,22 @@ value_display_names:
   Male: "Male"
   Female: "Female"
 
-  # Race values
-  White: "White"
-  Black: "Black or African American"
+  # Ancestry values (DB stores recoded values: White→European, Black→African)
+  European: "European"
+  African: "African"
   Asian: "Asian"
-  American Indian or Alaska Native: "Native American"
-  Native Hawaiian or Other Pacific Islander: "Pacific Islander"
+  Native American: "Native American"
+  Pacific Islander: "Pacific Islander"
   Other: "Other"
   Unknown: "Unknown"
 
-  # Ethnicity values
-  Not Hispanic or Latino: "Non-Hispanic"
-  Hispanic or Latino: "Hispanic"
+  # Ethnicity values (DB uses GENIE labels)
+  Non-Spanish/non-Hispanic: "Non-Hispanic"
+  Spanish/Hispanic: "Hispanic"
 
-  # Sample type values
-  Metastatic: "Metastatic"
+  # Sample type values (SAMPLE_TYPE column)
   Primary: "Primary"
-  Local recurrence: "Local Recurrence"
+  Metastasis: "Metastasis"
+  Not Collected: "Not Collected"
+  Unspecified: "Unspecified"
+  Not Applicable or Heme: "Hematologic"

@@ -1,0 +1,85 @@
+// Biomedical Research Methods - Styled
+digraph {
+	bgcolor="#ffffff" nodesep=0.3 rankdir=LR ranksep=0.5 size="16,10"
+	node [fontname=Helvetica fontsize=11 shape=box style="rounded,filled"]
+	edge [arrowsize=0.7 color="#666666" penwidth=2.0]
+	A [label="Medical and
+Health Research" fillcolor="#2C3E50" fontcolor=white fontsize=14 penwidth=3.0 shape=box style="rounded,filled,bold"]
+	subgraph cluster_interventional {
+		color="#34495E" fillcolor="#EBF5FB" fontcolor="#1F618D" fontsize=12 label="Interventional/Experimental" penwidth=2.0 style="rounded,filled"
+		B [label="Interventional/
+Experimental" fillcolor="#5DADE2" fontcolor=white shape=box style="rounded,filled,bold"]
+		B1 [label="Human trial" fillcolor="#85C1E9" fontcolor="#154360" fontsize=10 style="rounded,filled,bold"]
+		B2 [label="Animal model" fillcolor="#85C1E9" fontcolor="#154360" fontsize=10 style="rounded,filled,bold"]
+		B3 [label="Other models" fillcolor="#85C1E9" fontcolor="#154360" fontsize=10 style="rounded,filled,bold"]
+		B1a [label="randomized Control
+Trial (RCT)" fillcolor="#AED6F1" fontcolor="#154360" style="rounded,filled"]
+		B2a [label="disease modeling" fillcolor="#AED6F1" fontcolor="#154360" style="rounded,filled"]
+		B3a [label="in vitro cell lines" fillcolor="#AED6F1" fontcolor="#154360" style="rounded,filled"]
+		B3b [label="computational
+simulations" fillcolor="#AED6F1" fontcolor="#154360" style="rounded,filled"]
+		B3c [label="ex vivo systems" fillcolor="#AED6F1" fontcolor="#154360" style="rounded,filled"]
+		B -> B1 [color="#85C1E9" penwidth=1.5]
+		B -> B2 [color="#85C1E9" penwidth=1.5]
+		B -> B3 [color="#85C1E9" penwidth=1.5]
+		B1 -> B1a
+		B2 -> B2a
+		B3 -> B3a
+		B3 -> B3b
+		B3 -> B3c
+		B3a -> B3b [style=invis]
+		B3b -> B3c [style=invis]
+	}
+	A -> B [color="#5DADE2" penwidth=2.5]
+	subgraph cluster_analytical {
+		color="#117864" fillcolor="#E8F8F5" fontcolor="#117864" fontsize=12 label="Analytical observations" penwidth=2.0 style="rounded,filled"
+		C [label="Analytical
+observations" fillcolor="#1ABC9C" fontcolor=white shape=box style="rounded,filled,bold"]
+		C1 [label=Epidemiology fillcolor="#48C9B0" fontcolor="#0E6655" fontsize=10 style="rounded,filled,bold"]
+		C2 [label="Translational
+research" fillcolor="#48C9B0" fontcolor="#0E6655" fontsize=10 style="rounded,filled,bold"]
+		C3 [label="Statistical
+discovery" fillcolor="#48C9B0" fontcolor="#0E6655" fontsize=10 style="rounded,filled,bold"]
+		C1a [label="population studies" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C1b [label="cross-sectional
+studies" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C2a [label="retrospective studies" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C2b [label="chart studies" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C2c [label="real-world evidence" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C3a [label="biomarker
+identification" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C3b [label="predictive modeling" fillcolor="#A3E4D7" fontcolor="#0E6655" style="rounded,filled"]
+		C -> C1 [color="#48C9B0" penwidth=1.5]
+		C -> C2 [color="#48C9B0" penwidth=1.5]
+		C -> C3 [color="#48C9B0" penwidth=1.5]
+		C1 -> C1a
+		C1 -> C1b
+		C2 -> C2a
+		C2 -> C2b
+		C2 -> C2c
+		C3 -> C3a
+		C3 -> C3b
+		C1a -> C1b [style=invis]
+		C2a -> C2b [style=invis]
+		C2b -> C2c [style=invis]
+		C3a -> C3b [style=invis]
+	}
+	A -> C [color="#1ABC9C" penwidth=2.5]
+	subgraph cluster_descriptive {
+		color="#6C3483" fillcolor="#F4ECF7" fontcolor="#6C3483" fontsize=12 label=Descriptive penwidth=2.0 style="rounded,filled"
+		D [label=Descriptive fillcolor="#9B59B6" fontcolor=white shape=box style="rounded,filled,bold"]
+		D1 [label="Case study" fillcolor="#AF7AC5" fontcolor="#4A235A" fontsize=10 style="rounded,filled,bold"]
+		D2 [label="Qualitative study" fillcolor="#AF7AC5" fontcolor="#4A235A" fontsize=10 style="rounded,filled,bold"]
+		D2a [label=ethnography fillcolor="#D7BDE2" fontcolor="#4A235A" style="rounded,filled"]
+		D2b [label="focus groups" fillcolor="#D7BDE2" fontcolor="#4A235A" style="rounded,filled"]
+		D2c [label=interviews fillcolor="#D7BDE2" fontcolor="#4A235A" style="rounded,filled"]
+		D -> D1 [color="#AF7AC5" penwidth=1.5]
+		D -> D2 [color="#AF7AC5" penwidth=1.5]
+		D2 -> D2a
+		D2 -> D2b
+		D2 -> D2c
+		D2a -> D2b [style=invis]
+		D2b -> D2c [style=invis]
+	}
+	A -> D [color="#9B59B6" penwidth=2.5]
+}

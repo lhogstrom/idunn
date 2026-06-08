@@ -15,7 +15,7 @@ For each cancer type and its top 2 genes:
    - Age: Mann-Whitney U test, Cohen's d effect size (if AGE in top N)
    - Sex: Fisher's exact / Chi-square test, Odds Ratio (if SEX in top N)
    - Race/Ethnicity: Chi-square test, Cramer's V (if RACE/ETHNICITY in top N)
-   - Sample Type: Chi-square test, Cramer's V (if SAMPLE_TYPE in top N)
+   - Sample Type Detailed: Chi-square test, Cramer's V (if SAMPLE_TYPE_DETAILED in top N)
    - Technical: Chi-square (categorical) / Mann-Whitney U (numeric) (if in top N)
 4. Apply FDR correction per feature category
 5. Output results with gene identifier
@@ -59,13 +59,10 @@ from shap_utils import (
     REPO_ROOT,
     DEFAULT_TOP_N_FEATURES
 )
-from multi_tier_utils import (
-    get_all_tier_prefixed_codes,
-    load_patient_to_group_mapping,
-    get_oncotree_codes_for_group,
-    get_patient_ids_for_group,
-    parse_tier_prefixed_code
-)
+# Multi-tier utilities are no longer needed on the publication branch;
+# cancer-type groupings collapse to plain OncoTree codes after the OT-rollup
+# strip. The viz that consumes external rollup-aware runs still uses
+# multi_tier_utils, but this script reads the new TIER 2a output directly.
 
 from scipy import stats
 from scipy.stats import chi2_contingency, fisher_exact
@@ -106,42 +103,37 @@ def load_top_genes_summary(input_dir: Path, top_n: int = 2) -> pd.DataFrame:
 
     # Import and run exploration
     from explore_gene_distributions import (
-        get_gene_frequencies, identify_top_n_genes, check_sample_size_requirements
+        get_gene_frequencies, identify_top_n_genes, check_sample_size
     )
 
     freq_df = get_gene_frequencies(DB_PATH)
     top_genes_df = identify_top_n_genes(freq_df, n=top_n)
-    top_genes_df = check_sample_size_requirements(top_genes_df, min_n=DEFAULT_MIN_N)
+    top_genes_df = check_sample_size(top_genes_df, min_n=DEFAULT_MIN_N)
 
     return top_genes_df
 
 
 def load_gene_patient_data(
     db_path: str,
-    tier_prefixed_code: str,
+    oncotree_code: str,
     gene: str,
-    mapping_df: pd.DataFrame = None
 ) -> pd.DataFrame:
     """
     Load patients with specific actionable gene, including demographics.
 
-    For tier2/tier3 groups, queries using constituent OncoTree codes.
     Uses only perPatientOncoKBFilteredForModeling table (has Hugo_Symbol column).
 
     Args:
         db_path: Path to SQLite database
-        tier_prefixed_code: Full group name (e.g., "tier1_LUAD", "tier3_LUNG")
+        oncotree_code: Plain OncoTree code (e.g., "LUAD")
         gene: Hugo_Symbol to filter on
-        mapping_df: Pre-loaded patient-to-group mapping DataFrame
 
     Returns:
         DataFrame with patient demographics for gene-specific actionable patients
     """
     conn = sqlite3.connect(db_path)
 
-    # Get constituent OncoTree codes for this group
-    oncotree_codes = get_oncotree_codes_for_group(tier_prefixed_code, mapping_df)
-
+    oncotree_codes = [oncotree_code]
     placeholders = ','.join(['?' for _ in oncotree_codes])
     query = f"""
     SELECT DISTINCT
@@ -166,29 +158,33 @@ def load_gene_patient_data(
 
     conn.close()
 
+    # Dedup by PATIENT_ID to mirror load_all_cancer_patients (one row per patient).
+    # Without this, patients with multiple sequenced samples get counted multiple
+    # times in the gene-actionable numerator while the non-actionable denominator
+    # is collapsed to one row per patient — an asymmetric count that inflates Ns.
+    df = df.drop_duplicates(subset=['PATIENT_ID'], keep='first')
+
+    # DB column is RACE; rename to ANCESTRY at the Python boundary (Feature
+    # Review Fix b, 2026-05-21). Matches data_loader.py's rename.
+    df = df.rename(columns={'RACE': 'ANCESTRY'})
+
     return df
 
 
 def load_all_cancer_patients(
     db_path: str,
-    tier_prefixed_code: str,
-    mapping_df: pd.DataFrame = None
+    oncotree_code: str,
 ) -> pd.DataFrame:
     """
     Load all patients for a cancer type (for comparison group).
 
-    For tier2/tier3 groups, queries using constituent OncoTree codes.
-
     Args:
         db_path: Path to SQLite database
-        tier_prefixed_code: Full group name (e.g., "tier1_LUAD", "tier3_LUNG")
-        mapping_df: Pre-loaded patient-to-group mapping DataFrame
+        oncotree_code: Plain OncoTree code (e.g., "LUAD")
     """
     conn = sqlite3.connect(db_path)
 
-    # Get constituent OncoTree codes for this group
-    oncotree_codes = get_oncotree_codes_for_group(tier_prefixed_code, mapping_df)
-
+    oncotree_codes = [oncotree_code]
     placeholders = ','.join(['?' for _ in oncotree_codes])
     query = f"""
     SELECT DISTINCT
@@ -214,6 +210,10 @@ def load_all_cancer_patients(
     # Deduplicate by PATIENT_ID, keeping non-actionable status for comparison
     # (a patient should only appear once in the comparison group)
     df = df.drop_duplicates(subset=['PATIENT_ID'], keep='first')
+
+    # DB column is RACE; rename to ANCESTRY at the Python boundary (Feature
+    # Review Fix b, 2026-05-21). Matches data_loader.py's rename.
+    df = df.rename(columns={'RACE': 'ANCESTRY'})
 
     return df
 
@@ -566,7 +566,6 @@ def analyze_gene_stratified_associations(
     shap_df: pd.DataFrame = None,
     min_n: int = DEFAULT_MIN_N,
     top_n_shap: int = DEFAULT_TOP_N_FEATURES,
-    mapping_df: pd.DataFrame = None
 ) -> dict:
     """
     Run gene-stratified association tests, filtered by SHAP rankings.
@@ -579,8 +578,6 @@ def analyze_gene_stratified_associations(
         shap_df: DataFrame with SHAP rankings (optional, will auto-load if None)
         min_n: Minimum sample size for testing
         top_n_shap: Number of top SHAP features to consider
-        mapping_df: Pre-loaded patient-to-group mapping DataFrame
-                    (for tier2/tier3 aggregation)
 
     Returns:
         dict of DataFrames for each test category.
@@ -605,34 +602,27 @@ def analyze_gene_stratified_associations(
     print(f"Testing features ranked in top {top_n_shap} by SHAP importance\n")
 
     for idx, row in valid_genes.iterrows():
-        tier_prefixed_code = row['ONCOTREE_CODE']
+        oncotree_code = row['ONCOTREE_CODE']
         gene = row['Hugo_Symbol']
         n_patients = row['n_patients']
 
-        print(f"\n{tier_prefixed_code} - {gene} (n={n_patients})...")
+        print(f"\n{oncotree_code} - {gene} (n={n_patients})...")
 
-        # Load data (with tier2/tier3 support)
-        gene_patients = load_gene_patient_data(
-            db_path, tier_prefixed_code, gene, mapping_df
-        )
-        all_patients = load_all_cancer_patients(
-            db_path, tier_prefixed_code, mapping_df
-        )
+        gene_patients = load_gene_patient_data(db_path, oncotree_code, gene)
+        all_patients = load_all_cancer_patients(db_path, oncotree_code)
 
         if len(gene_patients) < min_n:
             print(f"  Skipping: only {len(gene_patients)} gene-specific patients loaded")
             continue
 
         base_info = {
-            'ONCOTREE_CODE': tier_prefixed_code,
+            'ONCOTREE_CODE': oncotree_code,
             'Hugo_Symbol': gene,
             'gene_rank': int(row['rank']),
             'n_gene_patients': len(gene_patients)
         }
 
-        # For SHAP lookup, use the tier_prefixed_code
-        # (SHAP rankings should also use tier_prefixed_code for consistency)
-        shap_lookup_code = tier_prefixed_code
+        shap_lookup_code = oncotree_code
 
         # Check SHAP rankings to determine which features to test
         # Age test (if AGE in top N)
@@ -651,14 +641,15 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping sex (not in top {top_n_shap} SHAP)")
 
-        # Race test (if RACE in top N)
-        if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'RACE', top_n_shap):
-            print(f"  Testing race (in top {top_n_shap} SHAP)...")
-            race_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'RACE')
-            race_result['feature'] = 'RACE'
+        # Ancestry test (if ANCESTRY in top N). DB column was RACE; the loader
+        # functions above rename it to ANCESTRY at the Python boundary.
+        if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'ANCESTRY', top_n_shap):
+            print(f"  Testing ancestry (in top {top_n_shap} SHAP)...")
+            race_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'ANCESTRY')
+            race_result['feature'] = 'ANCESTRY'
             results['race'].append({**base_info, **race_result})
         else:
-            print(f"  Skipping race (not in top {top_n_shap} SHAP)")
+            print(f"  Skipping ancestry (not in top {top_n_shap} SHAP)")
 
         # Ethnicity test (if ETHNICITY in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'ETHNICITY', top_n_shap):
@@ -669,14 +660,16 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping ethnicity (not in top {top_n_shap} SHAP)")
 
-        # Sample type test (if SAMPLE_TYPE in top N)
-        if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'SAMPLE_TYPE', top_n_shap):
-            print(f"  Testing sample type (in top {top_n_shap} SHAP)...")
-            sample_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'SAMPLE_TYPE')
-            sample_result['feature'] = 'SAMPLE_TYPE'
+        # Sample-type-detailed test (if SAMPLE_TYPE_DETAILED in top N).
+        # Plain SAMPLE_TYPE was dropped from the modeling feature set 2026-05-21
+        # (Feature Review Fix a) — only the DETAILED variant is now ranked.
+        if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'SAMPLE_TYPE_DETAILED', top_n_shap):
+            print(f"  Testing sample type detailed (in top {top_n_shap} SHAP)...")
+            sample_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'SAMPLE_TYPE_DETAILED')
+            sample_result['feature'] = 'SAMPLE_TYPE_DETAILED'
             results['sample_type'].append({**base_info, **sample_result})
         else:
-            print(f"  Skipping sample type (not in top {top_n_shap} SHAP)")
+            print(f"  Skipping sample type detailed (not in top {top_n_shap} SHAP)")
 
         # Technical features (if TECHNICAL in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'TECHNICAL', top_n_shap):
@@ -727,18 +720,35 @@ def generate_association_report(
     results: dict,
     output_file: Path,
     min_n: int,
-    top_n_shap: int
+    top_n_shap: int,
+    shap_filter_active: bool = True,
+    shap_file_path: str = None
 ):
-    """Generate human-readable summary report."""
+    """Generate human-readable summary report.
+
+    Args:
+        shap_filter_active: True if the top-N SHAP gate was applied at
+            runtime; False if --no-shap-filter was set (all features tested).
+        shap_file_path: Path of the SHAP/LR rankings file used as the gate
+            source (only meaningful when shap_filter_active=True).
+    """
+
+    if shap_filter_active:
+        header_line = (
+            f"(SHAP-Filtered: top {top_n_shap} features per cancer type, "
+            f"source: {shap_file_path})"
+        )
+    else:
+        header_line = "(NO SHAP FILTER: --no-shap-filter set, all features tested)"
 
     with open(output_file, 'w') as f:
         f.write("=" * 80 + "\n")
         f.write("Gene-Stratified Association Analysis Report\n")
-        f.write("(SHAP-Filtered: Only features in top N rankings tested)\n")
+        f.write(header_line + "\n")
         f.write("=" * 80 + "\n")
         f.write(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Minimum sample size: {min_n}\n")
-        f.write(f"SHAP top N filter: {top_n_shap}\n")
+        f.write(f"SHAP top N filter: {top_n_shap if shap_filter_active else 'DISABLED'}\n")
 
         for category, df in results.items():
             if len(df) == 0:
@@ -831,12 +841,6 @@ Examples:
 
     # Test all features (ignore SHAP rankings)
     python analyze_gene_stratified_associations.py --no-shap-filter
-
-    # Use all tiers (not just tier1)
-    python analyze_gene_stratified_associations.py --tier all
-
-    # Disable multi-tier filtering
-    python analyze_gene_stratified_associations.py --no-tier-filter
         """
     )
 
@@ -854,15 +858,16 @@ Examples:
                        help=f'Number of top SHAP features to consider (default: {DEFAULT_TOP_N_FEATURES})')
     parser.add_argument('--no-shap-filter', action='store_true',
                        help='Test all features regardless of SHAP ranking')
-    parser.add_argument('--tier', type=str, default='tier1',
-                       help='Cancer type tier to use: tier1, tier2, tier3, or all (default: tier1)')
-    parser.add_argument('--no-tier-filter', action='store_true',
-                       help='Disable multi-tier filtering (use all cancer types)')
     parser.add_argument('--groupings-file', type=str, default=None,
-                       help='Path to multi_tier_group_definitions.csv (auto-detected if not specified)')
+                       help='Path to cancer_type_group_definitions.csv '
+                            '(auto-detected from runs/ if omitted; restricts analysis '
+                            'to the canonical eligible OncoTree codes)')
     parser.add_argument('--lr-significant-only', action='store_true',
                        help='When using LR rankings, only include features with Wald-significant '
                             'coefficients (FDR < 0.05)')
+    # Legacy flags accepted but ignored after the OT-rollup strip
+    parser.add_argument('--tier', type=str, default=None, help=argparse.SUPPRESS)
+    parser.add_argument('--no-tier-filter', action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
@@ -889,57 +894,57 @@ Examples:
     print(f"Top N SHAP features: {args.top_n_shap}")
     print(f"SHAP filter enabled: {not args.no_shap_filter}")
 
-    # Load SHAP rankings (unless --no-shap-filter)
+    # Load SHAP rankings — fail-closed when --shap-file is passed but missing.
+    # Only --no-shap-filter is allowed to bypass the gate.
     shap_df = None
-    if not args.no_shap_filter:
+    shap_file = None
+    if args.no_shap_filter:
+        print("\nNOTE: --no-shap-filter set — gate is disabled, all features tested")
+    else:
         if args.shap_file:
             shap_file = args.shap_file
             print(f"\nUsing specified SHAP file: {shap_file}")
+            if not Path(shap_file).exists():
+                print(f"\nERROR: SHAP file not found: {shap_file}")
+                print("  Pass --no-shap-filter to deliberately disable the gate, "
+                      "or fix the path / re-run TIER 6a.")
+                sys.exit(1)
         else:
-            shap_file = get_default_shap_file()
-
-        if shap_file and Path(shap_file).exists():
-            shap_df = load_shap_rankings_adaptive(shap_file, lr_significant_only=args.lr_significant_only)
-        else:
-            print("\nWARNING: No SHAP file found - testing all features")
-            print("  Run TIER 6a (compute_shap_primary_values.py) for SHAP-filtered testing")
+            try:
+                shap_file = get_default_shap_file()
+            except FileNotFoundError as e:
+                print(f"\nERROR: {e}")
+                sys.exit(1)
+        shap_df = load_shap_rankings_adaptive(shap_file, lr_significant_only=args.lr_significant_only)
 
     # Load top genes summary
     top_genes_df = load_top_genes_summary(input_dir, top_n=args.top_n)
 
-    # Filter to canonical cancer types from multi-tier groupings
-    mapping_df = None
-    if not args.no_tier_filter:
-        try:
-            tier_filter = None if args.tier == 'all' else args.tier
+    # Filter to canonical cancer types from TIER 2a (if a definitions file is reachable)
+    groupings_file = args.groupings_file
+    if groupings_file is None:
+        candidates = sorted(
+            (REPO_ROOT / 'runs').glob(
+                'run_*/tier2_data_setup/cancer_type_groupings/cancer_type_group_definitions.csv'
+            ),
+            reverse=True,
+        )
+        groupings_file = str(candidates[0]) if candidates else None
 
-            canonical_types = get_all_tier_prefixed_codes(tier=tier_filter)
-            original_count = top_genes_df['ONCOTREE_CODE'].nunique()
-            top_genes_df = top_genes_df[top_genes_df['ONCOTREE_CODE'].isin(canonical_types)]
-            filtered_count = top_genes_df['ONCOTREE_CODE'].nunique()
-
-            print(f"\nFiltered to canonical cancer types (tier={args.tier}):")
-            print(f"  Original: {original_count} cancer types")
-            print(f"  After filter: {filtered_count} cancer types")
-
-            # Load patient-to-group mapping for tier2/tier3 support
-            try:
-                mapping_df = load_patient_to_group_mapping(verbose=True)
-            except FileNotFoundError:
-                print("  NOTE: No mapping found - assuming 1:1 mapping for all groups")
-                mapping_df = None
-
-        except FileNotFoundError as e:
-            print(f"\nWARNING: {e}")
-            print("  Using all cancer types from exploration output")
+    if groupings_file and Path(groupings_file).exists():
+        canonical_codes = set(pd.read_csv(groupings_file)['ONCOTREE_CODE'].tolist())
+        original_count = top_genes_df['ONCOTREE_CODE'].nunique()
+        top_genes_df = top_genes_df[top_genes_df['ONCOTREE_CODE'].isin(canonical_codes)]
+        filtered_count = top_genes_df['ONCOTREE_CODE'].nunique()
+        print(f"\nFiltered to canonical cancer types from: {groupings_file}")
+        print(f"  Original: {original_count} cancer types")
+        print(f"  After filter: {filtered_count} cancer types")
     else:
-        print("\nUsing all cancer types from exploration output (--no-tier-filter)")
+        print("\nNo cancer_type_group_definitions.csv found; testing all cancer types in input")
 
-    # Run association tests
     results = analyze_gene_stratified_associations(
         top_genes_df, DB_PATH, shap_df=shap_df,
         min_n=args.min_n, top_n_shap=args.top_n_shap,
-        mapping_df=mapping_df
     )
 
     # Save results
@@ -968,7 +973,11 @@ Examples:
 
     # Generate report
     report_file = output_dir / "gene_stratified_report.txt"
-    generate_association_report(results, report_file, args.min_n, args.top_n_shap)
+    generate_association_report(
+        results, report_file, args.min_n, args.top_n_shap,
+        shap_filter_active=(shap_df is not None),
+        shap_file_path=shap_file
+    )
 
     # Print summary
     print("\n" + "=" * 80)

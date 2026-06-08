@@ -1,0 +1,105 @@
+digraph MLModelingWorkflow {
+    rankdir=TB
+    size="8,14"
+    bgcolor="#ffffff"
+    node [shape=box, style="filled,rounded", fontname="Helvetica", color=black, fontsize=10]
+    edge [color=gray50, arrowsize=0.7]
+    newrank=true
+
+    // Title
+    labelloc="t"
+    label=<<B>ML Modeling Workflow (TIER 2&#8211;5)</B>>
+    fontsize=14
+    fontname="Helvetica"
+
+    // --- TIER 2: Data Setup ---
+    subgraph cluster_tier2 {
+        label=<<B>TIER 2: Data Setup</B>>
+        fontsize=11
+        fontname="Helvetica"
+        style="dashed,rounded"
+        color=gray60
+        bgcolor="#f5f5f5"
+
+        Groupings [label=<Cancer Type Groupings<BR/>OncoTree hierarchy &#8594; 34 groups<BR/>(21 specific, 3 rescue, 10 anatomical)>, fillcolor="#1565c0", fontcolor=white]
+        Split [label=<Train / Test Split<BR/>80% training | 20% held-out test<BR/>Stratified by cancer type>, fillcolor="#1565c0", fontcolor=white]
+
+        Groupings -> Split
+    }
+
+    // --- TIER 3: Hyperparameter Optimization ---
+    subgraph cluster_tier3 {
+        label=<<B>TIER 3: Hyperparameter Optimization</B>>
+        fontsize=11
+        fontname="Helvetica"
+        style="dashed,rounded"
+        color=gray60
+        bgcolor="#f5f5f5"
+
+        TrainOnly3 [label="Training Data Only (80%)", shape=parallelogram, fillcolor="#bbdefb", fontsize=9]
+        HyperOpt [label=<RandomizedSearchCV<BR/>3 algorithms compared:<BR/>Random Forest | Logistic Regression | XGBoost>, fillcolor="#1976d2", fontcolor=white]
+        AlgoResult [label=<Result: Random Forest selected<BR/>CV AUC 0.59 | best interpretability>, fillcolor="#42a5f5", fontcolor=white]
+
+        TrainOnly3 -> HyperOpt -> AlgoResult
+    }
+
+    // --- TIER 4: Feature Set Comparison ---
+    subgraph cluster_tier4 {
+        label=<<B>TIER 4: Feature Set Comparison</B>>
+        fontsize=11
+        fontname="Helvetica"
+        style="dashed,rounded"
+        color=gray60
+        bgcolor="#f5f5f5"
+
+        TrainOnly4 [label="Training Data Only (80%)", shape=parallelogram, fillcolor="#bbdefb", fontsize=9]
+
+        {rank=same
+            Demographic [label=<Demographic<BR/>age, sex, race,<BR/>ethnicity, sample type>, fillcolor="#1976d2", fontcolor=white]
+            Technical [label=<Technical<BR/>center, gene count,<BR/>preservation, calling>, fillcolor="#1976d2", fontcolor=white]
+            Both [label=<Both<BR/>demographic +<BR/>technical combined>, fillcolor="#1976d2", fontcolor=white]
+        }
+
+        LeakageNote [label=<Technical features predict<BR/>detection capability, not biology>, shape=note, fillcolor="#ffcdd2", style="filled", fontsize=8]
+
+        // Hidden anchor for outgoing edge
+        Tier4Out [label="" shape=point width=0 height=0]
+
+        TrainOnly4 -> Demographic
+        TrainOnly4 -> Technical
+        TrainOnly4 -> Both
+        Technical -> LeakageNote [style=dashed, color="#d32f2f", arrowhead=none]
+        Both -> LeakageNote [style=dashed, color="#d32f2f", arrowhead=none]
+        Demographic -> Tier4Out [style=invis]
+        Technical -> Tier4Out [style=invis]
+        Both -> Tier4Out [style=invis]
+    }
+
+    // --- TIER 5: Final Model Training ---
+    subgraph cluster_tier5 {
+        label=<<B>TIER 5: Final Model Training &amp; Evaluation</B>>
+        fontsize=11
+        fontname="Helvetica"
+        style="dashed,rounded"
+        color=gray60
+        bgcolor="#f5f5f5"
+
+        Train [label=<Train Random Forest<BR/>on training data (80%)<BR/>per cancer type>, fillcolor="#0d47a1", fontcolor=white]
+        Evaluate [label=<Evaluate on test data (20%)<BR/>First and only use of held-out set<BR/>AUC, accuracy, precision, recall, F1>, fillcolor="#0d47a1", fontcolor=white]
+        SaveModels [label=<Save trained models<BR/>for downstream SHAP analysis>, fillcolor="#42a5f5", fontcolor=white]
+
+        Train -> Evaluate -> SaveModels
+    }
+
+    // Critical annotation
+    TestSetNote [label=<Test set held out before<BR/>any model development>, shape=note, fillcolor="#fff9c4", style="filled", fontsize=8]
+
+    // --- Edges between tiers (enforce vertical flow) ---
+    Split -> TrainOnly3
+    AlgoResult -> TrainOnly4
+    Tier4Out -> Train [weight=10]
+
+    // Annotation edges
+    Split -> TestSetNote [style=dashed, color="#f57f17", arrowhead=none, constraint=false]
+    TestSetNote -> Evaluate [style=dashed, color="#f57f17", arrowhead=none, constraint=false]
+}

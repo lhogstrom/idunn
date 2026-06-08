@@ -2,39 +2,61 @@
 Shared utilities for SHAP-based feature analysis.
 
 This module provides common functions for loading and processing SHAP feature
-rankings used by multiple post-hoc analysis scripts.
+rankings used by post-hoc analysis scripts.
 
 Functions:
     - get_default_shap_file: Find SHAP rankings file in standard locations
     - load_shap_rankings_adaptive: Load SHAP rankings with auto-format detection
     - identify_top_features: Find cancer types with specific features in top N
-    - load_multi_tier_cancer_types: Load canonical cancer type list from multi-tier groupings
+    - feature_in_top_n_for_cancer: Test whether a feature category is in top N
+      for a given cancer type
 
 Used by:
     - analyze_shap_feature_associations.py (cancer-level post-hoc)
     - analyze_gene_stratified_associations.py (gene-stratified post-hoc)
-    - explore_gene_distributions.py (gene distribution exploration)
 """
 
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional
 
 # Get repository root (relative to this file in code/tools/)
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-
-# Legacy SHAP file path (for backward compatibility)
-LEGACY_SHAP_FILE = "/Users/larsonhogstrom/Documents/balder_analysis/output/actionability_db_curration_20250522b/demographic_technical_ml_modeling/shap_feature_ranks.csv"
 
 # Feature patterns for pattern matching in both old and new formats
 # Old format uses sklearn-style names: "cat__SEX_Male"
 # New format uses readable names: "Sex: Male"
 FEATURE_PATTERNS = {
     'SEX': ['SEX_', 'Sex:', 'SEX'],
-    'RACE': ['RACE_', 'Race:', 'RACE'],
+    # ANCESTRY key (was 'RACE'; renamed 2026-05-21 Feature Review Fix b). The
+    # underlying feature is now named ANCESTRY in code and YAML; the DB column
+    # stays RACE and data_loader.py renames it on load. Patterns keep the
+    # legacy 'RACE_' / 'Race:' / 'RACE' forms so historical SHAP rankings
+    # (e.g. runs/run_20260505_164207/) still match — see Bug C history in
+    # CLAUDE.md and the 2026-05-07 audit.
+    'ANCESTRY': [
+        'ANCESTRY_', 'Ancestry:', 'Ancestry', 'ANCESTRY',
+        'RACE_', 'Race:', 'RACE',
+    ],
     'ETHNICITY': ['ETHNICITY_', 'Ethnicity:', 'ETHNICITY'],
-    'RACE_ETHNICITY': ['RACE_', 'ETHNICITY_', 'Race:', 'Ethnicity:', 'RACE', 'ETHNICITY'],
-    'SAMPLE_TYPE': ['SAMPLE_TYPE_', 'Sample Type', 'SAMPLE_TYPE'],
+    'ANCESTRY_ETHNICITY': [
+        'ANCESTRY_', 'ETHNICITY_', 'Ancestry:', 'Ethnicity:',
+        'ANCESTRY', 'ETHNICITY', 'Ancestry',
+        # Legacy patterns kept for back-compat with pre-rename SHAP rankings:
+        'RACE_', 'Race:', 'RACE',
+    ],
+    # Indicator columns (ANCESTRY_missing, ETHNICITY_missing) are not given
+    # dedicated pattern keys. identify_top_features auto-excludes _missing-
+    # suffixed features from the ANCESTRY/ETHNICITY/ANCESTRY_ETHNICITY
+    # categories (2026-05-22 pre-lock review #4 + #9), so the institutional-
+    # missingness signal does not double-count into the raw-ancestry gate.
+    # If a future analysis needs to test missingness indicators specifically,
+    # query shap_df with `feature.str.contains('_missing')` directly.
+    # SAMPLE_TYPE removed 2026-05-21 (Feature Review Fix a; see features.yaml).
+    # SAMPLE_TYPE_DETAILED is the surviving sample-type feature in the model.
+    'SAMPLE_TYPE_DETAILED': [
+        'SAMPLE_TYPE_DETAILED_', 'Sample Type (Detailed)', 'Sample Type Detailed',
+        'SAMPLE_TYPE_DETAILED',
+    ],
     'AGE': ['AGE_AT_SEQ_REPORT', 'Age at Sequencing', 'Age'],
     'TECHNICAL': [
         # Subject Center (categorical)
@@ -45,8 +67,6 @@ FEATURE_PATTERNS = {
         'preservation_technique', 'Preservation Technique', 'Preservation',
         # Calling strategy (categorical)
         'calling_strategy', 'Calling Strategy', 'Variant Calling Strategy',
-        # Legacy patterns (for backwards compatibility)
-        'library_selection_', 'Library Selection:'
     ]
 }
 
@@ -56,24 +76,34 @@ DEFAULT_TOP_N_FEATURES = 5
 
 def get_default_shap_file(repo_root=None):
     """
-    Get default SHAP file, preferring new format (TIER 6a) over legacy.
+    Get default SHAP file from current TIER 6a output paths.
 
     Searches for SHAP primary values output from compute_shap_primary_values.py
-    in the standard output locations.
+    in the standard output locations. Raises FileNotFoundError if no v2.0
+    output is found — callers must pass --shap-file explicitly or run TIER 6a.
 
     Args:
         repo_root: Repository root path (optional, uses default if not provided)
 
     Returns:
-        str: Path to SHAP rankings file, or None if not found
+        str: Path to SHAP rankings file
+
+    Raises:
+        FileNotFoundError: If no v2.0 SHAP file is found in the standard
+            locations. The pre-2026-05 silent fallback to a legacy SHAP file
+            with the obsolete v1 feature space has been removed; see
+            ROADMAP.md "ACTIVE DATA-QUALITY ISSUE: Post-hoc SHAP-gate
+            provenance audit" for context.
     """
     if repo_root is None:
         repo_root = REPO_ROOT
 
     repo_root = Path(repo_root)
+    searched = []
 
     # Check for new format output in analysis_output
     new_output = repo_root / "analysis_output" / "shap_primary_values"
+    searched.append(str(new_output / "run_*/combined_feature_importance.csv"))
     if new_output.exists():
         # Find latest run
         runs = sorted(new_output.glob("run_*"), reverse=True)
@@ -85,6 +115,7 @@ def get_default_shap_file(repo_root=None):
 
     # Check for new format in runs directory (unified output structure)
     runs_dir = repo_root / "runs"
+    searched.append(str(runs_dir / "run_*/tier6_shap_analysis/primary_values/combined_feature_importance.csv"))
     if runs_dir.exists():
         # Find latest run with SHAP output
         runs = sorted(runs_dir.glob("run_*"), reverse=True)
@@ -95,13 +126,13 @@ def get_default_shap_file(repo_root=None):
                 print(f"Found SHAP file (new format, unified runs): {combined_file}")
                 return str(combined_file)
 
-    # Fall back to legacy file
-    if Path(LEGACY_SHAP_FILE).exists():
-        print(f"Using legacy SHAP file: {LEGACY_SHAP_FILE}")
-        print("  WARNING: Consider running TIER 6a (compute_shap_primary_values.py) for updated SHAP rankings")
-        return LEGACY_SHAP_FILE
-
-    return None
+    raise FileNotFoundError(
+        "No v2.0 SHAP file found. Searched:\n  - "
+        + "\n  - ".join(searched)
+        + "\nFix: pass --shap-file <path-to-combined_feature_importance.csv> "
+        "explicitly, or re-run TIER 6a (compute_shap_primary_values.py) "
+        "for the current run."
+    )
 
 
 def get_default_feature_rankings_file(algorithm='random_forest', repo_root=None):
@@ -263,12 +294,43 @@ def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURE
             - feature: feature name
             - feature_rank: rank (1-based)
             - mean_abs_shap: SHAP importance value
+
+    Notes:
+        Substring matching means a bare 'ANCESTRY' or 'ETHNICITY' pattern would
+        otherwise also match the new ANCESTRY_missing / ETHNICITY_missing
+        indicator features (added 2026-05-21 by Feature Review Fix b). To keep
+        the missingness indicator from being double-counted in the raw-ancestry
+        gate, _missing-suffixed features are excluded from category patterns
+        that don't themselves reference 'missing'. This auto-disambiguation
+        replaces the originally-defined-but-unused ANCESTRY_MISSING /
+        ETHNICITY_MISSING pattern keys (removed 2026-05-22).
     """
     results = []
 
+    # Auto-detect: if none of this category's patterns reference 'missing',
+    # exclude `_missing`-suffixed indicator features from the matches. The
+    # missingness indicator is a distinct semantic category — including it
+    # under ANCESTRY/ETHNICITY would confound the raw-ancestry chi-square gate.
+    exclude_missingness_indicators = not any(
+        'missing' in str(p).lower() for p in feature_patterns
+    )
+
     for pattern in feature_patterns:
-        # Filter for features matching pattern
-        mask = shap_df['feature'].str.contains(pattern, case=False, na=False)
+        # regex=False — patterns like 'Sample Type (Detailed)' contain unescaped
+        # regex metachars (parens are group syntax); without this they would
+        # match 'Sample Type Detailed' (no parens) instead of the literal string.
+        mask = shap_df['feature'].str.contains(pattern, case=False, na=False, regex=False)
+        if exclude_missingness_indicators:
+            # Catch both the raw form ('ANCESTRY_missing') and the display form
+            # ('Ancestry Missing (Indicator)' from features.yaml display_names)
+            # of the missingness indicator features. The display form is what
+            # production SHAP CSVs carry today, so the underscore-only check
+            # would silently fail to exclude — letting ANCESTRY_missing leak
+            # into the bare ANCESTRY substring-match. regex=True for the OR.
+            missingness_re = r'_missing|Missing \(Indicator\)'
+            mask = mask & ~shap_df['feature'].str.contains(
+                missingness_re, case=False, na=False, regex=True
+            )
         matching = shap_df[mask & (shap_df['feature_rank'] <= top_n)].copy()
 
         if len(matching) > 0:
@@ -286,6 +348,15 @@ def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURE
                 })
 
     results_df = pd.DataFrame(results)
+    if not results_df.empty:
+        # A single feature can match multiple patterns within the same category
+        # (e.g., 'SAMPLE_TYPE_DETAILED_' and 'SAMPLE_TYPE_DETAILED' both match
+        # 'SAMPLE_TYPE_DETAILED_Primary tumor'). Without dedup, downstream
+        # chi-square consumers see the same (cancer, feature) pair multiple
+        # times and inflate the FDR denominator at multipletests.
+        results_df = results_df.drop_duplicates(
+            subset=['ONCOTREE_CODE', 'feature'], keep='first'
+        ).reset_index(drop=True)
     return results_df
 
 
@@ -314,199 +385,23 @@ def get_cancer_types_with_top_feature(shap_df, feature_category, top_n=DEFAULT_T
     return top_features['ONCOTREE_CODE'].unique().tolist()
 
 
-def _strip_tier_prefix(cancer_type):
-    """
-    Strip tier prefix from a tier_prefixed_code if present.
-
-    Handles both tier_prefixed_code (e.g., "tier1_AML") and plain ONCOTREE_CODE (e.g., "AML").
-    This allows SHAP lookups to work regardless of whether the caller passes
-    a tier_prefixed_code or a plain ONCOTREE_CODE.
-
-    Args:
-        cancer_type: Either "tier1_AML" or "AML"
-
-    Returns:
-        str: Plain ONCOTREE_CODE (e.g., "AML")
-    """
-    import re
-    match = re.match(r'^tier\d+_(.+)$', cancer_type)
-    if match:
-        return match.group(1)
-    return cancer_type
-
-
 def feature_in_top_n_for_cancer(shap_df, cancer_type, feature_category, top_n=DEFAULT_TOP_N_FEATURES):
     """
-    Check if a feature category appears in top N for a specific cancer type.
+    Check whether a feature category appears in top-N for the given cancer type.
 
-    Handles tier_prefixed_code (e.g., "tier1_AML", "tier3_LUNG") and plain ONCOTREE_CODE
-    by resolving to the constituent OncoTree codes used in SHAP data.
-
-    For tier1 groups: checks the single OncoTree code (e.g., tier1_AML → AML)
-    For tier2/tier3 groups: checks ALL constituent OncoTree codes and returns True
-        if the feature is in top N for ANY of them (e.g., tier3_LUNG → LUAD, NSCLC)
+    Both `cancer_type` and the SHAP file's ONCOTREE_CODE column use plain
+    OncoTree codes after the publication-branch OT-rollup strip.
 
     Args:
         shap_df: DataFrame with SHAP rankings
-        cancer_type: ONCOTREE_CODE or tier_prefixed_code to check
+        cancer_type: Plain ONCOTREE_CODE (e.g., "LUAD")
         feature_category: Key from FEATURE_PATTERNS
         top_n: Number of top features to consider
 
     Returns:
-        bool: True if feature category is in top N for this cancer type
+        bool
     """
-    cancer_types_with_feature = get_cancer_types_with_top_feature(shap_df, feature_category, top_n)
-
-    # Try direct match first
-    plain_code = _strip_tier_prefix(cancer_type)
-    if cancer_type in cancer_types_with_feature or plain_code in cancer_types_with_feature:
-        return True
-
-    # For tier2/tier3 groups, check constituent OncoTree codes
-    import re
-    if re.match(r'^tier[23]_', cancer_type):
-        try:
-            constituent_codes = _get_oncotree_codes_for_group(cancer_type)
-            for code in constituent_codes:
-                if code in cancer_types_with_feature:
-                    return True
-        except Exception:
-            pass  # Fall through to return False
-
-    return False
-
-
-# =============================================================================
-# Multi-Tier Cancer Type Groupings
-# =============================================================================
-# NOTE: These functions are now wrappers around the canonical implementations
-# in multi_tier_utils.py for backward compatibility. New code should import
-# directly from multi_tier_utils.py.
-
-# Import from sibling module (same directory)
-from multi_tier_utils import (
-    get_group_definitions_file as get_multi_tier_definitions_file,
-    load_group_definitions as load_multi_tier_definitions,
-    get_all_tier_prefixed_codes,
-    get_patient_ids_for_group,
-    get_oncotree_codes_for_group as _get_oncotree_codes_for_group,
-    load_patient_to_group_mapping,
-    get_patient_to_group_mapping_file,
-    build_oncotree_to_group_mapping
-)
-
-
-def load_multi_tier_cancer_types(
-    tier: Optional[str] = None,
-    repo_root: Optional[Path] = None,
-    definitions_file: Optional[Path] = None
-) -> List[str]:
-    """
-    Load canonical cancer type list from multi-tier groupings output.
-
-    DEPRECATED: Use get_all_tier_prefixed_codes() from multi_tier_utils.py instead.
-    This function returns group_code (e.g., "LUAD") not tier_prefixed_code (e.g., "tier1_LUAD").
-
-    For new code, prefer:
-        from tools.multi_tier_utils import get_all_tier_prefixed_codes
-        tier_codes = get_all_tier_prefixed_codes(tier='tier1')
-
-    Args:
-        tier: Filter to specific tier ('tier1', 'tier2', 'tier3', or None for all)
-        repo_root: Repository root path (optional)
-        definitions_file: Direct path to definitions CSV (overrides search)
-
-    Returns:
-        List of group_code values (e.g., ["LUAD", "BRCA", ...])
-    """
-    defs = load_multi_tier_definitions(repo_root, definitions_file, verbose=False)
-
-    if tier is not None:
-        if tier not in defs['tier'].unique():
-            raise ValueError(f"Unknown tier: {tier}. Available tiers: {defs['tier'].unique().tolist()}")
-        defs = defs[defs['tier'] == tier]
-
-    return defs['group_code'].tolist()
-
-
-def load_group_to_oncotree_mapping(
-    repo_root: Optional[Path] = None,
-    mapping_file: Optional[Path] = None
-) -> dict:
-    """
-    Load mapping from group_code to list of constituent OncoTree codes.
-
-    DEPRECATED: Use get_oncotree_codes_for_group() from multi_tier_utils.py instead,
-    which accepts tier_prefixed_code for consistency.
-
-    Returns:
-        Dict mapping group_code -> list of original OncoTree codes
-    """
-    mapping_df = load_patient_to_group_mapping(repo_root, mapping_file, verbose=True)
-
-    # Create mapping: group_code -> unique list of original_oncotree_code
-    mapping = {}
-    for group_code in mapping_df['group_code'].unique():
-        oncotree_codes = mapping_df[
-            mapping_df['group_code'] == group_code
-        ]['original_oncotree_code'].unique().tolist()
-        mapping[group_code] = oncotree_codes
-
-    return mapping
-
-
-def get_oncotree_codes_for_group(
-    group_code: str,
-    group_mapping: dict = None,
-    repo_root: Optional[Path] = None
-) -> List[str]:
-    """
-    Get the list of OncoTree codes that belong to a group.
-
-    DEPRECATED: Use get_oncotree_codes_for_group() from multi_tier_utils.py instead,
-    which accepts tier_prefixed_code for consistency.
-
-    Args:
-        group_code: The group code (e.g., "LUAD", "LUNG", "BREAST")
-        group_mapping: Pre-loaded mapping dict (optional, loads if not provided)
-        repo_root: Repository root path (optional)
-
-    Returns:
-        List of OncoTree codes belonging to this group
-    """
-    if group_mapping is None:
-        group_mapping = load_group_to_oncotree_mapping(repo_root)
-
-    if group_code in group_mapping:
-        return group_mapping[group_code]
-    else:
-        # Fallback: assume 1:1 mapping (group_code is the OncoTree code)
-        print(f"  Warning: Group code '{group_code}' not in mapping, using as-is")
-        return [group_code]
-
-
-def get_tier_for_group(
-    group_code: str,
-    repo_root: Optional[Path] = None,
-    definitions_file: Optional[Path] = None
-) -> Optional[str]:
-    """
-    Get the tier (tier1, tier2, tier3) for a group code.
-
-    Args:
-        group_code: The group code to look up
-        repo_root: Repository root path (optional)
-        definitions_file: Direct path to definitions CSV (optional)
-
-    Returns:
-        Tier string ('tier1', 'tier2', or 'tier3'), or None if not found
-    """
-    try:
-        defs = load_multi_tier_definitions(repo_root, definitions_file, verbose=False)
-        match = defs[defs['group_code'] == group_code]
-        if len(match) > 0:
-            return match['tier'].iloc[0]
-    except FileNotFoundError:
-        pass
-
-    return None
+    cancer_types_with_feature = get_cancer_types_with_top_feature(
+        shap_df, feature_category, top_n
+    )
+    return cancer_type in cancer_types_with_feature

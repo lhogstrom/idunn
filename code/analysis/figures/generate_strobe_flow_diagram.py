@@ -25,9 +25,9 @@ from db_config import get_default_db_path
 DB_PATH = get_default_db_path()
 DEFAULT_OUTPUT_DIR = Path("../../../analysis_output/strobe_diagram")
 
-# Fallback tier structure (used when multi-tier mapping is unavailable).
-# Source of truth: runs/run_*/tier2_data_setup/multi_tier_groupings/multi_tier_group_definitions.csv
-DEFAULT_TIER_COUNTS = {'tier1': 21, 'tier2': 3, 'tier3': 10}
+# Fallback when the TIER 2a group-definitions CSV cannot be located.
+# Source of truth: runs/run_*/tier2_data_setup/cancer_type_groupings/cancer_type_group_definitions.csv
+DEFAULT_GROUP_COUNT = 21
 
 
 def replay_filtering_steps(db_path):
@@ -231,54 +231,31 @@ def replay_filtering_steps(db_path):
     }
 
 
-def load_multi_tier_counts(base_run_dir=None):
+def load_group_count(base_run_dir=None):
     """
-    Load actual multi-tier group counts if available; otherwise return fallback.
+    Load the cancer-type group count from TIER 2a's group-definitions CSV
+    (one row per eligible OncoTree code). Falls back to DEFAULT_GROUP_COUNT
+    when the file isn't reachable.
 
-    Returns dict with keys: 'tier1', 'tier2', 'tier3', 'source', 'groups_by_tier' (list per tier)
+    Returns dict with keys: 'count' (int), 'source' (str).
     """
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
-
-    # Try explicit base-run-dir first
     if base_run_dir:
-        defs_path = Path(base_run_dir) / "tier2_data_setup" / "multi_tier_groupings" / "multi_tier_group_definitions.csv"
+        defs_path = (
+            Path(base_run_dir)
+            / "tier2_data_setup"
+            / "cancer_type_groupings"
+            / "cancer_type_group_definitions.csv"
+        )
         if defs_path.exists():
             import pandas as pd
             defs = pd.read_csv(defs_path)
-            return {
-                'tier1': int((defs['tier'] == 'tier1').sum()),
-                'tier2': int((defs['tier'] == 'tier2').sum()),
-                'tier3': int((defs['tier'] == 'tier3').sum()),
-                'source': str(defs_path),
-            }
+            return {'count': int(len(defs)), 'source': str(defs_path)}
 
-    # Auto-search via multi_tier_utils
-    try:
-        from multi_tier_utils import get_group_definitions_file
-        defs_file = get_group_definitions_file()
-        if defs_file and defs_file.exists():
-            import pandas as pd
-            defs = pd.read_csv(defs_file)
-            return {
-                'tier1': int((defs['tier'] == 'tier1').sum()),
-                'tier2': int((defs['tier'] == 'tier2').sum()),
-                'tier3': int((defs['tier'] == 'tier3').sum()),
-                'source': str(defs_file),
-            }
-    except Exception as e:
-        print(f"  NOTE: Could not load multi-tier definitions ({e})")
-
-    # Fallback: known structure
-    print(f"  NOTE: Using fallback tier structure (mapping file not found)")
-    return {
-        'tier1': DEFAULT_TIER_COUNTS['tier1'],
-        'tier2': DEFAULT_TIER_COUNTS['tier2'],
-        'tier3': DEFAULT_TIER_COUNTS['tier3'],
-        'source': 'fallback (default)',
-    }
+    print("  NOTE: Using fallback cancer-type group count (definitions file not found)")
+    return {'count': DEFAULT_GROUP_COUNT, 'source': 'fallback (default)'}
 
 
-def generate_strobe_dot(counts, tier_counts):
+def generate_strobe_dot(counts, group_count):
     """Generate Graphviz DOT source for the STROBE cohort flow diagram."""
 
     act = counts['actionable_steps']
@@ -287,10 +264,7 @@ def generate_strobe_dot(counts, tier_counts):
     n_act = counts['n_actionable_final']
     n_nact = counts['n_non_actionable_final']
     n_ctypes = len(counts['eligible_cancer_types'])
-    n_tier1 = tier_counts['tier1']
-    n_tier2 = tier_counts['tier2']
-    n_tier3 = tier_counts['tier3']
-    n_total_groups = n_tier1 + n_tier2 + n_tier3
+    n_groups = group_count['count']
 
     # Format numbers with commas
     def fmt(n):
@@ -375,10 +349,10 @@ def generate_strobe_dot(counts, tier_counts):
     act_ctype -> final
     nact_ctype -> final
 
-    // ===== MULTI-TIER GROUPINGS =====
-    multitier [label="Multi-tier cancer groupings\\n{n_total_groups} analysis groups\\n({n_tier1} Tier 1 + {n_tier2} Tier 2 + {n_tier3} Tier 3)", fillcolor="#0d47a1", fontcolor=white]
+    // ===== CANCER-TYPE GROUPINGS =====
+    groupings [label="Cancer-type groupings\\n({n_groups} OncoTree codes)", fillcolor="#0d47a1", fontcolor=white]
 
-    final -> multitier [label="  OncoTree-based roll-up"]
+    final -> groupings
 
     // ===== TRAIN/TEST SPLIT =====
     subgraph cluster_split {{
@@ -390,14 +364,14 @@ def generate_strobe_dot(counts, tier_counts):
         test [label="Test set (20%)\\nHeld out until TIER 5", shape=folder, fillcolor="#e8f5e9", style="filled", fontname="Helvetica", fontsize=10]
     }}
 
-    multitier -> train [label="  80/20 stratified split (seed=42)"]
-    multitier -> test
+    groupings -> train [label="  80/20 stratified split (seed=42)"]
+    groupings -> test
 }}
 '''
     return dot
 
 
-def generate_strobe_dot_simple(counts, tier_counts):
+def generate_strobe_dot_simple(counts, group_count):
     """Generate a minimal black-and-white STROBE diagram with square boxes and orthogonal arrows."""
 
     act = counts['actionable_steps']
@@ -406,10 +380,7 @@ def generate_strobe_dot_simple(counts, tier_counts):
     n_act = counts['n_actionable_final']
     n_nact = counts['n_non_actionable_final']
     n_ctypes = len(counts['eligible_cancer_types'])
-    n_tier1 = tier_counts['tier1']
-    n_tier2 = tier_counts['tier2']
-    n_tier3 = tier_counts['tier3']
-    n_total_groups = n_tier1 + n_tier2 + n_tier3
+    n_groups = group_count['count']
 
     def fmt(n):
         return f"{n:,}"
@@ -476,18 +447,94 @@ def generate_strobe_dot_simple(counts, tier_counts):
     act_ctype -> final
     nact_ctype -> final
 
-    // ===== MULTI-TIER GROUPINGS =====
-    multitier [label="Multi-tier cancer groupings\\n{n_total_groups} analysis groups\\n({n_tier1} Tier 1 + {n_tier2} Tier 2 + {n_tier3} Tier 3)"]
+    // ===== CANCER-TYPE GROUPINGS =====
+    groupings [label="Cancer-type groupings\\n({n_groups} OncoTree codes)"]
 
-    final -> multitier [label="  OncoTree-based roll-up"]
+    final -> groupings
 
     // ===== TRAIN/TEST SPLIT =====
     {{rank=same; train; test}}
     train [label="Train set (80%)\\nStratified by cancer type"]
     test [label="Test set (20%)\\nHeld out until TIER 5"]
 
-    multitier -> train [label="  80/20 stratified split (seed=42)"]
-    multitier -> test
+    groupings -> train [label="  80/20 stratified split (seed=42)"]
+    groupings -> test
+}}
+'''
+    return dot
+
+
+def generate_strobe_dot_minimal(counts, group_count):
+    """Generate a minimal black-and-white STROBE diagram with no exclusion boxes or dashed edges."""
+
+    act = counts['actionable_steps']
+    nact = counts['non_actionable_steps']
+    final = counts['final_cohort']
+    n_ctypes = len(counts['eligible_cancer_types'])
+    n_groups = group_count['count']
+
+    def fmt(n):
+        return f"{n:,}"
+
+    dot = f'''digraph STROBE {{
+    rankdir=TB
+    size="8,12"
+    bgcolor=white
+    splines=ortho
+    nodesep=0.5
+    ranksep=0.6
+    node [shape=box, style="", fontname="Helvetica", fontsize=10, color=black, fillcolor=white, penwidth=1.0]
+    edge [color=black, arrowsize=0.7, fontname="Helvetica", fontsize=9]
+
+    // ===== STARTING POPULATION (GENIE only) =====
+    genie [label="AACR GENIE data\\nN = {fmt(act[1]['n_rows'])}"]
+
+    // ===== ROW 1: SPLIT =====
+    {{rank=same; act_branch; nact_branch}}
+    act_branch [label="Actionable Drug Sensitivity\\n(OncoKB Level 1)\\nN = {fmt(act[3]['n_rows'])}"]
+    nact_branch [label="Non-actionable (controls)\\nN = {fmt(nact[2]['n_rows'])}"]
+
+    genie -> act_branch [label="  isOncoKbLevel1 = 1"]
+    genie -> nact_branch [label="  isOncoKbLevel1 = 0"]
+
+    // ===== ROW 2: Seq depth filter (both pathways) =====
+    {{rank=same; act_cov; nact_cov}}
+    act_cov [label="Sequencing depth filter\\nN = {fmt(act[4]['n_rows'])}"]
+    nact_cov [label="Sequencing depth filter\\nN = {fmt(nact[3]['n_rows'])}"]
+
+    act_branch -> act_cov
+    nact_branch -> nact_cov
+
+    // ===== ROW 3: Panel coverage (actionable only) =====
+    act_panel [label="Panel coverage >= 90%\\nN = {fmt(act[5]['n_rows'])}"]
+    act_cov -> act_panel
+
+    // ===== ROW 4: Eligible cancer types (both pathways, aligned) =====
+    {{rank=same; act_ctype; nact_ctype}}
+    act_ctype [label="Eligible cancer types >= 250 events\\nN = {fmt(act[6]['n_rows'])}\\n({n_ctypes} cancer types)"]
+    nact_ctype [label="Eligible cancer types\\nN = {fmt(nact[4]['n_rows'])}\\n({n_ctypes} cancer types)"]
+
+    act_panel -> act_ctype
+    nact_cov -> nact_ctype
+
+    // ===== MERGE =====
+    final [label="Final analytic cohort\\nN = {fmt(final)}"]
+
+    act_ctype -> final
+    nact_ctype -> final
+
+    // ===== CANCER-TYPE GROUPINGS =====
+    groupings [label="Cancer-type groupings\\n({n_groups} OncoTree codes)"]
+
+    final -> groupings
+
+    // ===== TRAIN/TEST SPLIT =====
+    {{rank=same; train; test}}
+    train [label="Train set (80%)\\nStratified by cancer type"]
+    test [label="Test set (20%)\\nHeld out until TIER 5"]
+
+    groupings -> train [label="  80/20 stratified split (seed=42)"]
+    groupings -> test
 }}
 '''
     return dot
@@ -562,27 +609,16 @@ def save_counts_csv(counts, output_dir):
             'exclusion_reason': '',
         })
 
-        # Multi-tier grouping rows (post-cohort analysis structure)
-        tc = counts.get('tier_counts')
-        if tc:
-            total_groups = tc['tier1'] + tc['tier2'] + tc['tier3']
+        gc = counts.get('group_count')
+        if gc:
             writer.writerow({
-                'pathway': 'multitier',
-                'step': 'grouping',
-                'description': f"Multi-tier analysis groups ({total_groups} total)",
-                'n_rows': counts['final_cohort'],
+                'pathway': 'groupings',
+                'step': 'cancer_type_groupings',
+                'description': f"Cancer-type groupings ({gc['count']} OncoTree codes)",
+                'n_rows': gc['count'],
                 'n_excluded': '',
                 'exclusion_reason': '',
             })
-            for tier_name in ('tier1', 'tier2', 'tier3'):
-                writer.writerow({
-                    'pathway': 'multitier',
-                    'step': tier_name,
-                    'description': f"{tier_name} analysis groups",
-                    'n_rows': tc[tier_name],
-                    'n_excluded': '',
-                    'exclusion_reason': '',
-                })
 
     print(f"  Counts CSV: {csv_path}")
 
@@ -602,7 +638,7 @@ def save_counts_json(counts, output_dir):
         'n_non_actionable_final': counts['n_non_actionable_final'],
         'eligible_cancer_types': counts['eligible_cancer_types'],
         'coverage_cutoff': counts['coverage_cutoff'],
-        'tier_counts': counts.get('tier_counts'),
+        'group_count': counts.get('group_count'),
     }
 
     with open(json_path, 'w') as f:
@@ -619,8 +655,9 @@ def main():
     parser.add_argument('--db-path', type=str, default=DB_PATH,
                         help='Path to SQLite database')
     parser.add_argument('--base-run-dir', type=str, default=None,
-                        help='Run directory containing multi-tier group definitions '
-                             '(optional; falls back to auto-search, then default structure)')
+                        help='Run directory whose TIER 2a cancer_type_group_definitions.csv '
+                             'supplies the eligible cancer-type count for the diagram '
+                             '(optional; falls back to a default count when absent)')
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_OUTPUT_DIR
@@ -637,26 +674,28 @@ def main():
     print("\n[1/4] Replaying filtering steps...")
     counts = replay_filtering_steps(args.db_path)
 
-    # Step 2: Load multi-tier group counts
-    print("\n[2/4] Loading multi-tier group counts...")
-    tier_counts = load_multi_tier_counts(args.base_run_dir)
-    print(f"  Tier 1: {tier_counts['tier1']} groups")
-    print(f"  Tier 2: {tier_counts['tier2']} groups")
-    print(f"  Tier 3: {tier_counts['tier3']} groups")
-    print(f"  Source: {tier_counts['source']}")
-    counts['tier_counts'] = tier_counts
+    # Step 2: Load cancer-type group count
+    print("\n[2/6] Loading cancer-type group count...")
+    group_count = load_group_count(args.base_run_dir)
+    print(f"  Cancer-type groups: {group_count['count']}")
+    print(f"  Source: {group_count['source']}")
+    counts['group_count'] = group_count
 
     # Step 3: Generate diagrams
-    print("\n[3/5] Generating STROBE diagram (color)...")
-    dot_source = generate_strobe_dot(counts, tier_counts)
+    print("\n[3/6] Generating STROBE diagram (color)...")
+    dot_source = generate_strobe_dot(counts, group_count)
     render_diagram(dot_source, output_dir)
 
-    print("\n[4/5] Generating STROBE diagram (simple B&W)...")
-    dot_simple = generate_strobe_dot_simple(counts, tier_counts)
+    print("\n[4/6] Generating STROBE diagram (simple B&W)...")
+    dot_simple = generate_strobe_dot_simple(counts, group_count)
     render_diagram(dot_simple, output_dir, prefix="strobe_cohort_flow_diagram_simple")
 
-    # Step 5: Save counts
-    print("\n[5/5] Saving audit data...")
+    print("\n[5/6] Generating STROBE diagram (minimal B&W, no exclusion boxes)...")
+    dot_minimal = generate_strobe_dot_minimal(counts, group_count)
+    render_diagram(dot_minimal, output_dir, prefix="strobe_cohort_flow_diagram_minimal")
+
+    # Step 6: Save counts
+    print("\n[6/6] Saving audit data...")
     save_counts_json(counts, output_dir)
     save_counts_csv(counts, output_dir)
 

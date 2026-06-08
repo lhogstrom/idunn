@@ -27,7 +27,6 @@ from shap_utils import (
     get_default_shap_file,
     load_shap_rankings_adaptive,
     identify_top_features,
-    load_multi_tier_cancer_types,
     FEATURE_PATTERNS,
     REPO_ROOT
 )
@@ -409,11 +408,12 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
     print("Analyzing RACE and ETHNICITY associations")
     print("=" * 80)
 
-    # Identify cancer types with race/ethnicity features in top 5
-    # Use both old (RACE_, ETHNICITY_) and new (Race:, Ethnicity:) patterns
+    # Identify cancer types with ancestry/ethnicity features in top 5.
+    # Pattern set covers ANCESTRY_ / Ancestry: (new), Race: (display-name
+    # legacy), and RACE_ (sklearn-name legacy from pre-rename runs).
     race_eth_features = identify_top_features(
         shap_df,
-        FEATURE_PATTERNS['RACE_ETHNICITY'],
+        FEATURE_PATTERNS['ANCESTRY_ETHNICITY'],
         TOP_N_FEATURES
     )
 
@@ -445,9 +445,16 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
         for _, feat_info in features_ct.iterrows():
             feature_name = feat_info['feature']
 
-            # Determine column name (RACE or ETHNICITY)
-            # Support both old format (RACE_, ETHNICITY_) and new format (Race:, Ethnicity:)
-            if 'RACE_' in feature_name or 'Race:' in feature_name:
+            # Determine column name (RACE/ANCESTRY or ETHNICITY). Post-Fix-b
+            # (2026-05-21) the Python identifier is ANCESTRY but the DB column
+            # is still RACE, so we map both new and legacy feature-name forms
+            # to the DB column 'RACE' used by test_race_ethnicity_association.
+            if (
+                'ANCESTRY_' in feature_name
+                or 'Ancestry:' in feature_name
+                or 'RACE_' in feature_name
+                or 'Race:' in feature_name
+            ):
                 column = 'RACE'
             elif 'ETHNICITY_' in feature_name or 'Ethnicity:' in feature_name:
                 column = 'ETHNICITY'
@@ -511,15 +518,20 @@ def analyze_sample_type_associations(shap_df, db_path):
     print("Analyzing SAMPLE_TYPE associations")
     print("=" * 80)
 
-    # Identify cancer types with sample type features in top 5
+    # Plain SAMPLE_TYPE was dropped from the modeling feature set 2026-05-21
+    # (Feature Review Fix a); only SAMPLE_TYPE_DETAILED is a current modeling
+    # feature, and FEATURE_PATTERNS['SAMPLE_TYPE_DETAILED'] narrows matches to
+    # SAMPLE_TYPE_DETAILED forms only. The legacy plain-SAMPLE_TYPE dispatcher
+    # branch was removed 2026-05-22 (pre-lock review #7) — it was unreachable
+    # after the pattern narrowing.
     sample_type_features = identify_top_features(
         shap_df,
-        FEATURE_PATTERNS['SAMPLE_TYPE'],
+        FEATURE_PATTERNS['SAMPLE_TYPE_DETAILED'],
         TOP_N_FEATURES
     )
 
     if len(sample_type_features) == 0:
-        print("No cancer types with SAMPLE_TYPE features in top 5")
+        print("No cancer types with SAMPLE_TYPE_DETAILED features in top 5")
         return pd.DataFrame()
 
     # Get unique cancer types
@@ -530,7 +542,7 @@ def analyze_sample_type_associations(shap_df, db_path):
     df = load_patient_data(
         db_path,
         cancer_types,
-        ['ONCOTREE_CODE', 'SAMPLE_TYPE', 'SAMPLE_TYPE_DETAILED', 'isOncoKbLevel1']
+        ['ONCOTREE_CODE', 'SAMPLE_TYPE_DETAILED', 'isOncoKbLevel1']
     )
 
     results = []
@@ -546,14 +558,10 @@ def analyze_sample_type_associations(shap_df, db_path):
         for _, feat_info in features_ct.iterrows():
             feature_name = feat_info['feature']
 
-            # Determine column name (SAMPLE_TYPE or SAMPLE_TYPE_DETAILED)
-            # Support both old format (SAMPLE_TYPE_) and new format (Sample Type)
-            if 'SAMPLE_TYPE_DETAILED' in feature_name or 'Sample Type (Detailed)' in feature_name or 'Sample Type Detailed' in feature_name:
-                column = 'SAMPLE_TYPE_DETAILED'
-            elif 'SAMPLE_TYPE' in feature_name or 'Sample Type' in feature_name:
-                column = 'SAMPLE_TYPE'
-            else:
-                continue
+            # Upstream identify_top_features filters to SAMPLE_TYPE_DETAILED
+            # forms via FEATURE_PATTERNS['SAMPLE_TYPE_DETAILED'], so every
+            # surviving feature maps to the SAMPLE_TYPE_DETAILED DB column.
+            column = 'SAMPLE_TYPE_DETAILED'
 
             print(f"  Testing {column}...")
 
@@ -921,27 +929,22 @@ Examples:
   # Use legacy SHAP file
   python analyze_shap_feature_associations.py --shap-file /path/to/legacy/shap_feature_ranks.csv
 
-  # Use all tiers (not just tier1)
-  python analyze_shap_feature_associations.py --tier all
-
-  # Disable multi-tier filtering
-  python analyze_shap_feature_associations.py --no-tier-filter
         """
     )
     parser.add_argument('--output-dir', type=str, default=None,
                        help='Output directory for results')
     parser.add_argument('--shap-file', type=str, default=None,
                        help='Path to SHAP feature rankings CSV (new TIER 6a format or legacy format)')
-    parser.add_argument('--tier', type=str, default='tier1',
-                       help='Cancer type tier to use: tier1, tier2, tier3, or all (default: tier1)')
-    parser.add_argument('--no-tier-filter', action='store_true',
-                       help='Disable multi-tier filtering (use all cancer types in SHAP file)')
     parser.add_argument('--groupings-file', type=str, default=None,
-                       help='Path to multi_tier_group_definitions.csv (auto-detected if not specified)')
+                       help='Path to cancer_type_group_definitions.csv '
+                            '(auto-detected from runs/ if omitted)')
     parser.add_argument('--lr-significant-only', action='store_true',
                        help='When using LR rankings, only include features with Wald-significant '
                             'coefficients (FDR < 0.05). Features without significant associations '
                             'in the LR model are excluded from post-hoc testing.')
+    # Legacy flags accepted but ignored after the OT-rollup strip
+    parser.add_argument('--tier', type=str, default=None, help=argparse.SUPPRESS)
+    parser.add_argument('--no-tier-filter', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     # Set output directory
@@ -961,11 +964,10 @@ Examples:
         shap_file = args.shap_file
         print(f"\nUsing specified SHAP file: {shap_file}")
     else:
-        shap_file = get_default_shap_file()
-        if shap_file is None:
-            print("\nERROR: No SHAP file found!")
-            print("  Please run TIER 6a (compute_shap_primary_values.py) first, or")
-            print("  specify a SHAP file using --shap-file argument")
+        try:
+            shap_file = get_default_shap_file()
+        except FileNotFoundError as e:
+            print(f"\nERROR: {e}")
             return 1
 
     # Verify SHAP file exists
@@ -976,29 +978,27 @@ Examples:
     # Load SHAP rankings (auto-detects format)
     shap_df = load_shap_rankings_adaptive(shap_file, lr_significant_only=args.lr_significant_only)
 
-    # Filter to canonical cancer types from multi-tier groupings
-    if not args.no_tier_filter:
-        try:
-            groupings_file = Path(args.groupings_file) if args.groupings_file else None
-            tier_filter = None if args.tier == 'all' else args.tier
+    # Filter to canonical cancer types from TIER 2a's group-definitions CSV
+    groupings_file = args.groupings_file
+    if groupings_file is None:
+        candidates = sorted(
+            (REPO_ROOT / 'runs').glob(
+                'run_*/tier2_data_setup/cancer_type_groupings/cancer_type_group_definitions.csv'
+            ),
+            reverse=True,
+        )
+        groupings_file = str(candidates[0]) if candidates else None
 
-            canonical_types = load_multi_tier_cancer_types(
-                tier=tier_filter,
-                definitions_file=groupings_file
-            )
-            original_count = shap_df['ONCOTREE_CODE'].nunique()
-            shap_df = shap_df[shap_df['ONCOTREE_CODE'].isin(canonical_types)]
-            filtered_count = shap_df['ONCOTREE_CODE'].nunique()
-
-            print(f"\nFiltered to canonical cancer types (tier={args.tier}):")
-            print(f"  Original: {original_count} cancer types")
-            print(f"  After filter: {filtered_count} cancer types")
-            print(f"  Cancer types: {', '.join(sorted(shap_df['ONCOTREE_CODE'].unique())[:10])}{'...' if filtered_count > 10 else ''}")
-        except FileNotFoundError as e:
-            print(f"\nWARNING: {e}")
-            print("  Using all cancer types from SHAP file")
+    if groupings_file and Path(groupings_file).exists():
+        canonical_codes = set(pd.read_csv(groupings_file)['ONCOTREE_CODE'].tolist())
+        original_count = shap_df['ONCOTREE_CODE'].nunique()
+        shap_df = shap_df[shap_df['ONCOTREE_CODE'].isin(canonical_codes)]
+        filtered_count = shap_df['ONCOTREE_CODE'].nunique()
+        print(f"\nFiltered to canonical cancer types from: {groupings_file}")
+        print(f"  Original: {original_count} cancer types")
+        print(f"  After filter: {filtered_count} cancer types")
     else:
-        print("\nUsing all cancer types from SHAP file (--no-tier-filter)")
+        print("\nNo cancer_type_group_definitions.csv found; using all cancer types in SHAP file")
 
     # Save top 5 features for all cancer types
     top5_all = shap_df[shap_df['feature_rank'] <= TOP_N_FEATURES].copy()
@@ -1042,11 +1042,6 @@ Examples:
     print("\n" + "=" * 80)
     print("Creating presentation-friendly tables...")
     print("=" * 80)
-
-    # Add staged directory to path for presentation table imports
-    staged_dir = str(Path(__file__).parent.parent.parent / 'staged')
-    if staged_dir not in sys.path:
-        sys.path.insert(0, staged_dir)
 
     from create_presentation_tables import (
         create_sex_presentation_table,

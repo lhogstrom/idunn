@@ -173,9 +173,22 @@ class NestedCVOptimizer:
         The test set from each outer fold is NEVER used for hyperparameter selection.
         This ensures the performance estimate is unbiased.
         """
-        # Store column names if DataFrame, then convert to numpy for CV compatibility
+        # Keep X as a DataFrame when column names are present. The new
+        # MissingnessIndicatorTransformer (Feature Review Fix b, 2026-05-21)
+        # requires a DataFrame so it can address ANCESTRY/ETHNICITY by name;
+        # sklearn's CV utilities support DataFrames natively.
         column_names = X.columns.tolist() if hasattr(X, 'columns') else None
-        X = np.asarray(X)
+        if column_names is None:
+            # Legacy callers that pass arrays: re-wrap as a DataFrame with
+            # synthetic integer column names. column_names=None flows to
+            # _get_estimator → create_preprocessor(available_columns=None),
+            # which skips the missingness step entirely (preprocessing.py was
+            # updated 2026-05-22 to make this branch genuinely a no-op rather
+            # than crashing on absent ANCESTRY/ETHNICITY columns — pre-lock
+            # review #8).
+            X = pd.DataFrame(X)
+        elif not hasattr(X, 'iloc'):
+            X = pd.DataFrame(X, columns=column_names)
         y = np.asarray(y)
         if groups is not None:
             groups = np.asarray(groups)
@@ -246,8 +259,9 @@ class NestedCVOptimizer:
             if self.verbose >= 1:
                 print(f"\n--- Outer Fold {fold_idx + 1}/{outer_cv.n_splits} ---")
 
-            # Split data
-            X_train, X_test = X[train_idx], X[test_idx]
+            # Split data. X is a DataFrame (Feature Review Fix b, 2026-05-21),
+            # so use .iloc for positional indexing.
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
             groups_train = groups[train_idx] if use_groups else None
 
@@ -458,19 +472,26 @@ class NestedCVOptimizer:
             if self.verbose >= 1:
                 print(f"\n{cancer}:")
 
-            # Get column names and convert to numpy
+            # Keep X as a DataFrame for MissingnessIndicatorTransformer (Feature
+            # Review Fix b, 2026-05-21). sklearn's CV utilities support
+            # DataFrames natively.
             column_names = X.columns.tolist() if hasattr(X, 'columns') else None
-            X_array = np.asarray(X)
+            if column_names is None:
+                X_df = pd.DataFrame(X)
+            elif not hasattr(X, 'iloc'):
+                X_df = pd.DataFrame(X, columns=column_names)
+            else:
+                X_df = X
             y_array = np.asarray(y)
 
-            model = self._get_estimator(algorithm, X=X_array, column_names=column_names)
+            model = self._get_estimator(algorithm, X=X_df, column_names=column_names)
             # Prefix universal params with 'classifier__' for pipeline
             prefixed_universal_params = {f'classifier__{k}': v for k, v in universal_params.items()}
             model.set_params(**prefixed_universal_params)
 
             # 5-fold CV on this cancer with universal params
             cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
-            scores = cross_val_score(model, X_array, y_array, cv=cv, scoring='roc_auc', n_jobs=self.n_jobs)
+            scores = cross_val_score(model, X_df, y_array, cv=cv, scoring='roc_auc', n_jobs=self.n_jobs)
             auc = np.mean(scores)
             universal_auc_by_cancer[cancer] = auc
 
