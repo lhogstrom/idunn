@@ -62,12 +62,22 @@ class CheckResult:
 def _find_one(run_dir, pattern, label):
     """Return the single file matching `pattern` (glob) under run_dir.
 
+    `pattern` may be a single glob or a list of globs tried in order (first that
+    matches wins) — used where a file may live either directly in a tier dir or in
+    a timestamped run_* subdir (e.g. RF SHAP: the orchestrator writes with
+    --no-timestamp-subdir, manual runs don't — see Gotcha #7).
+
     Returns (path, None) on success or (None, reason) if zero/ambiguous matches.
     Newest match wins when several exist (timestamped run_* subdirs), with a note.
     """
-    matches = sorted(glob.glob(os.path.join(run_dir, pattern)))
+    patterns = [pattern] if isinstance(pattern, str) else list(pattern)
+    matches = []
+    for pat in patterns:
+        matches = sorted(glob.glob(os.path.join(run_dir, pat)))
+        if matches:
+            break
     if not matches:
-        return None, f"{label}: no file matching '{pattern}'"
+        return None, f"{label}: no file matching {patterns}"
     if len(matches) > 1:
         # Multiple timestamped subdirs — pick the lexicographically newest and note it.
         return matches[-1], f"{label}: {len(matches)} matches, used newest ({os.path.relpath(matches[-1], run_dir)})"
@@ -133,7 +143,8 @@ def check_tier5_auc(run_a, run_b):
 
 
 def check_shap_ranks(run_a, run_b):
-    pat = "tier6_shap_analysis/primary_values/run_*/combined_feature_importance.csv"
+    pat = ["tier6_shap_analysis/primary_values/combined_feature_importance.csv",
+           "tier6_shap_analysis/primary_values/run_*/combined_feature_importance.csv"]
     pa, err_a = _find_one(run_a, pat, "shap[a]")
     pb, err_b = _find_one(run_b, pat, "shap[b]")
     if pa is None or pb is None:

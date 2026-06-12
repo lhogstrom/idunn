@@ -70,13 +70,26 @@ def classify_feature(name):
 
 def locate_importance_file(run_dir, pathway):
     if pathway == "rf":
-        pat = os.path.join(run_dir, "tier6_shap_analysis/primary_values/run_*/combined_feature_importance.csv")
+        # The orchestrator (TIER 6a) writes with --no-timestamp-subdir, so the file
+        # lands directly under primary_values/ (Gotcha #7). Manual
+        # compute_shap_primary_values.py runs instead use a run_*/ subdir. Support both,
+        # preferring the orchestrator's canonical no-subdir output.
+        direct = os.path.join(run_dir, "tier6_shap_analysis/primary_values/combined_feature_importance.csv")
+        if os.path.isfile(direct):
+            return direct
+        subdir = sorted(glob.glob(os.path.join(
+            run_dir, "tier6_shap_analysis/primary_values/run_*/combined_feature_importance.csv")))
+        if subdir:
+            return subdir[-1]
+        sys.exit(f"ERROR: no RF SHAP importance file under {run_dir}; looked for:\n"
+                 f"  tier6_shap_analysis/primary_values/combined_feature_importance.csv\n"
+                 f"  tier6_shap_analysis/primary_values/run_*/combined_feature_importance.csv")
     else:
         pat = os.path.join(run_dir, "tier6_shap_analysis/lr_analysis/combined_lr_grouped_importance.csv")
-    matches = sorted(glob.glob(pat))
-    if not matches:
-        sys.exit(f"ERROR: no importance file under {run_dir} matching:\n  {pat}")
-    return matches[-1]
+        matches = sorted(glob.glob(pat))
+        if not matches:
+            sys.exit(f"ERROR: no importance file under {run_dir} matching:\n  {pat}")
+        return matches[-1]
 
 
 def main():

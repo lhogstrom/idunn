@@ -207,14 +207,19 @@ def intersect_hits(rf: pd.DataFrame, lr: pd.DataFrame, feature: str) -> pd.DataF
 
 
 def split_by_tier(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    # Plain (non-prefixed) OncoTree codes — what the tier1-only publication pipeline
+    # emits — count as tier1. Only explicit tier2_/tier3_ rollup codes (from the
+    # external rollup-aware runs) go to the tier2_tier3 panel.
+    is_t23 = df["ONCOTREE_CODE"].str.match(r"^tier[23]_")
     return {
-        "tier1": df[df["ONCOTREE_CODE"].str.match(r"^tier1_")].copy(),
-        "tier2_tier3": df[df["ONCOTREE_CODE"].str.match(r"^tier[23]_")].copy(),
+        "tier1": df[~is_t23].copy(),
+        "tier2_tier3": df[is_t23].copy(),
     }
 
 
 def _tier_subset_label(ot_code: str) -> str:
-    return "tier1" if ot_code.startswith("tier1_") else "tier2_tier3"
+    # Plain (non-prefixed) codes from the tier1-only publication pipeline are tier1.
+    return "tier2_tier3" if ot_code.startswith(("tier2_", "tier3_")) else "tier1"
 
 
 def _short_label(tier_prefixed_code: str, gene: str) -> str:
@@ -235,7 +240,13 @@ def build_contingency(
     tier_prefixed_code: str,
     gene: str,
 ) -> pd.DataFrame:
-    ot_codes = get_oncotree_codes_for_group(tier_prefixed_code, mapping_df)
+    if tier_prefixed_code.startswith(("tier1_", "tier2_", "tier3_")):
+        # Rollup-aware run: expand the group code to its constituent OncoTree codes.
+        ot_codes = get_oncotree_codes_for_group(tier_prefixed_code, mapping_df)
+    else:
+        # Plain OncoTree code (tier1-only publication run): the code IS the OncoTree
+        # code, so no rollup mapping is needed (mapping_df may be None here).
+        ot_codes = [tier_prefixed_code]
     if not ot_codes:
         raise ValueError(f"No OncoTree codes resolved for {tier_prefixed_code}")
     placeholders = ",".join("?" * len(ot_codes))
@@ -600,7 +611,8 @@ def run_race_pipeline(
     intersection_with_tier.to_csv(feature_dir / "intersection_summary.csv", index=False)
 
     mapping_path = resolve_mapping(rf_run, lr_run)
-    mapping_df = load_patient_to_group_mapping(mapping_file=mapping_path, verbose=False)
+    mapping_df = (load_patient_to_group_mapping(mapping_file=mapping_path, verbose=False)
+                  if mapping_path is not None else None)
 
     long_format = build_long_format(intersection, db_path, mapping_df)
     long_format.to_csv(feature_dir / "intersection_long_format.csv", index=False)
@@ -671,7 +683,7 @@ def run_sex_pipeline(
 # Mapping resolution + README
 # -----------------------------------------------------------------------------
 
-def resolve_mapping(rf_run_dir: Path, lr_run_dir: Path) -> Path:
+def resolve_mapping(rf_run_dir: Path, lr_run_dir: Path) -> Optional[Path]:
     for d in (rf_run_dir, lr_run_dir):
         candidate = d / MAPPING_REL_PATH
         if candidate.exists():
@@ -692,10 +704,12 @@ def resolve_mapping(rf_run_dir: Path, lr_run_dir: Path) -> Path:
         print(f"  [info] mapping not in run dirs; using most-recent {chosen}")
         return chosen
 
-    raise FileNotFoundError(
-        f"patient_to_group_mapping.csv not found under {rf_run_dir}, {lr_run_dir}, "
-        f"or any standard location."
-    )
+    # No multi_tier_groupings mapping anywhere — expected for a tier1-only publication
+    # run, whose plain OncoTree codes need no rollup expansion. The race contingency
+    # handles plain codes directly (build_contingency), so return None rather than fail.
+    print("  [info] no multi_tier_groupings mapping found; assuming plain tier1-only "
+          "codes (race contingency queries OncoTree codes directly).")
+    return None
 
 
 def write_readme(
