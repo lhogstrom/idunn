@@ -16,6 +16,7 @@ from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
 from db_config import get_default_db_path
+from figure_style import apply_publication_style, get_palette, get_color
 
 DB_PATH = get_default_db_path()
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "analysis_output" / "simple_institutional_plots"
@@ -23,7 +24,8 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "ana
 MIN_ACTIONABLE_EVENTS = 250
 MIN_INSTITUTION_SAMPLES = 30
 
-COLORS = sns.color_palette("Set2", 8)
+# Per-subplot rotation colors from the shared Okabe-Ito palette.
+COLORS = get_palette("qualitative")
 
 # ============================================================================
 # DATA LOADING AND PROCESSING
@@ -126,13 +128,14 @@ def plot_cv_ranking_uncolored(variability_metrics, output_dir):
 
     sorted_metrics = variability_metrics.sort_values('cv', ascending=False)
 
+    apply_publication_style()
     fig, ax = plt.subplots(figsize=(4, 10))
 
     # Bar plot
     bars = ax.barh(
         np.arange(len(sorted_metrics)),
         sorted_metrics['cv'],
-        color='steelblue',
+        color=get_color("okabe_ito.blue"),
         edgecolor='black',
         linewidth=1.5,
         alpha=0.7
@@ -180,6 +183,7 @@ def plot_forest_all_parts(grouped_stats, variability_metrics, output_dir):
         cancer_subset = all_cancers[start_idx:end_idx]
 
         # Create 2x3 grid
+        apply_publication_style()
         fig, axes = plt.subplots(2, 3, figsize=(20, 12))
         axes = axes.flatten()
 
@@ -237,8 +241,8 @@ def plot_forest_all_parts(grouped_stats, variability_metrics, output_dir):
         for idx in range(len(cancer_subset), n_per_fig):
             axes[idx].axis('off')
 
-        plt.suptitle(f'Institutional Actionability Rates with 95% Confidence Intervals (Part {fig_num + 1}/{n_figs})',
-                     fontsize=14, fontweight='bold', y=0.995)
+        # In-figure suptitle removed per figures/style/FIGURE_STYLE_GUIDE.md
+        # (part number is in the filename; description -> caption).
         plt.tight_layout()
         plt.savefig(output_dir / f'fig4_extended_forest_plots_part{fig_num + 1}.pdf', dpi=300, bbox_inches='tight')
         plt.savefig(output_dir / f'fig4_extended_forest_plots_part{fig_num + 1}.png', dpi=300, bbox_inches='tight')

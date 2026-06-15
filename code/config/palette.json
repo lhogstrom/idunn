@@ -1,0 +1,121 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "description": "Single source of truth for Balder publication figure colors. Read by Python (code/tools/figure_style.py) and R (code/tools/figure_theme.R). Colorblind-safe, print-safe.",
+    "palette_family": "Okabe-Ito (Okabe & Ito 2008)",
+    "last_updated": "2026-06-12"
+  },
+
+  "okabe_ito": {
+    "black": "#000000",
+    "orange": "#E69F00",
+    "sky_blue": "#56B4E9",
+    "bluish_green": "#009E73",
+    "yellow": "#F0E442",
+    "blue": "#0072B2",
+    "vermillion": "#D55E00",
+    "reddish_purple": "#CC79A7",
+    "gray": "#999999"
+  },
+
+  "qualitative": [
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#CC79A7",
+    "#56B4E9",
+    "#D55E00",
+    "#F0E442",
+    "#999999"
+  ],
+
+  "sequential": "viridis",
+  "sequential_alt": "cividis",
+
+  "neutral": "#999999",
+  "missing_indicator": "#BBBBBB",
+
+  "feature_groups": {
+    "demographic": "#0072B2",
+    "sample_type": "#CC79A7",
+    "technical": "#D55E00"
+  },
+
+  "feature_group_members": {
+    "demographic": [
+      "SEX",
+      "ANCESTRY",
+      "ETHNICITY",
+      "AGE_AT_SEQ_REPORT",
+      "ANCESTRY_missing",
+      "ETHNICITY_missing"
+    ],
+    "sample_type": [
+      "SAMPLE_TYPE_DETAILED"
+    ],
+    "technical": [
+      "SUBJECT_CENTER",
+      "number_of_genes",
+      "preservation_technique",
+      "calling_strategy"
+    ]
+  },
+
+  "model_pathways": {
+    "rf_test": "#0072B2",
+    "rf_train": "#56B4E9",
+    "lr_test": "#D55E00",
+    "lr_train": "#E69F00"
+  },
+
+  "hit_status": {
+    "novel": "#0072B2",
+    "confirmed": "#E69F00"
+  },
+
+  "direction": {
+    "positive": "#0072B2",
+    "negative": "#D55E00"
+  },
+
+  "cancer_systems": {
+    "lung": "#0072B2",
+    "colorectal": "#D55E00",
+    "myeloid": "#CC79A7",
+    "biliary": "#009E73",
+    "default": "#999999"
+  },
+
+  "outcome": {
+    "actionable": "#CC79A7",
+    "non_actionable": "#999999"
+  },
+
+  "categorical_values": {
+    "SEX": {
+      "Male": "#0072B2",
+      "Female": "#CC79A7"
+    },
+    "SAMPLE_TYPE_DETAILED": {
+      "Primary": "#009E73",
+      "Metastasis": "#D55E00",
+      "Hematologic": "#CC79A7",
+      "Not Collected": "#999999",
+      "Unspecified": "#56B4E9"
+    },
+    "ANCESTRY": {
+      "European": "#0072B2",
+      "African": "#E69F00",
+      "Asian": "#009E73",
+      "Native American": "#CC79A7",
+      "Pacific Islander": "#56B4E9",
+      "Other": "#D55E00",
+      "Unknown": "#999999"
+    },
+    "ETHNICITY": {
+      "Hispanic": "#E69F00",
+      "Non-Hispanic": "#0072B2",
+      "Unknown": "#999999"
+    }
+  }
+}

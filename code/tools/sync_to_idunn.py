@@ -101,6 +101,7 @@ class SyncConfig:
     include: list[re.Pattern] = field(default_factory=list)
     exclude: list[re.Pattern] = field(default_factory=list)
     idunn_only: set[str] = field(default_factory=set)
+    protect: list[re.Pattern] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> "SyncConfig":
@@ -109,6 +110,7 @@ class SyncConfig:
             include=[_glob_to_regex(p) for p in data.get("include", [])],
             exclude=[_glob_to_regex(p) for p in data.get("exclude", [])],
             idunn_only=set(data.get("idunn_only", [])),
+            protect=[_glob_to_regex(p) for p in data.get("protect_from_deletion", [])],
         )
 
     def file_in_scope(self, rel_path: str) -> bool:
@@ -195,7 +197,7 @@ def build_plan(
     for f in sorted(idunn_present):
         if f in dev_in_scope:
             continue
-        if f in cfg.idunn_only:
+        if f in cfg.idunn_only or _matches_any(f, cfg.protect):
             plan.protected.append(f)
         else:
             plan.to_delete.append(f)

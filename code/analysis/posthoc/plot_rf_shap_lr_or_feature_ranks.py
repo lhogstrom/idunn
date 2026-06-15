@@ -48,6 +48,12 @@ from feature_name_mapper import (  # noqa: E402
     TECHNICAL_FEATURES,
     FeatureNameMapper,
     classify_feature_type,
+    create_mapper_from_data_loader,
+)
+from feature_config import get_feature_list  # noqa: E402
+from figure_style import (  # noqa: E402
+    apply_publication_style,
+    get_feature_category_colors,
 )
 
 DEFAULT_OUTPUT = REPO_ROOT / "runs" / "shap_vs_lr_comparison"
@@ -83,11 +89,9 @@ def autodetect_lr_run_dir() -> Path | None:
             return run_dir
     return None
 
-CATEGORY_COLORS = {
-    "demographic": "#3498db",   # blue
-    "sample_type": "#9b59b6",   # purple - Sample Type / Sample Type (Detailed)
-    "technical":   "#e74c3c",   # red
-}
+# Category colors come from the shared palette (code/config/palette.json) via
+# figure_style — keep figures coordinated instead of hard-coding hex here.
+CATEGORY_COLORS = get_feature_category_colors()
 SAMPLE_TYPE_DISPLAY = {"Sample Type", "Sample Type (Detailed)"}
 
 # Normalize older SHAP display names to current features.yaml labels so the
@@ -103,6 +107,31 @@ def categorize_feature(display_name: str) -> str:
 
 def normalize_display(name: str) -> str:
     return DISPLAY_NAME_ALIASES.get(name, name)
+
+
+def build_feature_mapper():
+    """Mapper over the full modeled feature set (``both``), used to collapse
+    one-hot transformed feature names back to their parent input variable."""
+    return create_mapper_from_data_loader(get_feature_list("both"))
+
+
+def collapse_to_parent(raw_name: str, mapper) -> str:
+    """Map a (possibly one-hot-encoded) transformed feature name to its parent
+    input-variable display name (e.g. ``cat__SUBJECT_CENTER_MSK`` -> "Subject
+    Center", ``cat__ANCESTRY_Asian`` -> "Ancestry").
+
+    Why this lives here: the upstream ``*_grouped_feature_importance.csv`` (RF)
+    and ``combined_lr_grouped_importance.csv`` (LR) are *meant* to be collapsed
+    to input variables, but the collapse silently degraded to per-one-hot rows
+    once the preprocessor began emitting verbose transformed names that the old
+    ``get_feature_group`` regex could not parse. Re-collapsing at load time keeps
+    this panel at input-variable granularity regardless of whether the upstream
+    CSVs were (re)generated with the repaired grouping. Idempotent on names that
+    are already collapsed display names.
+    """
+    base = mapper.get_feature_group(raw_name)
+    display = mapper.DISPLAY_NAMES.get(base, base)
+    return normalize_display(display)
 
 
 def resolve_shap_dir(run_dir: Path) -> Path:
@@ -136,8 +165,15 @@ def resolve_lr_dir(run_dir: Path) -> Path:
     )
 
 
-def load_shap_ranks(shap_dir: Path) -> pd.DataFrame:
-    """Load SHAP grouped feature importance for every cancer type subdir."""
+def load_shap_ranks(shap_dir: Path, mapper) -> pd.DataFrame:
+    """Load RF SHAP importance per cancer type and collapse to input variables.
+
+    Reads each cancer's ``*_grouped_feature_importance.csv``, maps every
+    (possibly one-hot) feature to its parent input variable, sums ``mean_abs_shap``
+    within each parent per cancer type, then re-ranks. Summing per-column means is
+    exact for the intended group importance because the mean over samples is
+    linear: ``E[sum_c |shap_c|] = sum_c E[|shap_c|]``.
+    """
     frames = []
     for sub in sorted(shap_dir.iterdir()):
         if not sub.is_dir() or sub.name.startswith("."):
@@ -151,23 +187,36 @@ def load_shap_ranks(shap_dir: Path) -> pd.DataFrame:
     if not frames:
         raise FileNotFoundError(f"No SHAP grouped CSVs under {shap_dir}")
     out = pd.concat(frames, ignore_index=True)
-    out = out.rename(columns={"feature_name": "display_name"})
-    out["display_name"] = out["display_name"].map(normalize_display)
-    out["feature_type"] = out["display_name"].apply(classify_feature_type)
-    out["category"] = out["display_name"].apply(categorize_feature)
-    return out[["cancer_type", "display_name", "rank", "feature_type", "category"]]
+    out["display_name"] = out["feature_name"].map(
+        lambda n: collapse_to_parent(n, mapper)
+    )
+    grouped = out.groupby(["cancer_type", "display_name"], as_index=False)[
+        "mean_abs_shap"
+    ].sum()
+    grouped["rank"] = (
+        grouped.groupby("cancer_type")["mean_abs_shap"]
+        .rank(method="min", ascending=False)
+        .astype(int)
+    )
+    grouped["feature_type"] = grouped["display_name"].apply(classify_feature_type)
+    grouped["category"] = grouped["display_name"].apply(categorize_feature)
+    return grouped[["cancer_type", "display_name", "rank", "feature_type", "category"]]
 
 
-def load_lr_ranks(lr_dir: Path, rank_by: str) -> pd.DataFrame:
+def load_lr_ranks(lr_dir: Path, rank_by: str, mapper) -> pd.DataFrame:
     """
-    Load combined LR grouped importance and rank features within each cancer
-    type by the requested odds-ratio-derived metric.
+    Load combined LR grouped importance, collapse to input variables, and rank
+    features within each cancer type by the requested odds-ratio-derived metric.
 
     rank_by:
         "std_log_odds" -> max |log(OR)| of standardized coefficients
                           (canonical LR rank used elsewhere in codebase)
         "log_odds"     -> max |log(OR)| of raw coefficients
                           (direct OR magnitude)
+
+    The metric is a max over a feature's encoded categories, so collapsing a
+    per-one-hot CSV to parent variables takes the max of the per-level maxes —
+    identical to what a properly-grouped upstream CSV would carry.
     """
     metric_col = {
         "std_log_odds": "max_abs_std_log_odds",
@@ -175,21 +224,20 @@ def load_lr_ranks(lr_dir: Path, rank_by: str) -> pd.DataFrame:
     }[rank_by]
 
     df = pd.read_csv(lr_dir / "combined_lr_grouped_importance.csv")
-    df["rank"] = (
-        df.groupby("cancer_type")[metric_col]
+    df["display_name"] = df["feature_group"].map(
+        lambda n: collapse_to_parent(n, mapper)
+    )
+    grouped = df.groupby(["cancer_type", "display_name"], as_index=False)[
+        metric_col
+    ].max()
+    grouped["rank"] = (
+        grouped.groupby("cancer_type")[metric_col]
         .rank(method="min", ascending=False)
         .astype(int)
     )
-
-    display_map = FeatureNameMapper.DISPLAY_NAMES
-    df["display_name"] = (
-        df["feature_group"]
-        .map(lambda x: display_map.get(x, x))
-        .map(normalize_display)
-    )
-    df["feature_type"] = df["display_name"].apply(classify_feature_type)
-    df["category"] = df["display_name"].apply(categorize_feature)
-    return df[["cancer_type", "display_name", "rank", "feature_type", "category"]]
+    grouped["feature_type"] = grouped["display_name"].apply(classify_feature_type)
+    grouped["category"] = grouped["display_name"].apply(categorize_feature)
+    return grouped[["cancer_type", "display_name", "rank", "feature_type", "category"]]
 
 
 def _draw_boxstrip(ax, data: pd.DataFrame, order: list, palette: dict,
@@ -249,6 +297,7 @@ def make_figure(
     n_features = len(feature_order)
     width = max(12, n_features * 1.0 + 2)
 
+    apply_publication_style()
     fig, axes = plt.subplots(2, 1, figsize=(width, 12), sharex=True)
 
     _draw_boxstrip(
@@ -288,14 +337,8 @@ def make_figure(
     axes[0].legend(handles=legend_handles, loc="upper right",
                    fontsize=10, framealpha=0.9)
 
-    n_cancers = max(shap_df["cancer_type"].nunique(), lr_df["cancer_type"].nunique())
-    fig.suptitle(
-        f"Feature rank distribution across cancer types (n={n_cancers}); "
-        f"x-axis ordered by RF SHAP mean rank",
-        fontsize=14,
-        fontweight="bold",
-        y=1.00,
-    )
+    # In-figure title removed per figures/style/FIGURE_STYLE_GUIDE.md
+    # (descriptive text moves to the figure caption).
     plt.tight_layout()
 
     pdf = output_dir / f"{filename_stem}.pdf"
@@ -349,8 +392,9 @@ def main():
     print(f"SHAP dir: {shap_dir}")
     print(f"LR dir:   {lr_dir}")
 
-    shap_df = load_shap_ranks(shap_dir)
-    lr_df = load_lr_ranks(lr_dir, args.lr_rank_by)
+    mapper = build_feature_mapper()
+    shap_df = load_shap_ranks(shap_dir, mapper)
+    lr_df = load_lr_ranks(lr_dir, args.lr_rank_by, mapper)
     print(
         f"SHAP: {len(shap_df)} rows / {shap_df['cancer_type'].nunique()} cancers"
         f" / {shap_df['display_name'].nunique()} features"

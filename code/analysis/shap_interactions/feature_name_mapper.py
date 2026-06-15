@@ -334,19 +334,47 @@ class FeatureNameMapper:
             transformed_name: Sklearn transformed name
 
         Returns:
-            Base feature name (e.g., 'cat__x1_Male' → 'SEX')
+            Base feature name (e.g., 'cat__x1_Male' → 'SEX',
+            'cat__SUBJECT_CENTER_MSK' → 'SUBJECT_CENTER')
+
+        Handles BOTH sklearn transformed-name formats:
+        - Positional (legacy): ``cat__x1_Male`` / ``num__x5`` — resolved by the
+          original column index via the ColumnTransformer ``xN`` convention.
+        - Verbose (current): ``cat__SUBJECT_CENTER_MSK`` / ``num__AGE_AT_SEQ_REPORT``
+          — emitted once the preprocessor began seeing a DataFrame with real
+          column names (2026-05-22 "keep X as a DataFrame end-to-end" change).
+          The positional regex can't parse these, so without the verbose branch
+          below every one-hot column fell through unchanged and the caller's
+          group-by became a silent no-op (each level its own "group"). Resolved
+          by stripping the transformer prefix and matching the LONGEST original
+          feature that prefixes the remainder — longest-match disambiguates
+          ``ANCESTRY`` (cat one-hots) from ``ANCESTRY_missing`` (its own numeric
+          indicator feature).
         """
-        # Numeric features
-        num_match = re.match(r'num__x(\d+)', transformed_name)
+        # Positional names: cat__x1_Male, num__x5 — map via original column index.
+        num_match = re.match(r'num__x(\d+)$', transformed_name)
         if num_match:
             index = int(num_match.group(1))
             return self.num_index_to_feature.get(index, transformed_name)
 
-        # Categorical features
         cat_match = re.match(r'cat__x(\d+)_', transformed_name)
         if cat_match:
             index = int(cat_match.group(1))
             return self.cat_index_to_feature.get(index, transformed_name)
+
+        # Verbose names: strip the transformer prefix and match the longest
+        # original feature name that the remainder begins with.
+        for prefix in ('num__', 'cat__'):
+            if transformed_name.startswith(prefix):
+                remainder = transformed_name[len(prefix):]
+                best = None
+                for feat in self.original_features:
+                    if remainder == feat or remainder.startswith(feat + '_'):
+                        if best is None or len(feat) > len(best):
+                            best = feat
+                if best is not None:
+                    return best
+                break
 
         return transformed_name
 

@@ -50,6 +50,7 @@ from multi_tier_utils import (  # noqa: E402
     load_patient_to_group_mapping,
 )
 from raw_data_plot_utils import plot_categorical_contingency  # noqa: E402
+from figure_style import apply_publication_style, get_palette, get_color  # noqa: E402
 
 PATIENT_TABLE = "perPatientOncoKBFilteredForModeling"
 MAPPING_REL_PATH = Path("tier2_data_setup/multi_tier_groupings/patient_to_group_mapping.csv")
@@ -59,18 +60,16 @@ RACE_ORDER = [
     "Native American", "Pacific Islander",
 ]
 
-SYSTEM_COLOR_DEFAULT = "#555555"
-SYSTEM_PALETTE = [
-    "#1f4e79", "#c45a00", "#6a3d9a", "#b2182b",
-    "#2c7a3d", "#777777", "#8c510a", "#01665e",
-]
+# Colors sourced from the shared palette (code/config/palette.json).
+SYSTEM_COLOR_DEFAULT = get_color("cancer_systems.default")
+SYSTEM_PALETTE = get_palette("qualitative")
 
 # Cancer-system color map for SEX forest plots (root cancer-area buckets)
 SEX_SYSTEM_COLOR = {
-    "lung":       "#2c7fb8",
-    "colorectal": "#d95f0e",
-    "myeloid":    "#7a0177",
-    "biliary":    "#41ab5d",
+    "lung":       get_color("cancer_systems.lung"),
+    "colorectal": get_color("cancer_systems.colorectal"),
+    "myeloid":    get_color("cancer_systems.myeloid"),
+    "biliary":    get_color("cancer_systems.biliary"),
 }
 
 
@@ -383,6 +382,7 @@ def fig1_lollipop(intersection: pd.DataFrame, output_path: Path, title_suffix: s
     df["system_key"] = df["ONCOTREE_CODE"].str.replace(r"^tier\d+_", "", regex=True)
 
     y = np.arange(len(df))
+    apply_publication_style()
     fig, ax = plt.subplots(figsize=(10, max(3.0, 0.5 * len(df) + 1.5)),
                            constrained_layout=True)
 
@@ -403,8 +403,7 @@ def fig1_lollipop(intersection: pd.DataFrame, output_path: Path, title_suffix: s
     ax.set_xlabel("Cramer's V")
     xmax = df["cramers_v"].max() * 1.45
     ax.set_xlim(0, xmax if xmax > 0 else 0.1)
-    ax.set_title(f"Gene-stratified RACE associations — effect size ranking ({title_suffix})\n"
-                 f"Significant in BOTH RF and LR pathways", fontsize=11)
+    # In-figure title removed per figures/style/FIGURE_STYLE_GUIDE.md (-> caption).
     ax.grid(axis="x", alpha=0.3)
     ax.spines[["top", "right"]].set_visible(False)
 
@@ -435,11 +434,14 @@ def fig2_diverging_dpp(
     n_panels = len(hits)
     ncols = 3 if n_panels >= 3 else max(1, n_panels)
     nrows = int(np.ceil(n_panels / ncols))
+    apply_publication_style()
     fig, axes = plt.subplots(nrows, ncols, figsize=(4.4 * ncols, 3.4 * nrows),
                              sharex=True, constrained_layout=True)
     axes = np.atleast_2d(axes).reshape(-1)
 
     xmax = max(sub["delta_pp"].abs().max() * 1.15, 1.0)
+    pos_color = get_color("direction.positive")
+    neg_color = get_color("direction.negative")
 
     for ax, (_, h) in zip(axes, hits.iterrows()):
         d = sub[(sub["ONCOTREE_CODE"] == h["ONCOTREE_CODE"]) &
@@ -447,7 +449,7 @@ def fig2_diverging_dpp(
         d["race"] = pd.Categorical(d["race"], categories=RACE_ORDER, ordered=True)
         d = d.sort_values("race", ascending=False).reset_index(drop=True)
 
-        colors = ["#1f4e79" if v >= 0 else "#a85a3c" for v in d["delta_pp"]]
+        colors = [pos_color if v >= 0 else neg_color for v in d["delta_pp"]]
         ax.barh(d["race"].astype(str), d["delta_pp"], color=colors, alpha=0.85)
         ax.axvline(0, color="black", linewidth=0.8)
         ax.set_xlim(-xmax, xmax)
@@ -469,11 +471,7 @@ def fig2_diverging_dpp(
     for ax in axes[n_panels:]:
         ax.set_visible(False)
 
-    fig.suptitle(
-        f"Δ percentage points (gene-actionable − non-actionable) by race — {title_suffix}\n"
-        f"Significant in BOTH RF and LR pathways",
-        fontsize=12,
-    )
+    # In-figure suptitle removed per figures/style/FIGURE_STYLE_GUIDE.md (-> caption).
     fig.supxlabel("Δ percentage points", fontsize=11)
 
     for ext in ("png", "pdf"):
@@ -539,6 +537,7 @@ def render_sex_forest(
 
     n = len(df)
     fig_h = max(3.5, 0.42 * n + 1.6)
+    apply_publication_style()
     fig, ax = plt.subplots(figsize=(8.5, fig_h))
 
     y = np.arange(n)
@@ -570,8 +569,7 @@ def render_sex_forest(
     if handles:
         ax.legend(handles=handles, loc="lower right", frameon=False, fontsize=8)
 
-    ax.set_title(f"Gene-stratified SEX (F/M) odds ratios — {title_suffix}\n"
-                 f"Significant in BOTH RF and LR pathways", fontsize=11)
+    # In-figure title removed per figures/style/FIGURE_STYLE_GUIDE.md (-> caption).
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 

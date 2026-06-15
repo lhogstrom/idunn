@@ -39,13 +39,15 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "code" / "tools"))
 from auc_utils import delong_auc_ci  # noqa: E402
+from figure_style import apply_publication_style, get_color  # noqa: E402
 
 DEFAULT_OUTPUT = Path("/tmp/ml_res")
 
-RF_TRAIN_COLOR = "#a6cee3"
-RF_TEST_COLOR  = "#1f78b4"
-LR_TRAIN_COLOR = "#fdbf6f"
-LR_TEST_COLOR  = "#ff7f00"
+# Model-pathway colors come from the shared palette (code/config/palette.json).
+RF_TRAIN_COLOR = get_color("model_pathways.rf_train")
+RF_TEST_COLOR  = get_color("model_pathways.rf_test")
+LR_TRAIN_COLOR = get_color("model_pathways.lr_train")
+LR_TEST_COLOR  = get_color("model_pathways.lr_test")
 
 
 def find_perf_csv(run_dir: Path) -> Path:
@@ -193,6 +195,7 @@ def plot(rf_df: pd.DataFrame, lr_df: pd.DataFrame, output_dir: Path,
 
     n = len(order)
     fig_w = max(14, n * 0.6 + 2) if test_only else max(14, n * 0.7 + 2)
+    apply_publication_style()
     fig, axes = plt.subplots(2, 1, figsize=(fig_w, 10), sharex=True, sharey=True)
 
     _draw_panel(axes[0], rf_idx, order, RF_TRAIN_COLOR, RF_TEST_COLOR,
@@ -215,13 +218,9 @@ def plot(rf_df: pd.DataFrame, lr_df: pd.DataFrame, output_dir: Path,
     axes[1].set_xticklabels(order, rotation=45, ha="right")
     axes[1].set_xlabel("Cancer type (ordered by RF test AUC)")
 
-    title_extra = " (held-out test set only)" if test_only else ""
-    ci_note = "" if (rf_cis is not None and lr_cis is not None) else \
-              " — CIs unavailable (test_predictions.csv missing)"
-    fig.suptitle(
-        f"Per-cancer-type AUC: Random Forest (top) vs Logistic Regression (bottom){title_extra}{ci_note}",
-        fontweight="bold", fontsize=14, y=1.00,
-    )
+    # In-figure title removed per figures/style/FIGURE_STYLE_GUIDE.md
+    # (descriptive text moves to the figure caption). The run-provenance
+    # footnote below is kept for traceability.
     fig.text(
         0.5, -0.01,
         f"RF run: {rf_run.name}    |    LR run: {lr_run.name}    |    n={n} cancer types",

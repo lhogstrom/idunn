@@ -22,9 +22,12 @@ from matplotlib.patches import FancyArrowPatch
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "code" / "tools"))
+from figure_style import apply_publication_style, get_color  # noqa: E402
 
-NOVEL_COLOR = '#1f4e79'
-CONFIRMED_COLOR = '#e69f00'
+# Hit-status colors from the shared palette (code/config/palette.json).
+NOVEL_COLOR = get_color("hit_status.novel")
+CONFIRMED_COLOR = get_color("hit_status.confirmed")
 
 DIRECTION_TO_ARROW = {
     'older': '↑',
@@ -145,7 +148,11 @@ def plot_arrow_grid(df: pd.DataFrame, name_map: dict, tiers: list, title: str, o
     return n_rows
 
 
-TIER_BADGE_COLORS = {'tier1': '#4a6c8c', 'tier2': '#5f8d68', 'tier3': '#8a8a8a'}
+TIER_BADGE_COLORS = {
+    'tier1': get_color("okabe_ito.blue"),
+    'tier2': get_color("okabe_ito.bluish_green"),
+    'tier3': get_color("okabe_ito.gray"),
+}
 
 
 def _draw_arrow(ax, x: float, y_center: float, direction: str, color: str,
@@ -298,7 +305,7 @@ def main() -> int:
     parser.add_argument('--output-dir', type=Path, default=DEFAULT_OUTDIR)
     args = parser.parse_args()
 
-    plt.rcParams['font.family'] = ['Helvetica', 'Arial', 'DejaVu Sans']
+    apply_publication_style()
 
     df = load_hits(args.csv_path)
     name_map = build_name_map()

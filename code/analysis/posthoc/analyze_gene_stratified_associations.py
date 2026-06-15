@@ -734,10 +734,12 @@ def generate_association_report(
     """
 
     if shap_filter_active:
-        header_line = (
-            f"(SHAP-Filtered: top {top_n_shap} features per cancer type, "
-            f"source: {shap_file_path})"
+        cap_desc = (
+            f"top {top_n_shap} features per cancer type"
+            if top_n_shap is not None
+            else "all gate-significant features per cancer type (top-N cap disabled)"
         )
+        header_line = f"(Importance-Filtered: {cap_desc}, source: {shap_file_path})"
     else:
         header_line = "(NO SHAP FILTER: --no-shap-filter set, all features tested)"
 
@@ -748,7 +750,13 @@ def generate_association_report(
         f.write("=" * 80 + "\n")
         f.write(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Minimum sample size: {min_n}\n")
-        f.write(f"SHAP top N filter: {top_n_shap if shap_filter_active else 'DISABLED'}\n")
+        if not shap_filter_active:
+            topn_str = 'DISABLED (--no-shap-filter)'
+        elif top_n_shap is None:
+            topn_str = 'none (cap disabled; all gate-significant features tested)'
+        else:
+            topn_str = str(top_n_shap)
+        f.write(f"SHAP top N filter: {topn_str}\n")
 
         for category, df in results.items():
             if len(df) == 0:
@@ -854,8 +862,12 @@ Examples:
                        help=f'Minimum sample size (default: {DEFAULT_MIN_N})')
     parser.add_argument('--top-n', type=int, default=DEFAULT_TOP_N,
                        help=f'Number of top genes per cancer (default: {DEFAULT_TOP_N})')
-    parser.add_argument('--top-n-shap', type=int, default=DEFAULT_TOP_N_FEATURES,
-                       help=f'Number of top SHAP features to consider (default: {DEFAULT_TOP_N_FEATURES})')
+    parser.add_argument('--top-n-shap', type=int, default=None,
+                       help=f'Number of top features to gate on by importance '
+                            f'(default: {DEFAULT_TOP_N_FEATURES}). Ignored under '
+                            f'--lr-significant-only, where Wald-FDR significance is the gate and '
+                            f'all significant features are tested; pass an explicit value to '
+                            f're-impose a cap there.')
     parser.add_argument('--no-shap-filter', action='store_true',
                        help='Test all features regardless of SHAP ranking')
     parser.add_argument('--groupings-file', type=str, default=None,
@@ -863,8 +875,10 @@ Examples:
                             '(auto-detected from runs/ if omitted; restricts analysis '
                             'to the canonical eligible OncoTree codes)')
     parser.add_argument('--lr-significant-only', action='store_true',
-                       help='When using LR rankings, only include features with Wald-significant '
-                            'coefficients (FDR < 0.05)')
+                       help='When using LR rankings, restrict to features with Wald-significant '
+                            'coefficients (FDR < 0.05). This significance test IS the gate: the '
+                            'top-N importance cap is disabled so all Wald-significant features are '
+                            'tested (unless --top-n-shap is passed explicitly).')
     # Legacy flags accepted but ignored after the OT-rollup strip
     parser.add_argument('--tier', type=str, default=None, help=argparse.SUPPRESS)
     parser.add_argument('--no-tier-filter', action='store_true', help=argparse.SUPPRESS)
@@ -884,6 +898,19 @@ Examples:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Resolve the importance-gate cap. An explicit --top-n-shap always wins.
+    # Otherwise, under --lr-significant-only the Wald-FDR significance test is the
+    # principled gate and the top-N cap is a redundant second filter that drops
+    # already-significant features (see
+    # code_review_and_feedback/fig4b_onehot_collapse_and_tier7_gate_2026-06-15.md §3),
+    # so it is disabled (None); the RF/default path keeps the top-5 cap.
+    if args.top_n_shap is not None:
+        top_n_shap = args.top_n_shap
+    elif args.lr_significant_only:
+        top_n_shap = None
+    else:
+        top_n_shap = DEFAULT_TOP_N_FEATURES
+
     print("=" * 80)
     print("Gene-Stratified Association Analysis (SHAP-Filtered)")
     print("=" * 80)
@@ -891,7 +918,9 @@ Examples:
     print(f"Output directory: {output_dir}")
     print(f"Minimum sample size: {args.min_n}")
     print(f"Top N genes: {args.top_n}")
-    print(f"Top N SHAP features: {args.top_n_shap}")
+    print("Top N SHAP features: "
+          + ("ALL gate-significant (top-N cap disabled via --lr-significant-only)"
+             if top_n_shap is None else str(top_n_shap)))
     print(f"SHAP filter enabled: {not args.no_shap_filter}")
 
     # Load SHAP rankings — fail-closed when --shap-file is passed but missing.
@@ -944,7 +973,7 @@ Examples:
 
     results = analyze_gene_stratified_associations(
         top_genes_df, DB_PATH, shap_df=shap_df,
-        min_n=args.min_n, top_n_shap=args.top_n_shap,
+        min_n=args.min_n, top_n_shap=top_n_shap,
     )
 
     # Save results
@@ -974,7 +1003,7 @@ Examples:
     # Generate report
     report_file = output_dir / "gene_stratified_report.txt"
     generate_association_report(
-        results, report_file, args.min_n, args.top_n_shap,
+        results, report_file, args.min_n, top_n_shap,
         shap_filter_active=(shap_df is not None),
         shap_file_path=shap_file
     )

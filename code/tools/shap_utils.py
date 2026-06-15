@@ -284,7 +284,9 @@ def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURE
     Args:
         shap_df: DataFrame with SHAP rankings (from load_shap_rankings_adaptive)
         feature_patterns: List of patterns to match in feature names
-        top_n: Number of top features to consider (default: 5)
+        top_n: Number of top features to consider (default: 5). Pass None to
+            disable the rank cap entirely (every pattern-matched feature is
+            returned) — used by the LR --lr-significant-only gate.
         verbose: Whether to print progress (default: True)
 
     Returns:
@@ -331,7 +333,15 @@ def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURE
             mask = mask & ~shap_df['feature'].str.contains(
                 missingness_re, case=False, na=False, regex=True
             )
-        matching = shap_df[mask & (shap_df['feature_rank'] <= top_n)].copy()
+        # top_n=None disables the rank cap entirely (every matched feature is
+        # eligible). Used by the LR `--lr-significant-only` path, where Wald-FDR
+        # significance is the gate and the top-N cap would redundantly drop
+        # already-significant features (see the 2026-06-15 gate-sensitivity note).
+        if top_n is None:
+            rank_ok = pd.Series(True, index=shap_df.index)
+        else:
+            rank_ok = shap_df['feature_rank'] <= top_n
+        matching = shap_df[mask & rank_ok].copy()
 
         if len(matching) > 0:
             if verbose:
