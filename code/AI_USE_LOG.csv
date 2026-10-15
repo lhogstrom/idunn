@@ -1,39 +1,47 @@
 ﻿Date of query,query category,description of change,AI model utilized
 1-Oct-25,code refactor,"Modifying the structure of the single, large ML script ""oncoKB_level1_ML_modeling_by_cType.py"" to help make it more modular",Claude Sonnet 4.0
 5-Oct-25,statistical model brainstorm,"organize code structure to accomodate experiments across feature inputs, and model types",Claude Sonnet 4.5
-6-Oct-25,code refactor,"organize results reporting for ML performance stats",Claude Sonnet 4.5
-20-Oct-25,statistical model brainstorm,"get information on the best way to implement GroupShuffleSplit to define CV folds and test sets. Get function framework for adding this feature to ML experiments.",Claude Sonnet 4.5
-20-Oct-25,code structure,"function framework for adding CV statification feature to ML experiments.",Claude Sonnet 4.5
-20-Oct-25,statistical model brainstorm,"Queried for help with plotting approaches and coef of variance calculations.",Claude Sonnet 4.5
-30-Oct-25,statistical model brainstorm,"Queried python plotting approaches for dot graph and welch's t-test calculations",Claude Sonnet 4.5
-2-Nov-25,statistical model brainstorm,"Created plots to look at interaction between age and ethnicity. Welch's t-test config.",Claude Sonnet 4.5
+6-Oct-25,code refactor,organize results reporting for ML performance stats,Claude Sonnet 4.5
+20-Oct-25,statistical model brainstorm,get information on the best way to implement GroupShuffleSplit to define CV folds and test sets. Get function framework for adding this feature to ML experiments.,Claude Sonnet 4.5
+20-Oct-25,code structure,function framework for adding CV statification feature to ML experiments.,Claude Sonnet 4.5
+20-Oct-25,statistical model brainstorm,Queried for help with plotting approaches and coef of variance calculations.,Claude Sonnet 4.5
+30-Oct-25,statistical model brainstorm,Queried python plotting approaches for dot graph and welch's t-test calculations,Claude Sonnet 4.5
+2-Nov-25,statistical model brainstorm,Created plots to look at interaction between age and ethnicity. Welch's t-test config.,Claude Sonnet 4.5
 25-Nov-25,statistical model brainstorm,"Refactored existing post-hoc testing structure. queried for methods to perform log-odds,chi sq, and welch's t-test in python. queried for best approach to apply FDR correction",Claude Sonnet 4.5
-25-Nov-25,code structure,"quried to get function organization and execution scheme for post-hoc testing.",Claude Sonnet 4.5
-04-Jan-26,code structure,"Used AI to enumerate oncotree grouping options including OT code roll-up events in define_multi_tier_groupings_v3.py.",Claude Sonnet 4.5
-10-Jan-26,vizualizaiton,"refactored shap vizualization code and added new plotting functionality based on AI sugguestions",Claude Sonnet 4.5
+25-Nov-25,code structure,quried to get function organization and execution scheme for post-hoc testing.,Claude Sonnet 4.5
+4-Jan-26,code structure,Used AI to enumerate oncotree grouping options including OT code roll-up events in define_multi_tier_groupings_v3.py.,Claude Sonnet 4.5
+10-Jan-26,vizualizaiton,refactored shap vizualization code and added new plotting functionality based on AI sugguestions,Claude Sonnet 4.5
 14-Jan-26,statistical model brainstorm,"Used AI to help identify which hyperparmeters to vary for random forest, xgb, and LR",Claude Sonnet 4.5
-14-Jan-26,code structure,"structed hyperparmeter testing and model selection functions and output files",Claude Sonnet 4.5
-15-Jan-26,code structure,"migrated and updated ml preprocessing steps",Claude Sonnet 4.5
-15-Jan-26,code structure,"updated ml analyzer.py functionality to take pre-defined train/test split assignment IDs",Claude Sonnet 4.5
-17-Jan-26,code structure,"Prepared data_loader to support nested cross validation",Claude Sonnet 4.5
-18-Jan-26,code refactor,"Magrated shap analysis from R to python with functionality",Claude Sonnet 4.5
-18-Jan-26,statistical model brainstorm,"Had AI help me add shap interaction analysis rather than just individual feature rankings",Claude Sonnet 4.5
+14-Jan-26,code structure,structed hyperparmeter testing and model selection functions and output files,Claude Sonnet 4.5
+15-Jan-26,code structure,migrated and updated ml preprocessing steps,Claude Sonnet 4.5
+15-Jan-26,code structure,updated ml analyzer.py functionality to take pre-defined train/test split assignment IDs,Claude Sonnet 4.5
+17-Jan-26,code structure,Prepared data_loader to support nested cross validation,Claude Sonnet 4.5
+18-Jan-26,code refactor,Magrated shap analysis from R to python with functionality,Claude Sonnet 4.5
+18-Jan-26,statistical model brainstorm,Had AI help me add shap interaction analysis rather than just individual feature rankings,Claude Sonnet 4.5
 19-Jan-26,code structure,"Update support tool scripts including db handling, db_config.py, and output_manager",Claude Sonnet 4.5
-21-Jan-26,code structure,"Added modeling config to specifiy which input features are utilized during model training",Claude Opus 4.5
-23-Jan-26,statistical model brainstorm,"Asked AI to propose model parameter changes to increase model regularization",Claude Opus 4.5
-23-Jan-26,statistical model brainstorm,"I was seeing model overfitting. Had AI implement institutional sample weighting during model training.",Claude Opus 4.5
-24-Jan-26,code structure,"Added base-run-dir flag to draw results from prior runs of data.",Claude Opus 4.5
-25-Jan-26,code structure,"Added master run all script. Used AI to structure error handling and add flags to control pipeline execution.",Claude Opus 4.5
-25-Jan-26,code refactor,"used AI to refactor logic of shap rankings from R to python.",Claude Opus 4.5
-05-Feb-26,code refactor,"refactor gene-based groupings for posthoc analysis. wrapping statistical tests for cohen's d, cramers v, odds ratio, etc",Claude Opus 4.5
-06-Feb-26,statistical model,"aggregate individual gene-based post hoc tests into a single table",Claude Opus 4.5
-12-Feb-26,code structure,"make helper function for gene-based testing",Claude Opus 4.5
-18-Feb-26,code structure,"testing and unit testing framework for modeling functions and data handling",Claude Opus 4.5
-23-Feb-26,code structure,"Revised oncotree group handling",Claude Opus 4.6
-26-Feb-26,statistical model brainstorm,"Select LR as default model over RF. Begin extraction of LR values. Assign to human-readable feature names.",Claude Opus 4.6
-28-Feb-26,statistical model brainstorm,"Draft code for LR-based hit list for associations for a subset of OT code groupings",Claude Opus 4.6
-01-Mar-26,statistical model brainstorm,"Draft code for the creation of p-values and confidence intervals based on LR scores. Wald test.",Claude Opus 4.6
-02-Mar-26,documentation,"Readme update, code tree formating, and example usage of run all script.",Claude Opus 4.6
-27-Mar-26,documentation,"adjustments to CLI flags and workflow for run all scripts. Increased niter on ML hyperparemeter testing.",Claude Opus 4.6
-28-Mar-26,documentation,"Used AI to make sugguestions to select configuration for extendend hyperparam search.",Claude Opus 4.6
-22-Apr-26,documentation,"Used AI build and format patient tables for each cancer type. Also had AI modify logic for patient filtering flowchart.",Claude Opus 4.6
+21-Jan-26,code structure,Added modeling config to specifiy which input features are utilized during model training,Claude Opus 4.5
+23-Jan-26,statistical model brainstorm,Asked AI to propose model parameter changes to increase model regularization,Claude Opus 4.5
+23-Jan-26,statistical model brainstorm,I was seeing model overfitting. Had AI implement institutional sample weighting during model training.,Claude Opus 4.5
+24-Jan-26,code structure,Added base-run-dir flag to draw results from prior runs of data.,Claude Opus 4.5
+25-Jan-26,code structure,Added master run all script. Used AI to structure error handling and add flags to control pipeline execution.,Claude Opus 4.5
+25-Jan-26,code refactor,used AI to refactor logic of shap rankings from R to python.,Claude Opus 4.5
+5-Feb-26,code refactor,"refactor gene-based groupings for posthoc analysis. wrapping statistical tests for cohen's d, cramers v, odds ratio, etc",Claude Opus 4.5
+6-Feb-26,statistical model,aggregate individual gene-based post hoc tests into a single table,Claude Opus 4.5
+12-Feb-26,code structure,make helper function for gene-based testing,Claude Opus 4.5
+18-Feb-26,code structure,testing and unit testing framework for modeling functions and data handling,Claude Opus 4.5
+23-Feb-26,code structure,Revised oncotree group handling,Claude Opus 4.6
+26-Feb-26,statistical model brainstorm,Select LR as default model over RF. Begin extraction of LR values. Assign to human-readable feature names.,Claude Opus 4.6
+28-Feb-26,statistical model brainstorm,Draft code for LR-based hit list for associations for a subset of OT code groupings,Claude Opus 4.6
+1-Mar-26,statistical model brainstorm,Draft code for the creation of p-values and confidence intervals based on LR scores. Wald test.,Claude Opus 4.6
+2-Mar-26,documentation,"Readme update, code tree formating, and example usage of run all script.",Claude Opus 4.6
+27-Mar-26,documentation,adjustments to CLI flags and workflow for run all scripts. Increased niter on ML hyperparemeter testing.,Claude Opus 4.6
+28-Mar-26,documentation,Used AI to make sugguestions to select configuration for extendend hyperparam search.,Claude Opus 4.6
+22-Apr-26,documentation,Used AI build and format patient tables for each cancer type. Also had AI modify logic for patient filtering flowchart.,Claude Opus 4.6
+5-May-26,vizualizaiton,Used AI to build plots comparing RF and LR per cancer type test AUC with DeLong confidence intervals. Venn diagrams of overlapping RF and LR hits.,Claude Opus 4.8
+7-May-26,code structure,Trace a bug where the SHAP gate fell back to a stale legacy file. Made SHAP file lookup fail if no current file is found.,Claude Opus 4.9
+7-May-26,code refactor,Used AI to identify old and unused analysis scripts and remove them.,Claude Opus 4.10
+21-May-26,statistical model brainstorm,Dropped sample_type due to overlap with detailed sample type and renamed race to ancestry. Added missingness indicators so Unknown values do not act as an institution identifier.,Claude Opus 4.11
+23-May-26,code structure,Had AI review recent code changes before the final model runs. Fixed bugs in feature name handling and adjusted runall script.,Claude Opus 4.12
+8-Jun-26,code structure,Used AI to write tools to check how often technical features outrank demographic features in post-hoc filtering.,Claude Opus 4.13
+12-Jun-26,vizualizaiton,Used AI to create a shared colorblind-safe palette and style module for figures.,Claude Opus 4.14
+15-Jun-26,statistical model brainstorm,Queried AI on post-hoc filtering for the LR pathway. Changed to test all Wald-significant features rather than only the top 5 ranked features.,Claude Opus 4.15
