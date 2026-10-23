@@ -37,11 +37,17 @@
 27-Mar-26,documentation,adjustments to CLI flags and workflow for run all scripts. Increased niter on ML hyperparemeter testing.,Claude Opus 4.6
 28-Mar-26,documentation,Used AI to make sugguestions to select configuration for extendend hyperparam search.,Claude Opus 4.6
 22-Apr-26,documentation,Used AI build and format patient tables for each cancer type. Also had AI modify logic for patient filtering flowchart.,Claude Opus 4.6
-5-May-26,vizualizaiton,Used AI to build plots comparing RF and LR per cancer type test AUC with DeLong confidence intervals. Venn diagrams of overlapping RF and LR hits.,Claude Opus 4.8
-7-May-26,code structure,Trace a bug where the SHAP gate fell back to a stale legacy file. Made SHAP file lookup fail if no current file is found.,Claude Opus 4.9
-7-May-26,code refactor,Used AI to identify old and unused analysis scripts and remove them.,Claude Opus 4.10
-21-May-26,statistical model brainstorm,Dropped sample_type due to overlap with detailed sample type and renamed race to ancestry. Added missingness indicators so Unknown values do not act as an institution identifier.,Claude Opus 4.11
-23-May-26,code structure,Had AI review recent code changes before the final model runs. Fixed bugs in feature name handling and adjusted runall script.,Claude Opus 4.12
-8-Jun-26,code structure,Used AI to write tools to check how often technical features outrank demographic features in post-hoc filtering.,Claude Opus 4.13
-12-Jun-26,vizualizaiton,Used AI to create a shared colorblind-safe palette and style module for figures.,Claude Opus 4.14
-15-Jun-26,statistical model brainstorm,Queried AI on post-hoc filtering for the LR pathway. Changed to test all Wald-significant features rather than only the top 5 ranked features.,Claude Opus 4.15
+5-May-26,vizualizaiton,Used AI to build plots comparing RF and LR per cancer type test AUC with DeLong confidence intervals. Venn diagrams of overlapping RF and LR hits.,Claude Opus 4.6
+7-May-26,code structure,Trace a bug where the SHAP gate fell back to a stale legacy file. Made SHAP file lookup fail if no current file is found.,Claude Opus 4.6
+7-May-26,code refactor,Used AI to identify old and unused analysis scripts and remove them.,Claude Opus 4.6
+21-May-26,statistical model brainstorm,Dropped sample_type due to overlap with detailed sample type and renamed race to ancestry. Added missingness indicators so Unknown values do not act as an institution identifier.,Claude Opus 4.6
+23-May-26,code structure,Had AI review recent code changes before the final model runs. Fixed bugs in feature name handling and adjusted runall script.,Claude Opus 4.6
+8-Jun-26,code structure,Used AI to write tools to check how often technical features outrank demographic features in post-hoc filtering.,Claude Opus 4.6
+12-Jun-26,vizualizaiton,Used AI to create a shared colorblind-safe palette and style module for figures.,Claude Opus 4.6
+15-Jun-26,statistical model brainstorm,Queried AI on post-hoc filtering for the LR pathway. Changed to test all Wald-significant features rather than only the top 5 ranked features.,Claude Opus 4.6
+11-Jul-26,vizualizaiton,"Used AI to draft a circular plot of cancer types by institution, then switched to a clustered heatmap that was easier to read.",Claude Opus 4.6
+30-Jul-26,code structure,Used AI to build a script that calculates the numbers cited in the results text and checks each written claim against the data.,Claude Opus 4.6
+2-Aug-26,statistical model brainstorm,Found ages above 89 and below 18 were set to missing. Used AI to write a patch to recode these values and compare hits before and after the re-run models.,Claude Opus 4.6
+13-Aug-26,statistical model brainstorm,"Some patients had samples in both train and test sets. Had AI change the split so each patient is in only one set, and add a pooled FDR check.",Claude Opus 4.6
+27-Aug-26,statistical model brainstorm,Used AI to connect the hyperparameter search results to final model training and test the random forest depth on each cancer type using training data only.,Claude Opus 4.6
+31-Aug-26,statistical model brainstorm,Queried AI on the random forest SHAP filter for post-hoc testing. Changed to rank features after summing SHAP values across each feature's categories.,Claude Opus 4.6
