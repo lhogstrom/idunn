@@ -118,6 +118,96 @@ ALGORITHM_DISPLAY_NAMES = {
 }
 
 
+def resolve_hyperparams(algorithm, hyperparams_file=None, hyperparams_dir=None):
+    """Resolve TIER 5 hyperparameters, preferring a TIER 3 search result.
+
+    Returns (params, provenance). `params` is always a complete, estimator-ready
+    dict; `provenance` records where each key came from.
+
+    Three defects this function exists to close (all found 2026-08-26, see
+    `code_review_and_feedback/df_hyperparameter_provenance_2026-08-26.md`):
+
+    1. TIER 3's search never reached TIER 5 at all -- the orchestrator method that
+       located the search output was never called, so every published model used
+       the hand-tuned module constants below.
+    2. The old loader did `data.get('best_params_consensus', data)`, which
+       REPLACES the parameter dict. `best_params_consensus` holds only the six
+       searched keys, so `random_state` was dropped and the final models became
+       NON-REPRODUCIBLE; `n_jobs`, `oob_score` and `bootstrap` (and LR's
+       `max_iter`) went with it. We now MERGE the searched keys onto the
+       defaults, so infrastructure settings survive and only genuinely searched
+       hyperparameters are overridden.
+    3. A missing file produced a warning and a silent fall back to the constants.
+       An explicitly requested source that cannot be resolved is now a hard error
+       -- silently training a different model than asked for is the failure mode
+       that makes runs un-reproducible after the fact.
+    """
+    base = (DEFAULT_RF_PARAMS if algorithm == 'random_forest' else DEFAULT_LR_PARAMS).copy()
+
+    src = None
+    if hyperparams_file:
+        src = Path(hyperparams_file)
+        if not src.exists():
+            raise SystemExit(
+                f"FATAL: --hyperparams-file does not exist: {src}\n"
+                "Refusing to silently fall back to the hand-tuned module constants.")
+    elif hyperparams_dir:
+        d = Path(hyperparams_dir)
+        cands = sorted(d.glob(f'run_*/{algorithm}_universal_params.json'))
+        if not cands:
+            # also accept the params file sitting directly in the given directory
+            direct = d / f'{algorithm}_universal_params.json'
+            cands = [direct] if direct.exists() else []
+        if not cands:
+            raise SystemExit(
+                f"FATAL: no {algorithm}_universal_params.json under {d}\n"
+                "TIER 3 did not run, did not complete, or wrote elsewhere. Re-run TIER 3, "
+                "or pass --hyperparams-source defaults to use the hand-tuned constants "
+                "deliberately. Refusing to fall back silently.")
+        src = cands[-1]
+
+    if src is None:
+        return base, {'source': 'module defaults (hand-tuned)',
+                      'searched_keys': [], 'default_keys': sorted(base)}
+
+    with open(src) as f:
+        data = json.load(f)
+    searched = data.get('best_params_consensus', data)
+    if not isinstance(searched, dict) or not searched:
+        raise SystemExit(f"FATAL: no usable parameters in {src}")
+
+    merged = base.copy()
+    merged.update(searched)
+
+    # `max_iter` is in the LR search space ([100, 200, 500, 1000]) but it is a
+    # solver convergence BUDGET, not a capacity hyperparameter -- its own comment
+    # in param_spaces.py says "Increase if getting convergence warnings". The
+    # search can land on a low value simply because it co-occurred with a good C,
+    # and sklearn scores a non-converged fit as if it were legitimate. The module
+    # default is 5000 precisely because smaller budgets did not converge here.
+    # Taking the MAX keeps the search's modelling choices while guaranteeing
+    # convergence headroom; a lower budget can only introduce a numerical defect,
+    # never a better model.
+    iter_floored = None
+    if 'max_iter' in searched and 'max_iter' in base:
+        if int(searched['max_iter']) < int(base['max_iter']):
+            iter_floored = {'searched': searched['max_iter'], 'applied': base['max_iter'],
+                            'reason': 'convergence budget floored at the module default'}
+            merged['max_iter'] = base['max_iter']
+
+    return merged, {
+        'max_iter_floored': iter_floored,
+        'source': str(src),
+        'searched_keys': sorted(searched),
+        'default_keys': sorted(k for k in merged if k not in searched),
+        'overridden': {k: {'default': base.get(k), 'searched': searched[k]}
+                       for k in sorted(searched) if k in base and base[k] != searched[k]},
+        'search_mean_cv_auc': data.get('mean_score'),
+        'search_param_stability': data.get('param_stability'),
+        'search_n_samples': data.get('n_samples'),
+    }
+
+
 class FinalModelTrainer:
     """
     TIER 5: Final model training and test set evaluation.
@@ -132,6 +222,7 @@ class FinalModelTrainer:
         train_test_split_file: str,
         output_dir: str = '../../ml_experiments/final_models',
         hyperparams: dict = None,
+        hyperparams_provenance: dict = None,
         feature_set: str = 'both',
         cancer_types: list = None,
         institution_weight_alpha: float = 0.0,
@@ -185,6 +276,11 @@ class FinalModelTrainer:
             self.hyperparams = DEFAULT_RF_PARAMS.copy()
         else:
             self.hyperparams = DEFAULT_LR_PARAMS.copy()
+        # Where those values came from -- written out so a run dir answers
+        # "were these searched or hand-tuned?" without archaeology.
+        self.hyperparams_provenance = hyperparams_provenance or {
+            'source': 'module defaults (hand-tuned)', 'searched_keys': [],
+            'default_keys': sorted(self.hyperparams)}
 
         # Create timestamped output directory
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -367,6 +463,11 @@ class FinalModelTrainer:
         hyperparams_file = self.output_dir / 'hyperparameters_used.json'
         with open(hyperparams_file, 'w') as f:
             json.dump(self.hyperparams, f, indent=2)
+
+        # Provenance sidecar (kept separate so hyperparameters_used.json stays a
+        # plain estimator-ready dict for any existing consumer).
+        with open(self.output_dir / 'hyperparameters_provenance.json', 'w') as f:
+            json.dump(self.hyperparams_provenance, f, indent=2)
 
         # Save configuration
         config = {
@@ -852,6 +953,10 @@ class FinalModelTrainer:
         report_lines.append("-" * 90)
         report_lines.append(f"HYPERPARAMETERS USED ({self.algorithm_display})")
         report_lines.append("-" * 90)
+        report_lines.append(f"  Source: {self.hyperparams_provenance.get('source')}")
+        if self.hyperparams_provenance.get('searched_keys'):
+            report_lines.append(
+                f"  Searched (TIER 3): {', '.join(self.hyperparams_provenance['searched_keys'])}")
         for param, value in self.hyperparams.items():
             report_lines.append(f"  {param}: {value}")
         report_lines.append("")
@@ -945,6 +1050,30 @@ Examples:
         help='Path to JSON file with model hyperparameters (uses algorithm-specific defaults if not provided)'
     )
     parser.add_argument(
+        '--hyperparams-dir',
+        type=str,
+        default=None,
+        help=(
+            'TIER 3 output directory (tier3_hyperparameter_optimization/). The newest '
+            'run_*/<algorithm>_universal_params.json beneath it is used. Resolved at TIER 5 '
+            'runtime, so the orchestrator can pass it before TIER 3 has produced anything. '
+            'Fails closed if nothing is found.'
+        )
+    )
+    parser.add_argument(
+        '--hyperparams-source',
+        type=str,
+        choices=['search', 'defaults'],
+        default='search',
+        help=(
+            "Where final-model hyperparameters come from. 'search' (default) uses the TIER 3 "
+            "result given by --hyperparams-file/--hyperparams-dir. 'defaults' uses the hand-tuned "
+            "module constants -- which are NOT search-derived and were selected with reference to "
+            "held-out performance (see df_hyperparameter_provenance_2026-08-26.md); choosing it is "
+            "a disclosable decision, which is why it must be explicit."
+        )
+    )
+    parser.add_argument(
         '--output-dir',
         type=str,
         default='../../ml_experiments/final_models',
@@ -1011,17 +1140,24 @@ Examples:
         args.cancer_types = ['LUAD']
         logger.info("Quick test mode: processing only LUAD")
 
-    # Load hyperparameters from file if provided
-    hyperparams = None
-    if args.hyperparams_file:
-        if Path(args.hyperparams_file).exists():
-            with open(args.hyperparams_file) as f:
-                data = json.load(f)
-                hyperparams = data.get('best_params_consensus', data)
-            logger.info(f"Loaded hyperparameters from: {args.hyperparams_file}")
+    # Resolve hyperparameters: TIER 3 search result if available, else the
+    # hand-tuned module constants -- but only ever as a DELIBERATE choice.
+    if args.hyperparams_source == 'defaults':
+        hyperparams, hp_provenance = resolve_hyperparams(args.algorithm)
+        logger.warning("Using hand-tuned module constants by explicit request "
+                       "(--hyperparams-source defaults). These are NOT the TIER 3 search result.")
+    else:
+        hyperparams, hp_provenance = resolve_hyperparams(
+            args.algorithm, args.hyperparams_file, args.hyperparams_dir)
+        if hp_provenance['source'].startswith('module defaults'):
+            logger.warning(
+                "No --hyperparams-file/--hyperparams-dir given; falling back to the hand-tuned "
+                "module constants. Pass a TIER 3 search result to use searched hyperparameters.")
         else:
-            logger.warning(f"Hyperparameters file not found: {args.hyperparams_file}")
-            logger.warning("Using default Phase 2b hyperparameters")
+            logger.info(f"Loaded TIER 3 hyperparameters from: {hp_provenance['source']}")
+            logger.info(f"  searched keys : {hp_provenance['searched_keys']}")
+            if hp_provenance.get('overridden'):
+                logger.info(f"  overrides defaults: {hp_provenance['overridden']}")
 
     # Check database exists
     if not Path(args.db_path).exists():
@@ -1040,6 +1176,7 @@ Examples:
         train_test_split_file=args.train_test_split_file,
         output_dir=args.output_dir,
         hyperparams=hyperparams,
+        hyperparams_provenance=hp_provenance,
         feature_set=args.feature_set,
         cancer_types=args.cancer_types,
         institution_weight_alpha=args.institution_weight_alpha,
