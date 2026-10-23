@@ -70,8 +70,196 @@ FEATURE_PATTERNS = {
     ]
 }
 
+# ---------------------------------------------------------------------------
+# RF one-hot level grouping — ADOPTED 2026-08-31 (E2o, "Arm C")
+# ---------------------------------------------------------------------------
+# STATUS: this is IN PRODUCTION. Both TIER 7 scripts
+# (analyze_gene_stratified_associations.py, analyze_shap_feature_associations.py)
+# default to group_rf_levels=True with agg='sum', missingness='fold'; their
+# --no-group-rf-levels flag restores the pre-2026-08-31 column-level gate for
+# reproducing historical runs. The LIBRARY default here stays False so that any
+# other caller keeps its old behaviour unless it opts in -- the decision is
+# expressed at the analysis layer, not here.
+#
+# BEFORE 2026-08-31 the two importance gates ranked DIFFERENT UNITS:
+#
+#   LR  — combined_lr_grouped_importance.csv carries `feature_group`, which is
+#         already one row per FEATURE (9 groups: AGE_AT_SEQ_REPORT, ANCESTRY,
+#         ETHNICITY, SAMPLE_TYPE_DETAILED, SEX, SUBJECT_CENTER,
+#         calling_strategy, number_of_genes, preservation_technique).
+#   RF  — combined_feature_importance.csv is one row per ONE-HOT DUMMY
+#         (cat__ANCESTRY_Asian, cat__SUBJECT_CENTER_DFCI, …), so a rank cut
+#         penalises multi-level categoricals purely for their encoding: a
+#         5-level ANCESTRY has its SHAP split five ways while single-column
+#         numerics (AGE_AT_SEQ_REPORT, number_of_genes) concentrate theirs in
+#         one row. Measured dilution ratio for ANCESTRY in IDC: 2.18.
+#
+# Consequence (C5 lock SHAP, top-5 cut): ANCESTRY clears the gate in 6/21 cancer
+# types when ranked as dummies vs 15/21 when ranked as features. (The 16/21
+# figure quoted here before 2026-08-31 was a prototype estimate; 15/21 is the
+# verified value from code/tools/report_gate_composition.py.)
+#
+# This grouping collapses dummy rows to one row per feature so the RF gate is
+# structurally symmetric with LR. Enable via
+# load_shap_rankings_adaptive(..., group_rf_levels=True, rf_group_agg='sum',
+# rf_group_missingness='fold') -- the configuration TIER 7 uses.
+#
+# ⚠️ Any caller that reports on "what the TIER 7 gate did" MUST pass the same
+# three arguments, or it silently describes a gate that was never applied. This
+# already bit code/tools/report_gate_composition.py, whose whole claim is that
+# its numbers match TIER 7's; it now groups by default too.
+#
+# The C5 publication lock (2026-08-27) predates this and ran with the RF gate
+# disabled entirely, so its 114 hits are NOT comparable to a grouped run's 93
+# without saying which unit was ranked.
+#
+# Group names are deliberately the RAW FEATURE NAMES so the existing
+# FEATURE_PATTERNS matching in identify_top_features() keeps working unchanged
+# on the grouped frame.
+#
+# Ordered — FIRST MATCH WINS. The `_missing` indicators MUST precede their
+# parent feature, or 'ANCESTRY' would swallow 'ANCESTRY_missing'.
+RF_LEVEL_GROUPS = [
+    ('ANCESTRY_missing',       ['ANCESTRY_missing', 'Ancestry Missing (Indicator)']),
+    ('ETHNICITY_missing',      ['ETHNICITY_missing', 'Ethnicity Missing (Indicator)']),
+    ('AGE_AT_SEQ_REPORT',      ['AGE_AT_SEQ_REPORT', 'Age at Sequencing']),
+    ('SEX',                    ['SEX_', 'Sex:', 'SEX']),
+    ('SAMPLE_TYPE_DETAILED',   ['SAMPLE_TYPE_DETAILED', 'Sample Type (Detailed)',
+                                'Sample Type Detailed']),
+    ('ANCESTRY',               ['ANCESTRY', 'Ancestry', 'RACE', 'Race']),
+    ('ETHNICITY',              ['ETHNICITY', 'Ethnicity']),
+    ('SUBJECT_CENTER',         ['SUBJECT_CENTER', 'Subject Center']),
+    ('number_of_genes',        ['number_of_genes', 'Number of Genes']),
+    ('preservation_technique', ['preservation_technique', 'Preservation Technique',
+                                'Preservation']),
+    ('calling_strategy',       ['calling_strategy', 'Calling Strategy',
+                                'Variant Calling Strategy']),
+]
+
 # Default number of top features to consider
 DEFAULT_TOP_N_FEATURES = 5
+
+
+def _rf_level_group_for(feature_name):
+    """Map one raw RF feature/dummy name to its parent feature group.
+
+    Substring match, case-insensitive, literal (regex=False semantics) — the
+    same matching discipline identify_top_features() uses. Returns None when
+    nothing matches, so the caller can decide whether to keep the row as its
+    own group or raise.
+    """
+    name = str(feature_name)
+    lowered = name.lower()
+    for group, patterns in RF_LEVEL_GROUPS:
+        for pattern in patterns:
+            if str(pattern).lower() in lowered:
+                return group
+    return None
+
+
+# Where the ANCESTRY_missing / ETHNICITY_missing indicators go under
+# missingness='fold'. This is the mapping TIER 6a's own
+# feature_name_mapper.get_feature_group() already applies when it writes
+# <CODE>_grouped_feature_importance.csv.
+RF_MISSINGNESS_PARENT = {
+    'ANCESTRY_missing': 'ANCESTRY',
+    'ETHNICITY_missing': 'ETHNICITY',
+}
+
+
+def group_rf_shap_levels(df, agg='sum', missingness='keep', verbose=True):
+    """Collapse one-hot dummy rows in an RF SHAP ranking to one row per feature.
+
+    IN PRODUCTION as of 2026-08-31 (E2o, "Arm C"): both TIER 7 scripts call this
+    via load_shap_rankings_adaptive(group_rf_levels=True, rf_group_agg='sum',
+    rf_group_missingness='fold'). The library default stays off; see the module
+    header for why.
+
+    Args:
+        df: Normalized ranking frame (ONCOTREE_CODE, feature, mean_abs_shap,
+            feature_rank), as produced by load_shap_rankings_adaptive's
+            NEW-format branch. Must already be RF-format (one row per dummy).
+        agg: How to combine a feature's dummy rows. 'sum' (default) treats the
+            dummies as an additive decomposition of the feature's contribution,
+            which is what SHAP's additivity implies. 'max' mirrors LR's
+            `max_abs_std_log_odds`. See the caveat below.
+        missingness: What to do with ANCESTRY_missing / ETHNICITY_missing.
+            'keep'  — each is its own feature group (11 groups); they compete
+                      for a top-N slot on their own.
+            'drop'  — removed entirely before ranking (9 groups).
+            'fold'  — merged into their parent ANCESTRY / ETHNICITY group
+                      (9 groups). ⭐ This is what TIER 6a ALREADY does when it
+                      writes <CODE>_grouped_feature_importance.csv, and it
+                      yields exactly the 9 groups the LR file carries. Verified
+                      2026-08-31: fold+sum reproduces those files to 8.5e-16
+                      with 0/189 rank disagreements.
+        verbose: Print a grouping summary.
+
+    Returns:
+        DataFrame with one row per (ONCOTREE_CODE, feature), `mean_abs_shap`
+        aggregated and `feature_rank` recomputed within each cancer type.
+
+    ⚠️ CAVEAT on agg='sum': summing per-dummy mean|SHAP| is an UPPER BOUND on
+    the feature's grouped importance, because it cannot see per-sample
+    cancellation across a feature's mutually-exclusive levels. The exact
+    quantity is mean|Σ_levels SHAP| computed from per-sample SHAP values.
+    TIER 6a does NOT retain per-sample SHAP (only these summary CSVs and PDFs),
+    and its own grouped file uses the same sum — so the upper bound is the
+    best available without re-running TIER 6a.
+    """
+    if missingness not in ('keep', 'drop', 'fold'):
+        raise ValueError(
+            f"missingness must be 'keep', 'drop' or 'fold', got {missingness!r}")
+
+    work = df.copy()
+    work['_group'] = work['feature'].map(_rf_level_group_for)
+
+    unmatched = work['_group'].isna()
+    if unmatched.any():
+        # Keep the row as its own group rather than dropping it — silently
+        # losing a feature here would silently shrink the gate.
+        names = sorted(work.loc[unmatched, 'feature'].unique())
+        print(f"  WARNING: {unmatched.sum()} rows matched no RF_LEVEL_GROUPS "
+              f"entry; each kept as its own group: {names[:10]}"
+              + (" ..." if len(names) > 10 else ""))
+        work.loc[unmatched, '_group'] = work.loc[unmatched, 'feature']
+
+    if missingness == 'drop':
+        before = len(work)
+        work = work[~work['_group'].isin(RF_MISSINGNESS_PARENT)]
+        if verbose:
+            print(f"  Dropped {before - len(work)} missingness-indicator rows "
+                  f"(missingness='drop')")
+    elif missingness == 'fold':
+        n_folded = int(work['_group'].isin(RF_MISSINGNESS_PARENT).sum())
+        work['_group'] = work['_group'].map(
+            lambda g: RF_MISSINGNESS_PARENT.get(g, g))
+        if verbose:
+            print(f"  Folded {n_folded} missingness-indicator rows into their "
+                  f"parent feature (missingness='fold')")
+
+    if agg not in ('sum', 'max'):
+        raise ValueError(f"agg must be 'sum' or 'max', got {agg!r}")
+
+    grouped = (
+        work.groupby(['ONCOTREE_CODE', '_group'], as_index=False)['mean_abs_shap']
+        .agg(agg)
+        .rename(columns={'_group': 'feature'})
+    )
+    grouped['feature_rank'] = (
+        grouped.groupby('ONCOTREE_CODE')['mean_abs_shap']
+        .rank(ascending=False, method='min')
+        .astype(int)
+    )
+    grouped = grouped.sort_values(
+        ['ONCOTREE_CODE', 'feature_rank']).reset_index(drop=True)
+
+    if verbose:
+        print(f"  Grouped RF one-hot levels: {len(df):,} dummy rows -> "
+              f"{len(grouped):,} feature rows "
+              f"({grouped['feature'].nunique()} distinct features, agg={agg!r})")
+
+    return grouped
 
 
 def get_default_shap_file(repo_root=None):
@@ -92,8 +280,9 @@ def get_default_shap_file(repo_root=None):
         FileNotFoundError: If no v2.0 SHAP file is found in the standard
             locations. The pre-2026-05 silent fallback to a legacy SHAP file
             with the obsolete v1 feature space has been removed; see
-            ROADMAP.md "ACTIVE DATA-QUALITY ISSUE: Post-hoc SHAP-gate
-            provenance audit" for context.
+            code_review_and_feedback/shap_gate_provenance_audit_2026-05-07.md
+            for the full audit, and BACKLOG.md "SHAP-gate audit — outstanding
+            cleanup" for what remains.
     """
     if repo_root is None:
         repo_root = REPO_ROOT
@@ -178,7 +367,9 @@ def get_default_lr_rankings_file(repo_root=None):
     return None
 
 
-def load_shap_rankings_adaptive(shap_file, lr_significant_only=False):
+def load_shap_rankings_adaptive(shap_file, lr_significant_only=False,
+                                group_rf_levels=False, rf_group_agg='sum',
+                                rf_group_missingness='keep'):
     """
     Load SHAP rankings, auto-detecting format (new vs legacy vs LR).
 
@@ -211,6 +402,10 @@ def load_shap_rankings_adaptive(shap_file, lr_significant_only=False):
 
     df = pd.read_csv(shap_file)
 
+    # Set by the LR branch below; consumed by the group_rf_levels block, which
+    # is a no-op on LR rankings (already grouped upstream by feature_group).
+    is_lr_format = False
+
     # Detect format by checking column names
     if 'cancer_type' in df.columns and 'feature_name' in df.columns:
         # New format from shap_primary_analyzer.py
@@ -230,6 +425,7 @@ def load_shap_rankings_adaptive(shap_file, lr_significant_only=False):
     elif 'feature_group' in df.columns and 'cancer_type' in df.columns:
         # LR grouped importance format (from extract_lr_coefficients.py)
         print("  Detected LR GROUPED IMPORTANCE format")
+        is_lr_format = True
 
         # Filter to Wald-significant features if requested
         if lr_significant_only and 'any_significant_fdr' in df.columns:
@@ -269,6 +465,21 @@ def load_shap_rankings_adaptive(shap_file, lr_significant_only=False):
     # Ensure feature_rank exists
     if 'feature_rank' not in df.columns and 'rank' in df.columns:
         df['feature_rank'] = df['rank']
+
+    # PROTOTYPE (2026-08-30, opt-in, default OFF): collapse RF one-hot dummy
+    # rows to one row per feature so the RF rank cut ranks the same unit the LR
+    # gate already does. Only meaningful for the RF/new format — the LR branch
+    # is grouped upstream and the legacy branch is frozen historical output.
+    if group_rf_levels:
+        if is_lr_format:
+            print("  NOTE: group_rf_levels=True ignored — LR rankings are "
+                  "already grouped by feature upstream (feature_group).")
+        else:
+            df = group_rf_shap_levels(
+                df,
+                agg=rf_group_agg,
+                missingness=rf_group_missingness,
+            )
 
     print(f"Loaded {len(df):,} feature rankings")
     print(f"Cancer types: {df['ONCOTREE_CODE'].nunique()}")

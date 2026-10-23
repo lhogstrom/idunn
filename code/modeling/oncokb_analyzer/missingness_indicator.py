@@ -31,7 +31,7 @@ covert institutional predictor. By splitting the signal into a binary indicator
     they reflect actual ancestry differences when present.
 
 See `code_review_and_feedback/feature_review_report.md` Priority 2 and
-ROADMAP.md "Feature Review Fixes (b)".
+BACKLOG.md "Feature Review Fixes" item (b).
 """
 
 from __future__ import annotations
@@ -49,6 +49,13 @@ from sklearn.base import BaseEstimator, TransformerMixin
 # purpose of the transformer (pre-lock review #10, 2026-05-22). We warn rather
 # than reject so the analyst can decide.
 DEFAULT_CATCHALL_VALUES: tuple[str, ...] = ("Other",)
+
+# The string GENIE uses to encode an unrecorded categorical value. It is a
+# literal string in the DB, not a SQL NULL, so `.notna()` does NOT filter it —
+# any consumer that wants "recorded values only" must exclude it explicitly.
+# Exported so the TIER 7 post-hoc tests exclude exactly the same sentinel this
+# transformer isolates; the two layers disagreeing is BACKLOG.md item E2k.
+DEFAULT_MISSING_SENTINEL: str = "Unknown"
 
 
 class MissingnessIndicatorTransformer(BaseEstimator, TransformerMixin):
@@ -87,7 +94,7 @@ class MissingnessIndicatorTransformer(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         columns: Iterable[str],
-        missing_value: str = "Unknown",
+        missing_value: str = DEFAULT_MISSING_SENTINEL,
         indicator_suffix: str = "_missing",
         catchall_values: Iterable[str] = DEFAULT_CATCHALL_VALUES,
     ):
