@@ -79,6 +79,32 @@ PATIENT_TABLE = "perPatientOncoKBFilteredForModeling"
 DEFAULT_MIN_N = 50
 DEFAULT_TOP_N = 2
 
+# --- Missingness sentinel handling (BACKLOG.md item E2k) ---------------------
+# GENIE encodes an unrecorded ancestry/ethnicity as the literal string
+# "Unknown", NOT as a SQL NULL, so `.notna()` does not filter it and pd.crosstab
+# promotes it to a level of the contingency table. Four contributing centers are
+# 100% Unknown on both fields, so that level partly encodes WHICH INSTITUTION
+# enrolled the patient rather than the patient's ancestry -- the same
+# institutional-fingerprint problem the modeling pipeline solves with
+# MissingnessIndicatorTransformer. Excluding the sentinel here makes the
+# post-hoc estimand ("among patients whose field was recorded") match the one
+# the models are fitted under, instead of the two layers silently answering
+# different questions.
+#
+# Both the sentinel string and the column list are IMPORTED from the modeling
+# package rather than re-declared, so the post-hoc layer cannot drift away from
+# the preprocessing layer it is meant to match. MISSINGNESS_INDICATOR_COLS is
+# exactly what create_preprocessor() hands MissingnessIndicatorTransformer.
+#
+# SAMPLE_TYPE_DETAILED carries its own Unknown-like buckets but has NOT been
+# measured, so it is deliberately left alone rather than silently swept in;
+# see BACKLOG.md E2k "Scope not yet measured".
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'modeling'))
+from oncokb_analyzer.missingness_indicator import DEFAULT_MISSING_SENTINEL as MISSING_SENTINEL
+from oncokb_analyzer.preprocessing import MISSINGNESS_INDICATOR_COLS
+
+SENTINEL_GATED_FEATURES = frozenset(MISSINGNESS_INDICATOR_COLS)
+
 
 def load_top_genes_summary(input_dir: Path, top_n: int = 2) -> pd.DataFrame:
     """
@@ -414,19 +440,42 @@ def run_gene_stratified_sex_test(
 def run_gene_stratified_categorical_test(
     gene_patients: pd.DataFrame,
     all_cancer_patients: pd.DataFrame,
-    feature: str
+    feature: str,
+    exclude_unknown: bool = True
 ) -> dict:
     """
     Chi-square test for categorical feature association.
 
     Compares distribution of feature among gene-actionable vs non-actionable patients.
+
+    Args:
+        exclude_unknown: When True (default), rows whose value is the GENIE
+            missingness sentinel are dropped for the features in
+            SENTINEL_GATED_FEATURES, so the test estimates an association
+            among patients whose field was actually RECORDED. See the
+            SENTINEL_GATED_FEATURES comment for why this is the default.
     """
-    # Clean data
-    gene_data = gene_patients[gene_patients[feature].notna()].copy()
-    non_actionable = all_cancer_patients[
+    # Clean data. NOTE: `.notna()` alone does NOT remove unrecorded values --
+    # GENIE stores them as the literal string in MISSING_SENTINEL, not as SQL
+    # NULL, so without the explicit exclusion below the sentinel becomes its
+    # own column of the contingency table (BACKLOG.md item E2k).
+    gene_mask = gene_patients[feature].notna()
+    non_mask = (
         (all_cancer_patients['isOncoKbLevel1'] == 0) &
         (all_cancer_patients[feature].notna())
-    ].copy()
+    )
+
+    sentinel_applied = exclude_unknown and feature in SENTINEL_GATED_FEATURES
+    n_unknown_dropped = 0
+    if sentinel_applied:
+        gene_unknown = gene_mask & (gene_patients[feature] == MISSING_SENTINEL)
+        non_unknown = non_mask & (all_cancer_patients[feature] == MISSING_SENTINEL)
+        n_unknown_dropped = int(gene_unknown.sum() + non_unknown.sum())
+        gene_mask &= ~gene_unknown
+        non_mask &= ~non_unknown
+
+    gene_data = gene_patients[gene_mask].copy()
+    non_actionable = all_cancer_patients[non_mask].copy()
 
     result = {
         'n_gene_actionable': len(gene_data),
@@ -435,6 +484,8 @@ def run_gene_stratified_categorical_test(
         'p_value': np.nan,
         'cramers_v': np.nan,
         'dof': np.nan,
+        'unknown_excluded': sentinel_applied,
+        'n_unknown_dropped': n_unknown_dropped,
         'warning': None
     }
 
@@ -566,6 +617,7 @@ def analyze_gene_stratified_associations(
     shap_df: pd.DataFrame = None,
     min_n: int = DEFAULT_MIN_N,
     top_n_shap: int = DEFAULT_TOP_N_FEATURES,
+    exclude_unknown: bool = True,
 ) -> dict:
     """
     Run gene-stratified association tests, filtered by SHAP rankings.
@@ -578,6 +630,8 @@ def analyze_gene_stratified_associations(
         shap_df: DataFrame with SHAP rankings (optional, will auto-load if None)
         min_n: Minimum sample size for testing
         top_n_shap: Number of top SHAP features to consider
+        exclude_unknown: Drop the GENIE missingness sentinel from the ancestry
+            and ethnicity tests (default True; see SENTINEL_GATED_FEATURES)
 
     Returns:
         dict of DataFrames for each test category.
@@ -599,7 +653,8 @@ def analyze_gene_stratified_associations(
         return {k: pd.DataFrame() for k in results.keys()}
 
     print(f"\nAnalyzing {len(valid_genes)} gene-cancer combinations...")
-    print(f"Testing features ranked in top {top_n_shap} by SHAP importance\n")
+    print("Testing ALL features (no importance gate)\n" if top_n_shap is None
+          else f"Testing features ranked in top {top_n_shap} by SHAP importance\n")
 
     for idx, row in valid_genes.iterrows():
         oncotree_code = row['ONCOTREE_CODE']
@@ -645,7 +700,8 @@ def analyze_gene_stratified_associations(
         # functions above rename it to ANCESTRY at the Python boundary.
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'ANCESTRY', top_n_shap):
             print(f"  Testing ancestry (in top {top_n_shap} SHAP)...")
-            race_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'ANCESTRY')
+            race_result = run_gene_stratified_categorical_test(
+                gene_patients, all_patients, 'ANCESTRY', exclude_unknown=exclude_unknown)
             race_result['feature'] = 'ANCESTRY'
             results['race'].append({**base_info, **race_result})
         else:
@@ -654,7 +710,8 @@ def analyze_gene_stratified_associations(
         # Ethnicity test (if ETHNICITY in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'ETHNICITY', top_n_shap):
             print(f"  Testing ethnicity (in top {top_n_shap} SHAP)...")
-            eth_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'ETHNICITY')
+            eth_result = run_gene_stratified_categorical_test(
+                gene_patients, all_patients, 'ETHNICITY', exclude_unknown=exclude_unknown)
             eth_result['feature'] = 'ETHNICITY'
             results['ethnicity'].append({**base_info, **eth_result})
         else:
@@ -689,6 +746,20 @@ def analyze_gene_stratified_associations(
             sc_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'SUBJECT_CENTER')
             sc_result['feature'] = 'SUBJECT_CENTER'
             results['technical'].append({**base_info, **sc_result})
+
+            # Preservation technique (categorical). Added 2026-09-11: the column
+            # was SELECTed by both loaders above and then never tested, so this
+            # block ran three tests for a four-feature gate. The cancer-level
+            # script (analyze_shap_feature_associations.py:677) had always
+            # dispatched it, so the two TIER 7 scripts disagreed about which
+            # features exist — same divergence class as Gotcha #8, one layer down.
+            # ⚠️ This GROWS the technical BH family by one test per gated
+            # stratum, so every technical q-value moves. Do not add a feature
+            # here without re-running both pathways and reconciling paragraph 9
+            # of build_results_stats.py.
+            pt_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'preservation_technique')
+            pt_result['feature'] = 'preservation_technique'
+            results['technical'].append({**base_info, **pt_result})
         else:
             print(f"  Skipping technical features (not in top {top_n_shap} SHAP)")
 
@@ -858,6 +929,13 @@ Examples:
                        help='Output directory for results')
     parser.add_argument('--shap-file', type=str, default=None,
                        help='Path to SHAP feature rankings CSV')
+    parser.add_argument('--keep-unknown-category', dest='exclude_unknown',
+                       action='store_false',
+                       help='Retain the GENIE "Unknown" sentinel as a category level in the '
+                            'ancestry/ethnicity chi-square tests. Default is to EXCLUDE it, so '
+                            'the tests estimate associations among patients whose field was '
+                            'recorded, matching how the models treat missingness. Pass this only '
+                            'to reproduce runs from before 2026-09-18 (BACKLOG.md item E2k).')
     parser.add_argument('--min-n', type=int, default=DEFAULT_MIN_N,
                        help=f'Minimum sample size (default: {DEFAULT_MIN_N})')
     parser.add_argument('--top-n', type=int, default=DEFAULT_TOP_N,
@@ -870,6 +948,16 @@ Examples:
                             f're-impose a cap there.')
     parser.add_argument('--no-shap-filter', action='store_true',
                        help='Test all features regardless of SHAP ranking')
+    # Arm C, adopted 2026-08-31 (E2o). RF rankings are one row per ONE-HOT DUMMY, so a
+    # rank cut penalises multi-level categoricals purely for their encoding. Grouping
+    # collapses them to one row per feature -- the same unit the LR gate already uses.
+    # ON by default; --no-group-rf-levels restores the pre-2026-08-31 column-level gate
+    # for reproducing historical runs. No-op on LR rankings (grouped upstream).
+    parser.add_argument('--no-group-rf-levels', dest='group_rf_levels',
+                       action='store_false', default=True,
+                       help='Rank RF one-hot dummy COLUMNS rather than features when '
+                            'applying the importance gate (pre-2026-08-31 behaviour). '
+                            'Only for reproducing historical runs.')
     parser.add_argument('--groupings-file', type=str, default=None,
                        help='Path to cancer_type_group_definitions.csv '
                             '(auto-detected from runs/ if omitted; restricts analysis '
@@ -899,14 +987,37 @@ Examples:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Resolve the importance-gate cap. An explicit --top-n-shap always wins.
-    # Otherwise, under --lr-significant-only the Wald-FDR significance test is the
-    # principled gate and the top-N cap is a redundant second filter that drops
-    # already-significant features (see
-    # code_review_and_feedback/fig4b_onehot_collapse_and_tier7_gate_2026-06-15.md §3),
-    # so it is disabled (None); the RF/default path keeps the top-5 cap.
+    #
+    # ⚠️ --lr-significant-only DISABLES THE CAP ON BOTH PATHWAYS, not just LR.
+    # This script cannot see --algorithm (it has no such argument), so it cannot
+    # scope the behaviour by pathway. The comment that stood here until 2026-08-27
+    # claimed "the RF/default path keeps the top-5 cap" -- that was FALSE whenever
+    # the canonical flag was passed, which on every canonical RF run since the June
+    # 2026 dual-pathway lock it was. On LR the cap-disable is coherent because
+    # Wald-FDR significance replaces it (fig4b_onehot_collapse_and_tier7_gate_2026-06-15.md
+    # §3); on RF the Wald branch is unreachable (it is LR-format-only, shap_utils.py
+    # :231-245), so the cap was removed with NOTHING replacing it.
+    #
+    # DECIDED 2026-08-27 (E2i): the RF pathway applies no importance gate at all, and
+    # the orchestrator now passes --no-shap-filter explicitly for RF rather than
+    # inheriting the state as a side effect of --lr-significant-only. Rationale:
+    # code_review_and_feedback/rf_tier7_gate_provenance_2026-08-27.md.
+    #
+    # SUPERSEDED 2026-08-31 (E2o, "Arm C"): the RF pathway applies a top-5 gate on the
+    # GROUPED SHAP ranking. E2i had rejected a top-5 gate on the ONE-HOT ranking, which
+    # was a mis-implementation -- its headline evidence ("ancestry at ranks 7, 7, 8, 11")
+    # measured the encoding, not the model. E2n then showed a rank gate does select for
+    # conditional importance: gate-rejected hits lose a median 60-71% of their marginal
+    # signal under multivariable adjustment vs 9-15% for accepted hits (pre-registered
+    # bar 0.10; observed 0.47-0.58, p <= 0.001, in all 28 tested cells). RF goes
+    # 114 -> 93 hits. Evidence:
+    # code_review_and_feedback/e2n_gate_variant_experiment_2026-08-31.md.
     if args.top_n_shap is not None:
         top_n_shap = args.top_n_shap
-    elif args.lr_significant_only:
+    elif args.no_shap_filter or args.lr_significant_only:
+        # --no-shap-filter is included here so every downstream console line and
+        # report header describes the gate as disabled rather than printing a cap
+        # that is never applied.
         top_n_shap = None
     else:
         top_n_shap = DEFAULT_TOP_N_FEATURES
@@ -922,6 +1033,17 @@ Examples:
           + ("ALL gate-significant (top-N cap disabled via --lr-significant-only)"
              if top_n_shap is None else str(top_n_shap)))
     print(f"SHAP filter enabled: {not args.no_shap_filter}")
+    if not args.no_shap_filter:
+        print("RF ranking unit: "
+              + ("FEATURE (one-hot dummies grouped, agg=sum, missingness folded "
+                 "-- Arm C, E2o 2026-08-31)"
+                 if args.group_rf_levels
+                 else "ONE-HOT COLUMN (legacy, pre-2026-08-31)"))
+    print("Missingness sentinel in ancestry/ethnicity tests: "
+          + (f"EXCLUDED ('{MISSING_SENTINEL}' dropped from both arms; "
+             "estimand = recorded values only -- E2k, 2026-09-18)"
+             if args.exclude_unknown
+             else f"RETAINED as a category level ('{MISSING_SENTINEL}'; legacy, pre-2026-09-18)"))
 
     # Load SHAP rankings — fail-closed when --shap-file is passed but missing.
     # Only --no-shap-filter is allowed to bypass the gate.
@@ -944,7 +1066,13 @@ Examples:
             except FileNotFoundError as e:
                 print(f"\nERROR: {e}")
                 sys.exit(1)
-        shap_df = load_shap_rankings_adaptive(shap_file, lr_significant_only=args.lr_significant_only)
+        shap_df = load_shap_rankings_adaptive(
+            shap_file,
+            lr_significant_only=args.lr_significant_only,
+            group_rf_levels=args.group_rf_levels,
+            rf_group_agg='sum',
+            rf_group_missingness='fold',
+        )
 
     # Load top genes summary
     top_genes_df = load_top_genes_summary(input_dir, top_n=args.top_n)
@@ -974,6 +1102,7 @@ Examples:
     results = analyze_gene_stratified_associations(
         top_genes_df, DB_PATH, shap_df=shap_df,
         min_n=args.min_n, top_n_shap=top_n_shap,
+        exclude_unknown=args.exclude_unknown,
     )
 
     # Save results
