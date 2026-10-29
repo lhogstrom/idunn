@@ -4,9 +4,9 @@ A cancer genomics research platform that harmonizes tumor profile data from AACR
 
 ## Overview
 
-This project investigates whether patient demographics (age, sex, ancestry, ethnicity) are associated with the presence of clinically actionable (OncoKB Level 1) genomic alterations, per cancer type, in AACR GENIE. This repository is the paper companion: it contains the code that rebuilds the analysis database and reproduces every results table in the manuscript. Figure-rendering code is not included.
+This project investigates whether patient demographics (age, sex, ancestry, ethnicity) are associated with the presence of clinically actionable (OncoKB Level 1) genomic alterations, per cancer type, in AACR GENIE. Access to the required MAF and clinical data must requested here: https://aacrprojectgenie.org/. 
 
-## Quick Start: reproduce the manuscript tables
+## Quick Start
 
 ```bash
 # 1. Environments (the second is used for RF SHAP values)
@@ -20,8 +20,6 @@ export BALDER_DB_PATH="/path/to/balder-harmonized-biomarker-data-v20250522-ageUp
 # 3. Rebuild every table (from the repo root)
 python code/reproduce_manuscript_tables.py
 ```
-
-The driver checks the database checksum, then runs the full recipe: cohort eligibility and the patient-level train/test split, the random-forest and logistic-regression pathways (TIER 4-7), Table 1 and the institutional tables, and the cross-pathway and robustness analyses. Tables are collected in `runs/manuscript_tables_<timestamp>/tables/` with a `MANIFEST.csv` that compares each file's SHA-256 to the published version (`code/config/manuscript_table_checksums.csv`).
 
 | Output | Content |
 |---|---|
