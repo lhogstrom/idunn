@@ -1,28 +1,10 @@
-"""
-Feature Configuration Loader
-
-Centralized feature definitions loaded from YAML configuration.
-This module is the ONLY interface for accessing feature definitions.
+"""Load feature definitions from the YAML config (the single interface to features).
 
 Usage:
     from tools.feature_config import get_feature_list, get_numeric_features
+    features = get_feature_list("demographic")
 
-    # Get demographic features
-    features = get_feature_list('demographic')
-
-    # Get numeric features for preprocessing
-    numeric = get_numeric_features()
-
-    # Get display name for visualization
-    display = get_display_name('AGE_AT_SEQ_REPORT')  # 'Age at Sequencing'
-
-    # Use custom config for a specific run
-    with FeatureConfig('./my_features.yaml') as config:
-        features = get_feature_list('demographic')
-
-Environment Variable:
-    BALDER_FEATURES_CONFIG - Override default config path
-
+BALDER_FEATURES_CONFIG overrides the default config path.
 """
 
 import os
@@ -41,36 +23,12 @@ _config_path: Optional[Path] = None
 
 
 def load_feature_config(path: Optional[str] = None, force_reload: bool = False) -> Dict:
-    """
-    Load feature configuration from YAML file.
-
-    This is the main entry point for loading feature configuration.
-    Call this at application startup or when switching to a custom config.
-
-    Parameters
-    ----------
-    path : str, optional
-        Path to custom config file. If None, uses default resolution:
-        1. BALDER_FEATURES_CONFIG environment variable
-        2. Default path: code/config/features.yaml
-    force_reload : bool, default False
-        Force reload even if cached.
-
-    Returns
-    -------
-    dict
-        Parsed YAML configuration
-    """
+    """Load feature configuration from YAML file."""
     return _load_config(path, force_reload)
 
 
 def _resolve_config_path(path: Optional[str] = None) -> Path:
-    """
-    Resolve config path with priority:
-    1. Explicit path argument
-    2. BALDER_FEATURES_CONFIG environment variable
-    3. Default path: code/config/features.yaml
-    """
+    """Resolve the config path: explicit argument, BALDER_FEATURES_CONFIG, then the default."""
     if path:
         return Path(path)
 
@@ -82,30 +40,7 @@ def _resolve_config_path(path: Optional[str] = None) -> Path:
 
 
 def _load_config(path: Optional[str] = None, force_reload: bool = False) -> Dict:
-    """
-    Load feature configuration from YAML file.
-
-    Uses caching to avoid repeated file reads.
-
-    Parameters
-    ----------
-    path : str, optional
-        Path to custom config file. If None, uses cached config or default.
-    force_reload : bool, default False
-        Force reload even if cached.
-
-    Returns
-    -------
-    dict
-        Parsed YAML configuration
-
-    Raises
-    ------
-    FileNotFoundError
-        If config file doesn't exist
-    ValueError
-        If config file is invalid
-    """
+    """Load and validate the YAML config, using a cache unless force_reload is set."""
     global _config_cache, _config_path
 
     # If no path specified and we have a cached config, use it (unless force_reload)
@@ -145,34 +80,7 @@ def _load_config(path: Optional[str] = None, force_reload: bool = False) -> Dict
 
 
 def get_feature_list(feature_set: str = 'demographic', config_path: Optional[str] = None) -> List[str]:
-    """
-    Get list of features for specified feature set.
-
-    Parameters
-    ----------
-    feature_set : str, default='demographic'
-        Which features to include:
-        - 'demographic': Patient/sample characteristics (no data leakage)
-        - 'technical': Sequencing/institutional features (may leak)
-        - 'both': All features combined
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    list of str
-        List of feature names
-
-    Raises
-    ------
-    ValueError
-        If feature_set not in ['demographic', 'technical', 'both']
-
-    Examples
-    --------
-    >>> get_feature_list('demographic')
-    ['SAMPLE_TYPE_DETAILED', 'SEX', 'ANCESTRY', 'ETHNICITY', 'AGE_AT_SEQ_REPORT', 'ANCESTRY_missing', 'ETHNICITY_missing']
-    """
+    """Return the feature names for a set: 'demographic', 'technical' or 'both'."""
     valid_sets = ['demographic', 'technical', 'both']
     if feature_set not in valid_sets:
         raise ValueError(f"feature_set must be one of {valid_sets}, got: {feature_set}")
@@ -188,180 +96,57 @@ def get_feature_list(feature_set: str = 'demographic', config_path: Optional[str
 
 
 def get_numeric_features(config_path: Optional[str] = None) -> List[str]:
-    """
-    Get list of numeric feature names.
-
-    These features are processed with median imputation in preprocessing.
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    list of str
-        List of numeric feature names
-    """
+    """Get list of numeric feature names."""
     config = _load_config(config_path)
     return config['feature_types']['numeric']['features'].copy()
 
 
 def get_categorical_features(config_path: Optional[str] = None) -> List[str]:
-    """
-    Get list of categorical feature names.
-
-    These features are processed with most frequent imputation + one-hot encoding.
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    list of str
-        List of categorical feature names
-    """
+    """Get list of categorical feature names."""
     config = _load_config(config_path)
     return config['feature_types']['categorical']['features'].copy()
 
 
 def get_display_name(feature: str, config_path: Optional[str] = None) -> str:
-    """
-    Get human-readable display name for a feature.
-
-    Used for SHAP visualizations and reports.
-
-    Parameters
-    ----------
-    feature : str
-        Original feature name (e.g., 'AGE_AT_SEQ_REPORT')
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    str
-        Human-readable display name (e.g., 'Age at Sequencing')
-    """
+    """Get human-readable display name for a feature."""
     config = _load_config(config_path)
     display_names = config.get('display_names', {})
     return display_names.get(feature, feature)
 
 
 def get_value_display_name(value: str, config_path: Optional[str] = None) -> str:
-    """
-    Get human-readable display name for a categorical value.
-
-    Parameters
-    ----------
-    value : str
-        Categorical value (e.g., 'Black')
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    str
-        Human-readable display name (e.g., 'Black or African American')
-    """
+    """Get human-readable display name for a categorical value."""
     config = _load_config(config_path)
     value_names = config.get('value_display_names', {})
     return value_names.get(value, value)
 
 
 def get_all_display_names(config_path: Optional[str] = None) -> Dict[str, str]:
-    """
-    Get all display name mappings.
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    dict
-        Mapping from feature names to display names
-    """
+    """Get all display name mappings."""
     config = _load_config(config_path)
     return config.get('display_names', {}).copy()
 
 
 def get_all_value_display_names(config_path: Optional[str] = None) -> Dict[str, str]:
-    """
-    Get all value display name mappings.
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    dict
-        Mapping from categorical values to display names
-    """
+    """Get all value display name mappings."""
     config = _load_config(config_path)
     return config.get('value_display_names', {}).copy()
 
 
 def get_config_path() -> Optional[Path]:
-    """
-    Get the path to the currently loaded config file.
-
-    Returns
-    -------
-    Path or None
-        Path to loaded config file, or None if not yet loaded
-    """
+    """Get the path to the currently loaded config file."""
     return _config_path
 
 
 def get_config_version(config_path: Optional[str] = None) -> str:
-    """
-    Get the version string from the config metadata.
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    str
-        Version string (e.g., '1.0')
-    """
+    """Get the version string from the config metadata."""
     config = _load_config(config_path)
     metadata = config.get('metadata', {})
     return metadata.get('version', 'unknown')
 
 
 def validate_config(config_path: Optional[str] = None) -> bool:
-    """
-    Validate feature configuration for consistency.
-
-    Checks:
-    - All features in feature_sets have a type (numeric or categorical)
-    - No duplicate features within or across sets
-    - All numeric/categorical features exist in feature_sets
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    bool
-        True if valid
-
-    Raises
-    ------
-    ValueError
-        If validation fails with details
-    """
+    """Validate the config (types, duplicates, feature-set membership); raise ValueError on failure."""
     config = _load_config(config_path, force_reload=True)
 
     # Get all features from feature_sets
@@ -400,48 +185,15 @@ def validate_config(config_path: Optional[str] = None) -> bool:
 
 
 def reload_config(config_path: Optional[str] = None) -> Dict:
-    """
-    Force reload of feature configuration.
-
-    Use this after modifying the config file to pick up changes.
-
-    Parameters
-    ----------
-    config_path : str, optional
-        Path to custom config file
-
-    Returns
-    -------
-    dict
-        Reloaded configuration
-    """
+    """Force reload of feature configuration."""
     return _load_config(config_path, force_reload=True)
 
 
 class FeatureConfig:
-    """
-    Context manager for run-specific feature configurations.
-
-    Temporarily switches to a custom config file, then restores the original.
-
-    Example
-    -------
-    >>> # Use custom config for a specific experiment
-    >>> with FeatureConfig('./experiment_features.yaml'):
-    ...     features = get_feature_list('demographic')
-    ...     # Uses custom config
-    >>> # Original config restored automatically
-    """
+    """Context manager that temporarily switches to a custom feature config file."""
 
     def __init__(self, config_path: str):
-        """
-        Initialize with custom config path.
-
-        Parameters
-        ----------
-        config_path : str
-            Path to custom feature config YAML file
-        """
+        """Store the custom config path."""
         self.config_path = config_path
         self._previous_cache = None
         self._previous_path = None
@@ -470,21 +222,7 @@ class FeatureConfig:
 
 # Convenience function to copy config to output directory
 def copy_config_to_run_dir(run_dir: str, config_path: Optional[str] = None) -> Path:
-    """
-    Copy the feature config to a run output directory for reproducibility.
-
-    Parameters
-    ----------
-    run_dir : str
-        Path to run output directory
-    config_path : str, optional
-        Path to custom config file (uses current loaded config if None)
-
-    Returns
-    -------
-    Path
-        Path to copied config file
-    """
+    """Copy the feature config to a run output directory for reproducibility."""
     import shutil
 
     source_path = _resolve_config_path(config_path)

@@ -1,38 +1,20 @@
-"""
-Shared utilities for SHAP-based feature analysis.
+"""Shared utilities for loading and filtering SHAP / LR feature rankings.
 
-This module provides common functions for loading and processing SHAP feature
-rankings used by post-hoc analysis scripts.
-
-Functions:
-    - get_default_shap_file: Find SHAP rankings file in standard locations
-    - load_shap_rankings_adaptive: Load SHAP rankings with auto-format detection
-    - identify_top_features: Find cancer types with specific features in top N
-    - feature_in_top_n_for_cancer: Test whether a feature category is in top N
-      for a given cancer type
-
-Used by:
-    - analyze_shap_feature_associations.py (cancer-level post-hoc)
-    - analyze_gene_stratified_associations.py (gene-stratified post-hoc)
+Used by the TIER 7 post-hoc association scripts to select cancer types in which a
+feature category ranks in the top N. Main functions: get_default_shap_file,
+load_shap_rankings_adaptive, identify_top_features, feature_in_top_n_for_cancer.
 """
 
 import pandas as pd
 from pathlib import Path
 
-# Get repository root (relative to this file in code/tools/)
+# repository root
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Feature patterns for pattern matching in both old and new formats
-# Old format uses sklearn-style names: "cat__SEX_Male"
-# New format uses readable names: "Sex: Male"
+# Patterns matched against feature names in sklearn-style ("cat__SEX_Male") and readable ("Sex: Male") formats
 FEATURE_PATTERNS = {
     'SEX': ['SEX_', 'Sex:', 'SEX'],
-    # ANCESTRY key (was 'RACE'; renamed 2026-05-21 Feature Review Fix b). The
-    # underlying feature is now named ANCESTRY in code and YAML; the DB column
-    # stays RACE and data_loader.py renames it on load. Patterns keep the
-    # legacy 'RACE_' / 'Race:' / 'RACE' forms so historical SHAP rankings
-    # (e.g. runs/run_20260505_164207/) still match — see Bug C history in
-    # CLAUDE.md and the 2026-05-07 audit.
+    # Formerly RACE; legacy 'RACE' patterns are kept so older rankings still match.
     'ANCESTRY': [
         'ANCESTRY_', 'Ancestry:', 'Ancestry', 'ANCESTRY',
         'RACE_', 'Race:', 'RACE',
@@ -41,25 +23,18 @@ FEATURE_PATTERNS = {
     'ANCESTRY_ETHNICITY': [
         'ANCESTRY_', 'ETHNICITY_', 'Ancestry:', 'Ethnicity:',
         'ANCESTRY', 'ETHNICITY', 'Ancestry',
-        # Legacy patterns kept for back-compat with pre-rename SHAP rankings:
+        # legacy RACE patterns, for pre-rename rankings
         'RACE_', 'Race:', 'RACE',
     ],
-    # Indicator columns (ANCESTRY_missing, ETHNICITY_missing) are not given
-    # dedicated pattern keys. identify_top_features auto-excludes _missing-
-    # suffixed features from the ANCESTRY/ETHNICITY/ANCESTRY_ETHNICITY
-    # categories (2026-05-22 pre-lock review #4 + #9), so the institutional-
-    # missingness signal does not double-count into the raw-ancestry gate.
-    # If a future analysis needs to test missingness indicators specifically,
-    # query shap_df with `feature.str.contains('_missing')` directly.
-    # SAMPLE_TYPE removed 2026-05-21 (Feature Review Fix a; see features.yaml).
-    # SAMPLE_TYPE_DETAILED is the surviving sample-type feature in the model.
+    # Missingness indicators (ANCESTRY_missing, ETHNICITY_missing) have no pattern keys;
+    # identify_top_features excludes them from the ancestry/ethnicity categories.
     'SAMPLE_TYPE_DETAILED': [
         'SAMPLE_TYPE_DETAILED_', 'Sample Type (Detailed)', 'Sample Type Detailed',
         'SAMPLE_TYPE_DETAILED',
     ],
     'AGE': ['AGE_AT_SEQ_REPORT', 'Age at Sequencing', 'Age'],
     'TECHNICAL': [
-        # Subject Center (categorical)
+        # Subject Center
         'SUBJECT_CENTER', 'Subject Center',
         # Number of genes (numeric)
         'number_of_genes', 'Number of Genes',
@@ -70,55 +45,11 @@ FEATURE_PATTERNS = {
     ]
 }
 
-# ---------------------------------------------------------------------------
-# RF one-hot level grouping — ADOPTED 2026-08-31 (E2o, "Arm C")
-# ---------------------------------------------------------------------------
-# STATUS: this is IN PRODUCTION. Both TIER 7 scripts
-# (analyze_gene_stratified_associations.py, analyze_shap_feature_associations.py)
-# default to group_rf_levels=True with agg='sum', missingness='fold'; their
-# --no-group-rf-levels flag restores the pre-2026-08-31 column-level gate for
-# reproducing historical runs. The LIBRARY default here stays False so that any
-# other caller keeps its old behaviour unless it opts in -- the decision is
-# expressed at the analysis layer, not here.
-#
-# BEFORE 2026-08-31 the two importance gates ranked DIFFERENT UNITS:
-#
-#   LR  — combined_lr_grouped_importance.csv carries `feature_group`, which is
-#         already one row per FEATURE (9 groups: AGE_AT_SEQ_REPORT, ANCESTRY,
-#         ETHNICITY, SAMPLE_TYPE_DETAILED, SEX, SUBJECT_CENTER,
-#         calling_strategy, number_of_genes, preservation_technique).
-#   RF  — combined_feature_importance.csv is one row per ONE-HOT DUMMY
-#         (cat__ANCESTRY_Asian, cat__SUBJECT_CENTER_DFCI, …), so a rank cut
-#         penalises multi-level categoricals purely for their encoding: a
-#         5-level ANCESTRY has its SHAP split five ways while single-column
-#         numerics (AGE_AT_SEQ_REPORT, number_of_genes) concentrate theirs in
-#         one row. Measured dilution ratio for ANCESTRY in IDC: 2.18.
-#
-# Consequence (C5 lock SHAP, top-5 cut): ANCESTRY clears the gate in 6/21 cancer
-# types when ranked as dummies vs 15/21 when ranked as features. (The 16/21
-# figure quoted here before 2026-08-31 was a prototype estimate; 15/21 is the
-# verified value from code/tools/report_gate_composition.py.)
-#
-# This grouping collapses dummy rows to one row per feature so the RF gate is
-# structurally symmetric with LR. Enable via
-# load_shap_rankings_adaptive(..., group_rf_levels=True, rf_group_agg='sum',
-# rf_group_missingness='fold') -- the configuration TIER 7 uses.
-#
-# ⚠️ Any caller that reports on "what the TIER 7 gate did" MUST pass the same
-# three arguments, or it silently describes a gate that was never applied. This
-# already bit code/tools/report_gate_composition.py, whose whole claim is that
-# its numbers match TIER 7's; it now groups by default too.
-#
-# The C5 publication lock (2026-08-27) predates this and ran with the RF gate
-# disabled entirely, so its 114 hits are NOT comparable to a grouped run's 93
-# without saying which unit was ranked.
-#
-# Group names are deliberately the RAW FEATURE NAMES so the existing
-# FEATURE_PATTERNS matching in identify_top_features() keeps working unchanged
-# on the grouped frame.
-#
-# Ordered — FIRST MATCH WINS. The `_missing` indicators MUST precede their
-# parent feature, or 'ANCESTRY' would swallow 'ANCESTRY_missing'.
+# RF one-hot level grouping. LR importance is already one row per feature, while RF
+# importance is one row per one-hot dummy, which dilutes multi-level categoricals in a
+# rank cut. Grouping dummies by parent feature makes the RF gate rank the same unit.
+# Group names are the raw feature names so FEATURE_PATTERNS matching still works.
+# Ordered: first match wins, and `_missing` indicators must precede their parent.
 RF_LEVEL_GROUPS = [
     ('ANCESTRY_missing',       ['ANCESTRY_missing', 'Ancestry Missing (Indicator)']),
     ('ETHNICITY_missing',      ['ETHNICITY_missing', 'Ethnicity Missing (Indicator)']),
@@ -136,18 +67,12 @@ RF_LEVEL_GROUPS = [
                                 'Variant Calling Strategy']),
 ]
 
-# Default number of top features to consider
+# Default number of top features
 DEFAULT_TOP_N_FEATURES = 5
 
 
 def _rf_level_group_for(feature_name):
-    """Map one raw RF feature/dummy name to its parent feature group.
-
-    Substring match, case-insensitive, literal (regex=False semantics) — the
-    same matching discipline identify_top_features() uses. Returns None when
-    nothing matches, so the caller can decide whether to keep the row as its
-    own group or raise.
-    """
+    """Map a raw RF feature/dummy name to its parent feature group, or None."""
     name = str(feature_name)
     lowered = name.lower()
     for group, patterns in RF_LEVEL_GROUPS:
@@ -157,10 +82,7 @@ def _rf_level_group_for(feature_name):
     return None
 
 
-# Where the ANCESTRY_missing / ETHNICITY_missing indicators go under
-# missingness='fold'. This is the mapping TIER 6a's own
-# feature_name_mapper.get_feature_group() already applies when it writes
-# <CODE>_grouped_feature_importance.csv.
+# where the missingness indicators go under missingness='fold'
 RF_MISSINGNESS_PARENT = {
     'ANCESTRY_missing': 'ANCESTRY',
     'ETHNICITY_missing': 'ETHNICITY',
@@ -168,44 +90,12 @@ RF_MISSINGNESS_PARENT = {
 
 
 def group_rf_shap_levels(df, agg='sum', missingness='keep', verbose=True):
-    """Collapse one-hot dummy rows in an RF SHAP ranking to one row per feature.
+    """Collapse one-hot dummy rows of an RF SHAP ranking to one row per feature.
 
-    IN PRODUCTION as of 2026-08-31 (E2o, "Arm C"): both TIER 7 scripts call this
-    via load_shap_rankings_adaptive(group_rf_levels=True, rf_group_agg='sum',
-    rf_group_missingness='fold'). The library default stays off; see the module
-    header for why.
-
-    Args:
-        df: Normalized ranking frame (ONCOTREE_CODE, feature, mean_abs_shap,
-            feature_rank), as produced by load_shap_rankings_adaptive's
-            NEW-format branch. Must already be RF-format (one row per dummy).
-        agg: How to combine a feature's dummy rows. 'sum' (default) treats the
-            dummies as an additive decomposition of the feature's contribution,
-            which is what SHAP's additivity implies. 'max' mirrors LR's
-            `max_abs_std_log_odds`. See the caveat below.
-        missingness: What to do with ANCESTRY_missing / ETHNICITY_missing.
-            'keep'  — each is its own feature group (11 groups); they compete
-                      for a top-N slot on their own.
-            'drop'  — removed entirely before ranking (9 groups).
-            'fold'  — merged into their parent ANCESTRY / ETHNICITY group
-                      (9 groups). ⭐ This is what TIER 6a ALREADY does when it
-                      writes <CODE>_grouped_feature_importance.csv, and it
-                      yields exactly the 9 groups the LR file carries. Verified
-                      2026-08-31: fold+sum reproduces those files to 8.5e-16
-                      with 0/189 rank disagreements.
-        verbose: Print a grouping summary.
-
-    Returns:
-        DataFrame with one row per (ONCOTREE_CODE, feature), `mean_abs_shap`
-        aggregated and `feature_rank` recomputed within each cancer type.
-
-    ⚠️ CAVEAT on agg='sum': summing per-dummy mean|SHAP| is an UPPER BOUND on
-    the feature's grouped importance, because it cannot see per-sample
-    cancellation across a feature's mutually-exclusive levels. The exact
-    quantity is mean|Σ_levels SHAP| computed from per-sample SHAP values.
-    TIER 6a does NOT retain per-sample SHAP (only these summary CSVs and PDFs),
-    and its own grouped file uses the same sum — so the upper bound is the
-    best available without re-running TIER 6a.
+    agg: 'sum' (additive decomposition; an upper bound on grouped importance) or 'max'.
+    missingness: 'keep' (own groups), 'drop', or 'fold' (into the parent ANCESTRY/ETHNICITY
+    group, as in the grouped importance files written by the SHAP step).
+    Returns one row per (ONCOTREE_CODE, feature) with feature_rank recomputed.
     """
     if missingness not in ('keep', 'drop', 'fold'):
         raise ValueError(
@@ -216,8 +106,7 @@ def group_rf_shap_levels(df, agg='sum', missingness='keep', verbose=True):
 
     unmatched = work['_group'].isna()
     if unmatched.any():
-        # Keep the row as its own group rather than dropping it — silently
-        # losing a feature here would silently shrink the gate.
+        # keep unmatched rows as their own group so no feature silently drops out of the gate
         names = sorted(work.loc[unmatched, 'feature'].unique())
         print(f"  WARNING: {unmatched.sum()} rows matched no RF_LEVEL_GROUPS "
               f"entry; each kept as its own group: {names[:10]}"
@@ -263,26 +152,9 @@ def group_rf_shap_levels(df, agg='sum', missingness='keep', verbose=True):
 
 
 def get_default_shap_file(repo_root=None):
-    """
-    Get default SHAP file from current TIER 6a output paths.
+    """Find the default SHAP file from TIER 6a output paths.
 
-    Searches for SHAP primary values output from compute_shap_primary_values.py
-    in the standard output locations. Raises FileNotFoundError if no v2.0
-    output is found — callers must pass --shap-file explicitly or run TIER 6a.
-
-    Args:
-        repo_root: Repository root path (optional, uses default if not provided)
-
-    Returns:
-        str: Path to SHAP rankings file
-
-    Raises:
-        FileNotFoundError: If no v2.0 SHAP file is found in the standard
-            locations. The pre-2026-05 silent fallback to a legacy SHAP file
-            with the obsolete v1 feature space has been removed; see
-            code_review_and_feedback/shap_gate_provenance_audit_2026-05-07.md
-            for the full audit, and BACKLOG.md "SHAP-gate audit — outstanding
-            cleanup" for what remains.
+    Raises FileNotFoundError if none is found; pass --shap-file explicitly in that case.
     """
     if repo_root is None:
         repo_root = REPO_ROOT
@@ -325,15 +197,7 @@ def get_default_shap_file(repo_root=None):
 
 
 def get_default_feature_rankings_file(algorithm='random_forest', repo_root=None):
-    """Get default feature rankings file based on algorithm.
-
-    Args:
-        algorithm: 'random_forest' (uses SHAP) or 'logistic' (uses LR coefficients)
-        repo_root: Repository root path (optional, uses default if not provided)
-
-    Returns:
-        str: Path to rankings file, or None if not found
-    """
+    """Return the default rankings file for an algorithm (random_forest or logistic), or None."""
     if algorithm == 'logistic':
         return get_default_lr_rankings_file(repo_root)
     else:
@@ -341,14 +205,7 @@ def get_default_feature_rankings_file(algorithm='random_forest', repo_root=None)
 
 
 def get_default_lr_rankings_file(repo_root=None):
-    """Find LR grouped importance file in standard locations.
-
-    Args:
-        repo_root: Repository root path (optional, uses default if not provided)
-
-    Returns:
-        str: Path to LR rankings file, or None if not found
-    """
+    """Find the LR grouped importance file in the standard locations, or None."""
     if repo_root is None:
         repo_root = REPO_ROOT
     repo_root = Path(repo_root)
@@ -370,40 +227,16 @@ def get_default_lr_rankings_file(repo_root=None):
 def load_shap_rankings_adaptive(shap_file, lr_significant_only=False,
                                 group_rf_levels=False, rf_group_agg='sum',
                                 rf_group_missingness='keep'):
-    """
-    Load SHAP rankings, auto-detecting format (new vs legacy vs LR).
+    """Load a ranking file, auto-detecting RF SHAP, LR grouped-importance or legacy format.
 
-    New format (from shap_primary_analyzer.py):
-        - cancer_type, feature_name, feature_name_raw, mean_abs_shap, rank
-
-    LR grouped importance format (from extract_lr_coefficients.py):
-        - feature_group, cancer_type, max_abs_std_log_odds, rank, any_significant_fdr
-
-    Legacy format:
-        - ONCOTREE_CODE, feature, mean_abs_shap, feature_rank
-
-    Args:
-        shap_file: Path to SHAP rankings CSV file
-        lr_significant_only: If True and LR format detected, filter to only
-            features with any_significant_fdr=True (Wald test, FDR-corrected),
-            then re-rank within each cancer type.
-
-    Returns:
-        pd.DataFrame with standardized columns:
-            - ONCOTREE_CODE: cancer type
-            - feature: feature name (human-readable preferred)
-            - mean_abs_shap: mean absolute SHAP value
-            - feature_rank: 1-based rank
-
-    Raises:
-        ValueError: If file format is not recognized
+    lr_significant_only keeps only Wald-FDR-significant LR features and re-ranks.
+    Returns columns ONCOTREE_CODE, feature, mean_abs_shap, feature_rank.
     """
     print(f"Loading SHAP rankings from {shap_file}...")
 
     df = pd.read_csv(shap_file)
 
-    # Set by the LR branch below; consumed by the group_rf_levels block, which
-    # is a no-op on LR rankings (already grouped upstream by feature_group).
+    # set by the LR branch; group_rf_levels is a no-op on LR rankings
     is_lr_format = False
 
     # Detect format by checking column names
@@ -440,7 +273,7 @@ def load_shap_rankings_adaptive(shap_file, lr_significant_only=False,
                 # Re-rank within each cancer type after filtering
                 df['rank'] = df.groupby('cancer_type')['max_abs_std_log_odds' if 'max_abs_std_log_odds' in df.columns else 'sum_abs_std_log_odds'].rank(ascending=False, method='min').astype(int)
 
-        # Use max_abs_std_log_odds as the importance metric (analogous to mean_abs_shap)
+        # max_abs_std_log_odds is the LR analogue of mean_abs_shap
         importance_col = 'max_abs_std_log_odds' if 'max_abs_std_log_odds' in df.columns else 'sum_abs_std_log_odds'
 
         df = df.rename(columns={
@@ -462,14 +295,11 @@ def load_shap_rankings_adaptive(shap_file, lr_significant_only=False,
             f"Found: {df.columns.tolist()}"
         )
 
-    # Ensure feature_rank exists
+    # ensure feature_rank exists
     if 'feature_rank' not in df.columns and 'rank' in df.columns:
         df['feature_rank'] = df['rank']
 
-    # PROTOTYPE (2026-08-30, opt-in, default OFF): collapse RF one-hot dummy
-    # rows to one row per feature so the RF rank cut ranks the same unit the LR
-    # gate already does. Only meaningful for the RF/new format — the LR branch
-    # is grouped upstream and the legacy branch is frozen historical output.
+    # optionally collapse RF one-hot dummies to one row per feature (LR is already grouped)
     if group_rf_levels:
         if is_lr_format:
             print("  NOTE: group_rf_levels=True ignored — LR rankings are "
@@ -489,65 +319,28 @@ def load_shap_rankings_adaptive(shap_file, lr_significant_only=False,
 
 
 def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURES, verbose=True):
-    """
-    Identify cancer types where specific features appear in top N SHAP rankings.
+    """Find cancer types where features matching `feature_patterns` rank in the top N.
 
-    Args:
-        shap_df: DataFrame with SHAP rankings (from load_shap_rankings_adaptive)
-        feature_patterns: List of patterns to match in feature names
-        top_n: Number of top features to consider (default: 5). Pass None to
-            disable the rank cap entirely (every pattern-matched feature is
-            returned) — used by the LR --lr-significant-only gate.
-        verbose: Whether to print progress (default: True)
-
-    Returns:
-        pd.DataFrame with columns:
-            - pattern: matched pattern
-            - ONCOTREE_CODE: cancer type
-            - feature: feature name
-            - feature_rank: rank (1-based)
-            - mean_abs_shap: SHAP importance value
-
-    Notes:
-        Substring matching means a bare 'ANCESTRY' or 'ETHNICITY' pattern would
-        otherwise also match the new ANCESTRY_missing / ETHNICITY_missing
-        indicator features (added 2026-05-21 by Feature Review Fix b). To keep
-        the missingness indicator from being double-counted in the raw-ancestry
-        gate, _missing-suffixed features are excluded from category patterns
-        that don't themselves reference 'missing'. This auto-disambiguation
-        replaces the originally-defined-but-unused ANCESTRY_MISSING /
-        ETHNICITY_MISSING pattern keys (removed 2026-05-22).
+    top_n=None disables the rank cap. Returns columns pattern, ONCOTREE_CODE, feature,
+    feature_rank, mean_abs_shap. Missingness indicators are excluded unless a pattern names them.
     """
     results = []
 
-    # Auto-detect: if none of this category's patterns reference 'missing',
-    # exclude `_missing`-suffixed indicator features from the matches. The
-    # missingness indicator is a distinct semantic category — including it
-    # under ANCESTRY/ETHNICITY would confound the raw-ancestry chi-square gate.
+    # unless the patterns mention "missing", exclude missingness indicators so they do not leak into ANCESTRY/ETHNICITY
     exclude_missingness_indicators = not any(
         'missing' in str(p).lower() for p in feature_patterns
     )
 
     for pattern in feature_patterns:
-        # regex=False — patterns like 'Sample Type (Detailed)' contain unescaped
-        # regex metachars (parens are group syntax); without this they would
-        # match 'Sample Type Detailed' (no parens) instead of the literal string.
+        # regex=False: parentheses in names like 'Sample Type (Detailed)' must match literally
         mask = shap_df['feature'].str.contains(pattern, case=False, na=False, regex=False)
         if exclude_missingness_indicators:
-            # Catch both the raw form ('ANCESTRY_missing') and the display form
-            # ('Ancestry Missing (Indicator)' from features.yaml display_names)
-            # of the missingness indicator features. The display form is what
-            # production SHAP CSVs carry today, so the underscore-only check
-            # would silently fail to exclude — letting ANCESTRY_missing leak
-            # into the bare ANCESTRY substring-match. regex=True for the OR.
+            # exclude both the raw ('ANCESTRY_missing') and display ('Ancestry Missing (Indicator)') forms
             missingness_re = r'_missing|Missing \(Indicator\)'
             mask = mask & ~shap_df['feature'].str.contains(
                 missingness_re, case=False, na=False, regex=True
             )
-        # top_n=None disables the rank cap entirely (every matched feature is
-        # eligible). Used by the LR `--lr-significant-only` path, where Wald-FDR
-        # significance is the gate and the top-N cap would redundantly drop
-        # already-significant features (see the 2026-06-15 gate-sensitivity note).
+        # top_n=None disables the rank cap (used when Wald-FDR significance is the gate)
         if top_n is None:
             rank_ok = pd.Series(True, index=shap_df.index)
         else:
@@ -570,11 +363,7 @@ def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURE
 
     results_df = pd.DataFrame(results)
     if not results_df.empty:
-        # A single feature can match multiple patterns within the same category
-        # (e.g., 'SAMPLE_TYPE_DETAILED_' and 'SAMPLE_TYPE_DETAILED' both match
-        # 'SAMPLE_TYPE_DETAILED_Primary tumor'). Without dedup, downstream
-        # chi-square consumers see the same (cancer, feature) pair multiple
-        # times and inflate the FDR denominator at multipletests.
+        # one feature can match several patterns; dedup so the FDR denominator is not inflated
         results_df = results_df.drop_duplicates(
             subset=['ONCOTREE_CODE', 'feature'], keep='first'
         ).reset_index(drop=True)
@@ -582,17 +371,7 @@ def identify_top_features(shap_df, feature_patterns, top_n=DEFAULT_TOP_N_FEATURE
 
 
 def get_cancer_types_with_top_feature(shap_df, feature_category, top_n=DEFAULT_TOP_N_FEATURES):
-    """
-    Get list of cancer types where a feature category appears in top N.
-
-    Args:
-        shap_df: DataFrame with SHAP rankings
-        feature_category: Key from FEATURE_PATTERNS (e.g., 'SEX', 'AGE', 'TECHNICAL')
-        top_n: Number of top features to consider
-
-    Returns:
-        List of ONCOTREE_CODE values
-    """
+    """Return the cancer types where a feature category (a FEATURE_PATTERNS key) is in the top N."""
     if feature_category not in FEATURE_PATTERNS:
         raise ValueError(f"Unknown feature category: {feature_category}. "
                         f"Valid categories: {list(FEATURE_PATTERNS.keys())}")
@@ -607,21 +386,7 @@ def get_cancer_types_with_top_feature(shap_df, feature_category, top_n=DEFAULT_T
 
 
 def feature_in_top_n_for_cancer(shap_df, cancer_type, feature_category, top_n=DEFAULT_TOP_N_FEATURES):
-    """
-    Check whether a feature category appears in top-N for the given cancer type.
-
-    Both `cancer_type` and the SHAP file's ONCOTREE_CODE column use plain
-    OncoTree codes after the publication-branch OT-rollup strip.
-
-    Args:
-        shap_df: DataFrame with SHAP rankings
-        cancer_type: Plain ONCOTREE_CODE (e.g., "LUAD")
-        feature_category: Key from FEATURE_PATTERNS
-        top_n: Number of top features to consider
-
-    Returns:
-        bool
-    """
+    """Return True if a feature category is in the top-N for a cancer type (plain OncoTree code)."""
     cancer_types_with_feature = get_cancer_types_with_top_feature(
         shap_df, feature_category, top_n
     )

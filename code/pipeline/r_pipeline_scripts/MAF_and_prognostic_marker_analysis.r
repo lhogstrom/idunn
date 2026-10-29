@@ -1,3 +1,8 @@
+# Compares mutant allele frequency (MAF) distributions by actionability type, sample type and
+# data source (KS and Wilcoxon tests with FDR correction), summarizes prognostic markers, and draws
+# Sankey diagrams of biomarker-to-drug and biomarker-to-prognosis assignments. Writes tables and PDFs.
+# Invoked by workflow/main.nf: Rscript <script> <baseDir> <dbName>
+
 library(dplyr)
 library(tidyr)
 library(DBI)
@@ -9,12 +14,10 @@ library(ggrepel)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-# Check if the correct number of arguments are provided
 if (length(args) != 2) {
   stop("Two arguments must be supplied", call. = FALSE)
 }
 
-# Assign Arguments to Variables
 baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
 dbName <- args[2]
 
@@ -23,7 +26,6 @@ source(utilFile1)
 utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
-### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/MAF_prognostic_analysis")
 if (!dir.exists(outDir)) {
     dir.create(outDir, recursive = TRUE)
@@ -38,9 +40,7 @@ if (!dir.exists(MafOutDir)) {
 }
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
-##########################
-### load data products ###
-##########################
+# Load data products
 
 ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
 sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
@@ -55,16 +55,13 @@ non.annotated.variants <- svCompiled %>%
   dplyr::mutate(clinical_annotation_status="not annotated")
 iNewCols <- colnames(aa.genome.representative)[!colnames(aa.genome.representative) %in% colnames(non.annotated.variants)]
 non.annotated.variants[,iNewCols] <- NA
-annotated.and.non.annotated <- rbind(aa.genome.representative,non.annotated.variants) # same as svCompiled, but with annotation columns
+annotated.and.non.annotated <- rbind(aa.genome.representative,non.annotated.variants)  # same as svCompiled, with annotation columns
 
-##############################################
-### mutant allele frequency (MAF) analysis ###
-##############################################
+# Mutant allele frequency (MAF) analysis
 
 iMafOver100 <- (annotated.and.non.annotated$MAF > 100) | is.na(annotated.and.non.annotated$MAF)
 outF <-  paste0(outDir,"/MAF_distribution_clinically_actionable_vs_non_actionable.pdf")
 ggplot(annotated.and.non.annotated[!iMafOver100,],aes(x=MAF,fill=clinical_annotation_status))+
-  #geom_histogram(alpha=.4)+
   geom_density(alpha=.4)+
   theme_bw()+
   facet_grid(SourceStudy~.,scale="free_y",)+
@@ -74,7 +71,6 @@ ggplot(annotated.and.non.annotated[!iMafOver100,],aes(x=MAF,fill=clinical_annota
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 7)
 
-# repeat plot by cancer type
 rownames(ot_code_full) <- ot_code_full$ot_code
 
 cType.sample.counts.primary.met <- svCompiled %>%
@@ -93,7 +89,6 @@ for (cType in TopPrimTissue) {
   iCtypeMatch <- (annotated.and.non.annotated$ONCOTREE_CODE == cType) & !is.na(annotated.and.non.annotated$ONCOTREE_CODE)
   outF <-  paste0(outDir,"/cancer_type_MAF_distribution_clinically_actionable_vs_non_actionable_",cType,".pdf")
   ggplot(annotated.and.non.annotated[!iMafOver100 & iCtypeMatch,],aes(x=MAF,fill=clinical_annotation_status))+
-    #geom_histogram(alpha=.4)+
     geom_density(alpha=.4)+
     theme_bw()+
     facet_grid(SourceStudy~.,scale="free_y",)+
@@ -104,12 +99,7 @@ for (cType in TopPrimTissue) {
   ggsave(outF,height = 8,width = 7)
 }
 
-### Examine MAF distributions ###
 
-### select cancer type unrestricted data for evaluation
-#data_for_evaluation <- aa.genome.representative
-
-### select cancer type restricted data for evaluation
 data_for_evaluation <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T)
 
@@ -139,12 +129,11 @@ isMetPrim <- data_for_evaluation$SAMPLE_TYPE %in% c("Metastasis","Primary")
 isMC3 <- data_for_evaluation$SourceStudy == "TCGA-MC3-data"
 met.or.primary <- data_for_evaluation[isMetPrim & !isMC3,]
 
-### density plots of actionability type,met/primary, and data source
+# density plots by actionability type, sample type and data source
 outF <-  paste0(MafOutDir,"/MAF_distribution_clinically_actionable_type_primary_met.pdf")
 ggplot(met.or.primary,aes(x=MAF,fill=actionability.summary))+
   geom_density(alpha=.4)+
   theme_bw()+
-  #facet_grid(SourceStudy~SAMPLE_TYPE,scale="free_y",)+
   facet_grid(SAMPLE_TYPE~SourceStudy,scale="free_y",)+
   xlab("MAF (%)")+
   ggtitle(paste0("MAF of clinically actioanable variants \n by type"))+
@@ -155,18 +144,16 @@ outF <-  paste0(MafOutDir,"/MAF_distribution_met_vs_primary.pdf")
 ggplot(met.or.primary,aes(x=MAF,fill=SAMPLE_TYPE))+
   geom_density(alpha=.4)+
   theme_bw()+
-  #facet_grid(SourceStudy~SAMPLE_TYPE,scale="free_y",)+
   facet_grid(.~SourceStudy,scale="free_y",)+
   xlab("MAF (%)")+
   ggtitle(paste0("MAF of clinically actioanable variants \n by tissue type"))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6,width = 10)
 
-### create comparisons of distribution types
+# compare MAF distributions between conditions (KS and Wilcoxon tests)
 testResDf <- data.frame()
 
 srcStudies <- unique(data_for_evaluation$SourceStudy)
-#sampleTypes <- unique(data_for_evaluation$SAMPLE_TYPE)
 sampleTypes <- c("Metastasis","Primary")
 actionSummTypes <- unique(data_for_evaluation$actionability.summary)
 for (testSource in srcStudies) {
@@ -180,7 +167,6 @@ for (testSource in srcStudies) {
         xAS <- actionSummTypes[i]
         yAS <- actionSummTypes[j]
         
-        # conditions of test
         ixActionSumm <- data_for_evaluation$actionability.summary == xAS
         iyActionSumm <- data_for_evaluation$actionability.summary == yAS
         
@@ -192,12 +178,11 @@ for (testSource in srcStudies) {
         xSize <- dim(xVarSubset)[[1]]
         ySize <- dim(yVarSubset)[[1]]
         
-        # skip statsitical test if there are fewer than N exemplars in a given group
+# skip the statistical test when a group has too few samples
         if ((xSize < 100) | (ySize < 100)) {
           next
         }
         
-        # create vectors of MAF values
         xMAFVecTmp <- xVarSubset$MAF
         yMAFVecTmp <- yVarSubset$MAF
         
@@ -206,46 +191,37 @@ for (testSource in srcStudies) {
         ixInf <- is.infinite(xMAFVecTmp)
         iyInf <- is.infinite(yMAFVecTmp)
         
-        # remove nulls and Inf from vectors
         xMAFVec <- xMAFVecTmp[!ixNa & !ixInf]
         yMAFVec <- yMAFVecTmp[!iyNa & !iyInf]
         
-        # Organize data for density plot
         mafDf <- data.frame(value=c(xMAFVec,yMAFVec),
                             condition=xAS)
         iC2 <- seq((length(xMAFVec)+1),dim(mafDf)[[1]])
         mafDf[iC2,"condition"] <- yAS
-        #mafDf$condition <- factor(mafDf$condition)
         
         ecdf1_data <- data.frame(x = unique(xMAFVec), y = ecdf(xMAFVec)(unique(xMAFVec)))
         ecdf2_data <- data.frame(x = unique(yMAFVecTmp), y = ecdf(yMAFVecTmp)(unique(yMAFVecTmp)))
         
-        # Label the data
         ecdf1_data$Condition <- xAS
         ecdf2_data$Condition <- yAS
         
-        # Combine the data frames
         ecdf_data <- rbind(ecdf1_data, ecdf2_data)
         
-        # Calculate the KS statistic and the point of maximum difference
         ks_test <- ks.test(xMAFVec, yMAFVec)
         ks_stat <- ks_test$statistic
         xx <- seq(0,100,.1)
         diffs <- abs(ecdf(xMAFVec)(xx) - ecdf(yMAFVec)(xx))
         ks_value <- xx[which.max(diffs)]
         
-        # Plot the empirical CDFs using ggplot2
         outF <-  paste0(MafOutDir,"/MAF_distributions_actionable_",xAS,"_",yAS,"_",xMetPrim,"_",testSource,"_ecdf.pdf")
         ggplot(ecdf_data, aes(x = x, y = y, color = Condition)) + 
           geom_line() +
           geom_vline(xintercept = ks_value, linetype = "dotted", color = "black", size = 1) +
           annotate("text", x = ks_value, y = 0.5, label = paste("KS Statistic = ", round(ks_stat, digits=4)), hjust = 1.2) +
-          #scale_color_manual(values = c(xAS = 'blue', yAS = 'red')) +
           labs(title = "Empirical CDFs with KS Statistic", x = "Value", y = "ECDF") +
           theme_minimal()
         ggsave(outF,height = 6,width = 6)
         
-        ## density plot
         outF <-  paste0(MafOutDir,"/MAF_distributions_actionable_",xAS,"_",yAS,"_",xMetPrim,"_",testSource,".pdf")
         ggplot(mafDf,aes(x=value,fill=condition))+
           geom_density(alpha=.4)+
@@ -257,7 +233,6 @@ for (testSource in srcStudies) {
         ggsave(outF,height = 6,width = 6)
         
         
-        # perform wilcox test
         wrs.twosided <- wilcox.test(xMAFVec,
                                     yMAFVec,
                                     alternative = "two.sided",
@@ -265,40 +240,33 @@ for (testSource in srcStudies) {
                                     conf.int=TRUE,
                                     paired=FALSE)
         
-        ## create outputs
         c1_temp_summary <- summary(xMAFVec)
         c2_temp_summary <- summary(yMAFVec)
         
-        # Create a row to append to the dataframe
         new_row <- data.frame(
-          # condition info
           source_study = testSource,
           SampleType = xMetPrim,
           c1_actionability_summary = xAS,
           c2_actionability_summary = yAS,
           c1_variant_count = xSize,
           c2_variant_count = ySize,
-          # summary stats condition 1
           c1_min = c1_temp_summary[[1]],
           c1_first_quartile = c1_temp_summary[[2]],
           c1_median = c1_temp_summary[[3]],
           c1_mean = c1_temp_summary[[4]],
           c1_third_quartile = c1_temp_summary[[5]],
           c1_max = c1_temp_summary[[6]],
-          # summary stats condition 2
           c2_min = c2_temp_summary[[1]],
           c2_first_quartile = c2_temp_summary[[2]],
           c2_median = c2_temp_summary[[3]],
           c2_mean = c2_temp_summary[[4]],
           c2_third_quartile = c2_temp_summary[[5]],
           c2_max = c2_temp_summary[[6]],
-          # wilcox results
           wilcox_p_value = wrs.twosided$p.value,
           wilcox_statistic = wrs.twosided$statistic[[1]],
           wilcox_estimate = wrs.twosided$estimate[[1]]
         )
         
-        # Append the new row to the summary dataframe
         testResDf <- rbind(testResDf, new_row)
         
       }
@@ -306,7 +274,7 @@ for (testSource in srcStudies) {
   }
 }
 
-# Apply FDR correction
+# FDR correction
 testResDf$p_adjusted_wilcox <- p.adjust(testResDf$wilcox_p_value, method = "fdr")
 
 testResDf <- testResDf %>%
@@ -316,7 +284,6 @@ testResDf <- testResDf %>%
 outF <- paste0(MafOutDir,"/actionability_type_MAF_wilcox_test.csv")
 write.csv(testResDf,outF)
 
-### plot directionality of relationships and significance
 outF <-  paste0(MafOutDir,"/MAF_distribution_wilcox_test_results.pdf")
 ggplot(testResDf,aes(x=source_study,y=wilcox_estimate,shape=significant,color=SampleType))+
   geom_point(alpha=.8)+
@@ -325,12 +292,10 @@ ggplot(testResDf,aes(x=source_study,y=wilcox_estimate,shape=significant,color=Sa
   ylim(-8,8)+
   geom_hline(yintercept = 0,linetype="dotted")+
   ggtitle(paste0("Wilcox tests restults of MAF distributions \n by actionability type"))+
-  #scale_color_brewer(palette="Set1",drop=FALSE)+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 7)
 
-### plot wilcox estimate and median MAF difference 
 outF <-  paste0(MafOutDir,"/MAF_wilcox_estimate_and_median_diff.pdf")
 ggplot(testResDf,aes(x=wilcox_estimate,y=c1_c2_median_MAF_difference,shape=significant,color=SampleType))+
   geom_point(alpha=.8)+
@@ -338,7 +303,6 @@ ggplot(testResDf,aes(x=wilcox_estimate,y=c1_c2_median_MAF_difference,shape=signi
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 5,width = 5)
 
-### top variant summary
 atGroupVariantSummary <- data_for_evaluation %>%
   dplyr::group_by(actionability.summary,Hugo_Symbol,HGVSp_Short) %>%
   dplyr::summarise(n=n()) %>%
@@ -354,7 +318,6 @@ outF <-  paste0(MafOutDir,"/top_variants_by_actionability_type_unristricted.pdf"
 ggplot(atGroupVariantSummaryTop,aes(x=actionability.summary,y=n))+
   geom_point(alpha=.8)+
   ggtitle(paste0("Top 15 variants by actionability type \n unrestricted cancer type"))+
-  #geom_text(aes(label = variantName), nudge_x = 0.0, nudge_y = 0.2)+
   geom_text_repel(aes(label = variantName))+
   theme_bw()+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
@@ -364,9 +327,7 @@ ggsave(outF,height = 9,width = 9)
 outF <-  paste0(MafOutDir,"/top_variants_by_actionability_type_unristricted_log.pdf")
 ggplot(atGroupVariantSummaryTop[atGroupVariantSummaryTop$n>1,],aes(x=actionability.summary,y=n))+
   geom_point(alpha=.8)+
-  #geom_jitter(alpha=.8,width = .1)+
   ggtitle(paste0("Top 15 variants by actionability type"))+
-  #geom_text(aes(label = variantName), nudge_x = 0.0, nudge_y = 0.2)+
   geom_text_repel(aes(label = variantName))+
   scale_y_log10(
     breaks = scales::trans_breaks("log10", function(x) 10^x),
@@ -379,11 +340,8 @@ ggsave(outF,height = 9,width = 12)
 
 table(data_for_evaluation$actionability.summary,data_for_evaluation$cancerTypeMatch)
 
-#####################################
-### sequencing or report to death ###
-#####################################
+# Sequencing-or-report to death interval
 
-# compare GENIE to Hartwig 
 outF <-  paste0(outDir,"/hartwig_vs_aacr_time_to_death.pdf")
 ggplot(sampleInfoCompiled,aes(x=INT_SEQ_TO_DEATH,fill=SourceStudy))+
   geom_density(alpha=.4)+
@@ -404,11 +362,9 @@ ggplot(sampleInfoCompiled[iMetPrim,],aes(x=INT_SEQ_TO_DEATH,fill=SourceStudy))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6,width = 6)
 
-####################################
-### aggregate prognostic markers ###
-####################################
+# Aggregate prognostic markers
 
-# which samples have a prognostic marker: high conf, low, conf
+# samples with a prognostic marker, by confidence
 prognosticRepCnts <- aa.genome.representative %>% 
   dplyr::filter(cancerTypeMatch==T) %>%
   dplyr::group_by(Tumor_Sample_Barcode) %>%
@@ -420,10 +376,8 @@ prognosticRepCnts <- aa.genome.representative %>%
                    nPrognosticLowConfVarssum=sum((actionability.summary == "Prognostic") & (clinical.evidence.summary=="Lower Confidence")))
 
 
-# some samples have both poor outcome and better outcome prognostic markers
 table(prognosticRepCnts$nMarkerBetterOutcome,prognosticRepCnts$nMarkerPoorOutcome)
 
-# make prognostic marker assignments by sample
 iProgMarkers <- prognosticRepCnts$nPrognosticVars > 0
 sampleInfoCompiled$hasPrognosticMarker <- sampleInfoCompiled$SAMPLE_ID %in% prognosticRepCnts[iProgMarkers,"Tumor_Sample_Barcode"][[1]]
 
@@ -447,7 +401,6 @@ ggplot(sampleInfoCompiled[iMetPrim,],aes(x=INT_SEQ_TO_DEATH,fill=prognosticMarke
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6,width = 8)
 
-# plot only AACR data without "unspecified prog markers
 outF <-  paste0(outDir,"/hartwig_vs_aacr_time_to_death_sample_type_v2.pdf")
 iProgSelect = (sampleInfoCompiled$SAMPLE_TYPE=="Primary" | sampleInfoCompiled$SAMPLE_TYPE=="Metastasis") & 
   !is.na(sampleInfoCompiled$SAMPLE_TYPE) & 
@@ -463,9 +416,7 @@ ggplot(sampleInfoCompiled[iProgSelect,],aes(x=INT_SEQ_TO_DEATH,fill=prognosticMa
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6,width = 8)
 
-####################################
-### specific prognostic markers ###
-####################################
+# Prognostic markers by gene and cancer type
 
 prognosticTypeMutCnts <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T,
@@ -483,11 +434,8 @@ prognosticTypeCnts <- aa.genome.representative %>%
   dplyr::summarise(n=dplyr::n_distinct(Tumor_Sample_Barcode)) %>%
   dplyr::arrange(desc(n))
 
-# cTypeCnts <- svCompiled %>% dplyr::group_by(ot_name) %>% summarize(n=dplyr::n_distinct(Tumor_Sample_Barcode)) %>% arrange(desc(n))
 
-####################################
-### specific prognostic markers ###
-####################################
+# MAF of samples carrying a prognostic marker vs. other samples, per cancer type
 
 prognosticTypeMutCnts <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T,
@@ -505,10 +453,8 @@ prognosticTypeCnts <- aa.genome.representative %>%
   dplyr::summarise(n=dplyr::n_distinct(Tumor_Sample_Barcode)) %>%
   dplyr::arrange(desc(n))
 
-### create comparisons of distribution types
 testResProgDf <- data.frame()
 
-#otCodes <- unique(prognosticTypeCnts$ONCOTREE_CODE)
 ctTypes <- unique(prognosticTypeCnts$CANCER_TYPE)
 progGenes <- unique(prognosticTypeCnts$gene)
 progSig <- unique(prognosticTypeCnts$clinical_significance)
@@ -520,19 +466,16 @@ for (iX in rownames(prognosticTypeCnts)) {
   progSigDir <- prognosticTypeCnts[iX,"clinical_significance"][[1]]
   print(paste(ctType,"-",progGene,"-",progSigDir))
   
-  # select variants with the prognostic markers
   xVarSubset <- aa.genome.representative %>%
     dplyr::filter(cancerTypeMatch==T,
                   actionability.summary == "Prognostic",
                   CANCER_TYPE == ctType,
                   gene == progGene,
                   clinical_significance == progSigDir)
-  # all other variants for the cancer type
   yVarSubset <- aa.genome.representative %>%
     dplyr::filter(CANCER_TYPE == ctType,
                   !Tumor_Sample_Barcode %in% xVarSubset$Tumor_Sample_Barcode)
   
-  # select the samples with the variants (and the metric)
   xSubSetSamples <- xVarSubset %>%
     dplyr::group_by(Tumor_Sample_Barcode) %>%
     dplyr::filter(dplyr::row_number()==1)
@@ -544,12 +487,11 @@ for (iX in rownames(prognosticTypeCnts)) {
   xSize <- dim(xSubSetSamples)[[1]]
   ySize <- dim(ySubSetSamples)[[1]]
   
-  # skip statsitical test if there are fewer than N exemplars in a given group
+  # skip the statistical test when a group has too few samples
   if ((xSize < 30) | (ySize < 30)) {
     next
   }
   
-  # create vectors of MAF values
   xSeqToDeathTmp <- xSubSetSamples$INT_SEQ_TO_DEATH
   ySeqToDeathTmp <- ySubSetSamples$INT_SEQ_TO_DEATH
   
@@ -558,17 +500,14 @@ for (iX in rownames(prognosticTypeCnts)) {
   ixInf <- is.infinite(xSeqToDeathTmp)
   iyInf <- is.infinite(ySeqToDeathTmp)
   
-  # remove nulls and Inf from vectors
   xSeqToDeathVec <- xSeqToDeathTmp[!ixNa & !ixInf]
   ySeqToDeathVec <- ySeqToDeathTmp[!iyNa & !iyInf]
   
-  # Organize data for density plot
   mafDf <- data.frame(value=c(xSeqToDeathVec,ySeqToDeathVec),
                       condition="sample has prognostic marker")
   iC2 <- seq((length(xSeqToDeathVec)+1),dim(mafDf)[[1]])
   mafDf[iC2,"condition"] <- "no prognostic marker in sample"
   
-  # Calculate the KS statistic and the point of maximum difference
   ks_test <- ks.test(xSeqToDeathVec, ySeqToDeathVec)
   ks_stat <- ks_test$statistic
   xx <- seq(0,100,.1)
@@ -585,7 +524,6 @@ for (iX in rownames(prognosticTypeCnts)) {
     theme(plot.title = element_text(hjust = 0.5))
   ggsave(outF,height = 6,width = 6)
   
-  # perform wilcox test
   wrs.twosided <- wilcox.test(xSeqToDeathVec,
                               ySeqToDeathVec,
                               alternative = "two.sided",
@@ -593,41 +531,34 @@ for (iX in rownames(prognosticTypeCnts)) {
                               conf.int=TRUE,
                               paired=FALSE)
   
-  ## create outputs
   c1_temp_summary <- summary(xSeqToDeathVec)
   c2_temp_summary <- summary(ySeqToDeathVec)
   
-  # Create a row to append to the dataframe
   new_row <- data.frame(
-    # condition info
     cancer_type = ctType,
     prognostic_marker_gene=progGene,
     expected_significance=progSigDir,
-    # summary stats condition 1
     c1_min = c1_temp_summary[[1]],
     c1_first_quartile = c1_temp_summary[[2]],
     c1_median = c1_temp_summary[[3]],
     c1_mean = c1_temp_summary[[4]],
     c1_third_quartile = c1_temp_summary[[5]],
     c1_max = c1_temp_summary[[6]],
-    # summary stats condition 2
     c2_min = c2_temp_summary[[1]],
     c2_first_quartile = c2_temp_summary[[2]],
     c2_median = c2_temp_summary[[3]],
     c2_mean = c2_temp_summary[[4]],
     c2_third_quartile = c2_temp_summary[[5]],
     c2_max = c2_temp_summary[[6]],
-    # wilcox results
     wilcox_p_value = wrs.twosided$p.value,
     wilcox_statistic = wrs.twosided$statistic[[1]],
     wilcox_estimate = wrs.twosided$estimate[[1]]
   )
   
-  # Append the new row to the summary dataframe
   testResProgDf <- rbind(testResProgDf, new_row)
 }
 
-# Apply FDR correction
+# FDR correction
 testResProgDf$p_adjusted_wilcox <- p.adjust(testResProgDf$wilcox_p_value, method = "fdr")
 
 testResProgDf <- testResProgDf %>%
@@ -659,11 +590,9 @@ qqplot(-log10(ppoints(length(testResProgDf$p_adjusted_wilcox))),
 abline(0, 1, col = "blue")  # Line y = x for reference
 dev.off()
 
-#######################################################
-### Sankey diagram of biomarker to drug assignments ###
-#######################################################
+# Sankey diagrams of biomarker-to-drug and biomarker-to-prognosis assignments
 
-### Sankey data product - drung
+# Sankey data: biomarker to drug
 aa.genome.representative$AAChangeStr <- paste0(aa.genome.representative$gene,"-",aa.genome.representative$AAChangeObserved)
 SankeyDrugCnts <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T,
@@ -680,16 +609,15 @@ ggplot(data = SankeyDrugCnts[seq(1:20),],
        aes(axis1 = CANCER_TYPE, axis2 = AAChangeStr, axis3 = Drugs, y = n)) +
   geom_alluvium(aes(fill = CANCER_TYPE)) + 
   geom_stratum() +  
-  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +  # Add text labels
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +
   theme_minimal() +  
   ggtitle("Top restricted drug matches")+  
   scale_fill_brewer(palette="Set2",drop=FALSE)+
-  #theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 12)
 
 
-### Sankey data product - prognosis by AA Change
+# Sankey data: prognosis by amino-acid change
 SankeyPrognosticCnts <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T,
                 actionability.summary == "Prognostic") %>%
@@ -704,14 +632,13 @@ ggplot(data = SankeyPrognosticCnts[seq(1:20),],
        aes(axis1 = CANCER_TYPE, axis2 = AAChangeStr, axis3 = clinical_significance, y = n)) +
   geom_alluvium(aes(fill = CANCER_TYPE)) + 
   geom_stratum() +  
-  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +  # Add text labels
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +
   theme_minimal() +  
   ggtitle("Top restricted drug matches")+  
-  #scale_fill_brewer(palette="Set2",drop=FALSE)+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 12)
 
-### Sankey data product - prognosis by Gene Change
+# Sankey data: prognosis by gene
 SankeyPrognosticCntsGene <- aa.genome.representative %>%
   dplyr::filter(cancerTypeMatch==T,
                 actionability.summary == "Prognostic") %>%
@@ -727,16 +654,13 @@ ggplot(data = SankeyPrognosticCntsGene[seq(1:15),],
        aes(axis1 = CANCER_TYPE, axis2 = gene, axis3 = clinical_significance, y = n)) +
   geom_alluvium(aes(fill = CANCER_TYPE)) + 
   geom_stratum() +  
-  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +  # Add text labels
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +
   theme_minimal() +  
   ggtitle("Top restricted drug matches")+  
-  #scale_fill_brewer(palette="Set2",drop=FALSE)+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 10,width = 10)
 
 
-
-# tumor purity
 outF <-  paste0(outDir,"/tumor_purity_by_study.pdf")
 ggplot(svCompiled,aes(x=TUMOR_PURITY,fill=SourceStudy))+
   geom_density(alpha=.4)+
@@ -744,24 +668,11 @@ ggplot(svCompiled,aes(x=TUMOR_PURITY,fill=SourceStudy))+
   ggtitle("Tumor purity values listed by study")+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6,width = 6)
-# 
-# # VAF and tumor purity - all points
 iNonNullPurity <- !is.na(svCompiled$TUMOR_PURITY)
-# outF <- paste0(outDir,"/tumor_purity_and_MAF_by_study.pdf")
-# ggplot(svCompiled[iNonNullPurity,],aes(x=TUMOR_PURITY, y=MAF, color=SourceStudy))+
-#   geom_point(alpha=.02)+
-#   geom_density_2d()+
-#   #stat_density_2d(aes(fill = ..level..), color = "black")+ #geom = "polygon",
-#   ylim(c(0,99))+
-#   ggtitle("Tumor purity and MAF values listed by study")+  
-#   scale_color_brewer(palette="Set2",drop=FALSE)+
-#   theme(plot.title = element_text(hjust = 0.5))
-# ggsave(outF,height = 8,width = 8)
 
 
 outF <- paste0(outDir,"/tumor_purity_and_MAF_by_study_v2.pdf")
 ggplot(svCompiled[iNonNullPurity,],aes(x=TUMOR_PURITY, y=MAF, color=SourceStudy))+
-  #geom_point(alpha=.02)+
   geom_density_2d_filled(alpha = 0.5) +
   geom_density_2d(linewidth = 0.25)+
   ylim(c(0,99))+
@@ -775,7 +686,6 @@ outF <- paste0(outDir,"/tumor_purity_and_MAF_by_study_actionable.pdf")
 ggplot(aa.genome.representative[iNonNullPurity,],aes(x=TUMOR_PURITY, y=MAF, color=SourceStudy))+
   geom_point(alpha=.02)+
   geom_density_2d()+
-  #stat_density_2d(aes(fill = ..level..), color = "black")+ #geom = "polygon",
   ylim(c(0,99))+
   ggtitle("Tumor purity and MAF values listed by study")+  
   scale_color_brewer(palette="Set2",drop=FALSE)+
@@ -783,7 +693,6 @@ ggplot(aa.genome.representative[iNonNullPurity,],aes(x=TUMOR_PURITY, y=MAF, colo
 ggsave(outF,height = 8,width = 8)
 
 
-# calculate MAF Purity products
 aa.genome.representative$MAF_x_Purity <- NA
 aa.genome.representative[iNonNullPurity,"MAF_x_Purity"] <- aa.genome.representative[iNonNullPurity,"MAF"] * aa.genome.representative[iNonNullPurity,"TUMOR_PURITY"]
 
@@ -806,7 +715,6 @@ ggplot(aa.genome.representative[iNonNullPurity,],aes(x=MAF_divided_by_Purity,fil
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6,width = 6)
 
-# model VAF inputs: alt count and (alt+ref cnt)
 aa.genome.representative <- aa.genome.representative %>%
   dplyr::mutate(t_alt_plus_ref_count = t_ref_count+t_alt_count)
 iOutlier <- aa.genome.representative$t_alt_plus_ref_count > 3000
@@ -815,7 +723,7 @@ outF <- paste0(outDir,"/alt_cnt_ref_cnt_MAF_by_study_actionable.pdf")
 dfForPlot <- aa.genome.representative[!iOutlier & !isNaReadCnt,]
 dfForPlot$fivePercThresh <- dfForPlot$t_alt_plus_ref_count*0.05
 dfForPlot$onePercThresh <- dfForPlot$t_alt_plus_ref_count*0.01
-ggplot(dfForPlot,aes(x=t_alt_plus_ref_count, y=t_alt_count, color=SourceStudy))+ #
+ggplot(dfForPlot,aes(x=t_alt_plus_ref_count, y=t_alt_count, color=SourceStudy))+
   geom_point(alpha=.02)+
   geom_density_2d()+
   scale_x_log10(
@@ -826,16 +734,13 @@ ggplot(dfForPlot,aes(x=t_alt_plus_ref_count, y=t_alt_count, color=SourceStudy))+
     breaks = scales::trans_breaks("log10", function(x) 10^x),
     labels = scales::trans_format("log10", scales::math_format(10^.x))
   )+
-  #stat_density_2d(aes(fill = ..level..), color = "black")+ #geom = "polygon",
-  #ylim(c(0,99))+
   ggtitle("Ref and Alt counts for actionable mutations")+  
   scale_color_brewer(palette="Set2",drop=FALSE)+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 8)
 
-# with 5% threshold point
 outF <- paste0(outDir,"/alt_cnt_ref_cnt_MAF_with_5Perc_thresh.pdf")
-ggplot(dfForPlot,aes(x=t_alt_plus_ref_count, y=t_alt_count))+ #, color=SourceStudy
+ggplot(dfForPlot,aes(x=t_alt_plus_ref_count, y=t_alt_count))+
   geom_point(alpha=.02)+
   geom_density_2d()+
   geom_line(data=data.frame(t_alt_plus_ref_count=dfForPlot$t_alt_plus_ref_count,t_alt_count=dfForPlot$fivePercThresh),color="green",alpha=.3)+
@@ -853,36 +758,15 @@ ggplot(dfForPlot,aes(x=t_alt_plus_ref_count, y=t_alt_count))+ #, color=SourceStu
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 8)
 
-# model raw MAF
 iNonNullPurity <- !is.na(aa.genome.representative$TUMOR_PURITY)
 iCancerMatched <- aa.genome.representative$cancerTypeMatch==T
 linModData <- aa.genome.representative[iNonNullPurity & iCancerMatched,]
 
-# Convert categorical variable into one-hot encoding
 linModDataOHE <- linModData %>%
-  mutate(row_id = row_number()) %>%  # Add a unique row identifier
+  mutate(row_id = row_number()) %>%
   pivot_wider(names_from = actionability.summary, values_from = actionability.summary, values_fill = 0, 
               values_fn = list(actionability.summary = length)) %>%
-  select(-row_id) %>%  # Remove the row identifier
-  mutate(across(.cols = everything(), .fns = ~ as.integer(. > 0)))  # Convert counts to binary
+  select(-row_id) %>%
+  mutate(across(.cols = everything(), .fns = ~ as.integer(. > 0)))
 
 
-##model <- stats::lm(actionability.summary ~ MAF + TUMOR_PURITY + SourceStudy, data = aa.genome.representative[iNonNullPurity,])
-#model <- stats::lm(MAF ~ TUMOR_PURITY + actionability.summary + SourceStudy, data = linModData)
-#model <- stats::lm(MAF ~ TUMOR_PURITY + actionability.summary + ot_code_level_1 + SourceStudy, data = linModData)
-#
-## model MAF divided by purity
-#model <- stats::lm(MAF_divided_by_Purity ~ actionability.summary + SourceStudy, data = linModData)
-##model <- stats::lm(MAF_divided_by_Purity ~ Predictive.therapy.actionability + Therapy.resistance +  Prognostic + SourceStudy, data = linModDataOHE)
-#
-#
-## Summarize the model
-#summary(model)
-
-# plot model output and residuals
-# library(car)
-# # Creating a partial residual plot for 'age' in the model
-# crPlots(model)
-# avPlots(model)
-# par(mfrow=c(2,2))
-# plot(model)

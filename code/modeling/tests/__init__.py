@@ -1,3 +1,1 @@
-"""
-Test suite for oncokb_analyzer hyperparameter optimization.
-"""
+"""Tests for oncokb_analyzer."""

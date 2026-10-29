@@ -1,17 +1,4 @@
-"""
-Tests for MissingnessIndicatorTransformer.
-
-Covers:
-  - Indicator columns are added with correct semantics (1 where original was "Unknown").
-  - The original column's "Unknown" values are replaced by the *training-set*
-    mode — the test set must not contribute to mode selection (train/test
-    boundary).
-  - Edge case: training data with no "Unknown" values (transformer still
-    works; indicator is all-zero on transform output).
-  - Edge case: training data 100% "Unknown" emits a warning and the mode
-    falls back to "Unknown" itself.
-  - get_feature_names_out reports the indicator columns.
-"""
+"""Tests for MissingnessIndicatorTransformer."""
 
 from __future__ import annotations
 
@@ -145,13 +132,7 @@ def test_get_feature_names_out_includes_indicators(train_df):
 
 
 def test_mode_other_warns():
-    """
-    Regression for #10 (pre-lock review sweep 2026-05-22).
-
-    If mode-imputation resolves to a catch-all bucket like 'Other', NKI/CRUK
-    Unknowns get folded into a heterogeneous group, partly defeating Fix b.
-    The transformer warns rather than rejecting, so the analyst can decide.
-    """
+    """Warn when the imputed mode is a catch-all category such as 'Other'."""
     df = pd.DataFrame({
         # Non-Unknown mode is 'Other' (4 vs European=3, African=1).
         'ANCESTRY': ['Other'] * 4 + ['European'] * 3 + ['African'] * 1 + ['Unknown'] * 2,
@@ -177,13 +158,7 @@ def test_mode_non_other_does_not_warn(train_df):
 
 
 def test_nan_treated_as_missing():
-    """
-    Regression for #11 (pre-lock review sweep 2026-05-22).
-
-    Real np.nan should be treated as missingness (indicator=1 + mode imputation)
-    alongside the 'Unknown' string sentinel. Previously NaN bypassed the
-    transformer entirely.
-    """
+    """NaN is treated as missing, like the 'Unknown' sentinel."""
     train_df = pd.DataFrame({
         'ANCESTRY': ['European'] * 6 + ['African'] * 2 + ['Unknown'] * 2,
     })
@@ -205,8 +180,7 @@ def test_nan_treated_as_missing():
 def test_nan_in_fit_counted_as_missing():
     """NaN in the fit data should be excluded from mode computation."""
     df = pd.DataFrame({
-        # If NaN were counted, mode might tie or shift. With NaN excluded,
-        # non-missing is ['European']*3 + ['African']*1 → mode = European.
+        # If NaN were counted, mode might tie or shift.
         'ANCESTRY': ['European'] * 3 + ['African'] * 1 + [np.nan] * 5 + ['Unknown'] * 2,
     })
     t = MissingnessIndicatorTransformer(columns=['ANCESTRY'])
@@ -215,14 +189,7 @@ def test_nan_in_fit_counted_as_missing():
 
 
 def test_get_feature_names_out_none_returns_fit_columns_plus_indicators(train_df):
-    """
-    Regression for #1 (pre-lock review sweep 2026-05-22).
-
-    sklearn Pipeline.get_feature_names_out() passes input_features=None to the
-    first step. Before the fix, the transformer returned only the configured
-    cols + indicators, silently dropping every other passthrough column. This
-    test ensures the no-arg path returns the full fit-time column set.
-    """
+    """get_feature_names_out(None) returns the fit-time columns plus the indicators."""
     t = MissingnessIndicatorTransformer(columns=['ANCESTRY', 'ETHNICITY'])
     t.fit(train_df)
     names = t.get_feature_names_out()  # explicit no-arg

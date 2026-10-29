@@ -1,8 +1,6 @@
-"""Smoke tests for run_all_analyses orchestrator: pathway gating and TIER wiring.
+"""Smoke tests for the run_all_analyses orchestrator: pathway gating and tier wiring.
 
-These tests construct MasterAnalysis instances in dry-run mode and assert on the
-generated script list. They do NOT execute any tier — they only verify that the
-right ScriptConfigs are emitted under different flag combinations.
+Builds MasterAnalysis in dry-run mode and checks the generated script list; no tier is executed.
 """
 
 import shutil
@@ -72,6 +70,7 @@ def test_lr_pass_with_base_run_dir_emits_cross_pathway_plots(fake_rf_run, cleanu
         mode='post-model-selection',
         algorithm='logistic',
         base_run_dir=str(fake_rf_run),
+        hyperparams_source='defaults',
         dry_run=True,
     ))
     paths = _paths(runner.scripts)
@@ -106,18 +105,19 @@ def test_rf_pass_omits_cross_pathway_plots(cleanup_run_dirs):
 
 
 def test_tier1_promotes_cv_forest_plots(cleanup_run_dirs):
-    """TIER 1 includes the promoted CV-and-forest publication script."""
+    """The CV/forest plot script is scheduled in the full run."""
     runner = cleanup_run_dirs(MasterAnalysis(mode='full', algorithm='random_forest', dry_run=True))
     paths = _paths(runner.scripts)
     assert 'code/analysis/institutional/plot_cv_and_forest_simple.py' in paths
 
 
 def test_base_run_dir_skips_tier1_2_3(fake_rf_run, cleanup_run_dirs):
-    """When base_run_dir is set, TIER 1, 2, 3 are skipped (their outputs come from the base run)."""
+    """With a base run dir, tiers 1-3 are skipped and tiers 4-5 remain."""
     runner = cleanup_run_dirs(MasterAnalysis(
         mode='full',
         algorithm='logistic',
         base_run_dir=str(fake_rf_run),
+        hyperparams_source='defaults',
         dry_run=True,
     ))
     tiers = {s.tier for s in runner.scripts}
@@ -139,7 +139,7 @@ def test_tier3_default_omits_xgboost(cleanup_run_dirs):
 
 
 def test_tier3_xgboost_via_flag(cleanup_run_dirs):
-    """tier3_algorithms='rf,lr,xgb' restores XGBoost in TIER 3 search."""
+    """--tier3-algorithms is forwarded to the tier-3 script."""
     runner = cleanup_run_dirs(MasterAnalysis(
         mode='full',
         algorithm='random_forest',
@@ -152,8 +152,7 @@ def test_tier3_xgboost_via_flag(cleanup_run_dirs):
 
 
 def test_quick_rf_passes_no_shap_filter(cleanup_run_dirs):
-    """--quick + RF skips SHAP, so the gene-strat script must get --no-shap-filter
-    rather than auto-search and fail with 'No v2.0 SHAP file found'."""
+    """--quick + RF skips SHAP, so the gene-strat script must get --no-shap-filter rather than auto-search and fail."""
     runner = cleanup_run_dirs(MasterAnalysis(
         mode='quick',
         algorithm='random_forest',
@@ -174,6 +173,7 @@ def test_lr_pass_with_rankings_omits_no_shap_filter(fake_rf_run, cleanup_run_dir
         mode='post-model-selection',
         algorithm='logistic',
         base_run_dir=str(fake_rf_run),
+        hyperparams_source='defaults',
         dry_run=True,
     ))
     gene_strat = next(
@@ -182,3 +182,19 @@ def test_lr_pass_with_rankings_omits_no_shap_filter(fake_rf_run, cleanup_run_dir
     )
     assert '--shap-file' in gene_strat.args
     assert '--no-shap-filter' not in gene_strat.args
+
+
+def test_tables_only_drops_non_table_scripts(fake_rf_run, cleanup_run_dirs):
+    """--tables-only removes figure-only scripts but keeps the gene-stratified tests."""
+    from run_all_analyses import NON_TABLE_SCRIPTS
+    runner = cleanup_run_dirs(MasterAnalysis(
+        mode='post-model-selection',
+        algorithm='logistic',
+        base_run_dir=str(fake_rf_run),
+        hyperparams_source='defaults',
+        tables_only=True,
+        dry_run=True,
+    ))
+    names = {Path(p).name for p in _paths(runner.scripts)}
+    assert not names & NON_TABLE_SCRIPTS
+    assert 'analyze_gene_stratified_associations.py' in names

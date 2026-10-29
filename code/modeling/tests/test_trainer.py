@@ -1,5 +1,4 @@
-"""
-Unit tests for trainer.py
+"""Unit tests for trainer.py
 
 Tests ModelTrainer initialization, feature preparation, and model training.
 """

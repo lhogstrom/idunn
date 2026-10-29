@@ -1,29 +1,14 @@
 #!/usr/bin/env python3
-"""Cross-pathway visualization of gene-stratified hits significant in BOTH RF and LR pathways.
+"""Cross-pathway visualization of gene-stratified hits significant in both RF and LR.
 
-Reads the per-feature `*_gene_significant.csv` from one RF run and one LR run,
-computes the inner-join intersection on (ONCOTREE_CODE, Hugo_Symbol), and emits:
-
-  RACE (column 'RACE')
-    - race/intersection_summary.csv         one row per intersected hit, both p_fdr's
-    - race/per_hit/<gene_race_*>            existing-style contingency plot per hit
-    - race/fig1_lollipop_effect_sizes_{tier1,tier2_tier3}.{pdf,png}
-    - race/fig2_diverging_dpp_small_multiples_{tier1,tier2_tier3}.{pdf,png}
-
-  SEX (column 'SEX' — Female / Male odds ratio)
-    - sex/intersection_summary.csv          OR + 95% CI + both p_fdr + F/M counts
-    - sex/per_hit_counts/<gene_sex_*>.csv   per-hit F/M counts
-    - sex/sex_or_forest_{all,tier1,tier2_tier3}.{pdf,png}
+Inner-joins the per-feature `*_gene_significant.csv` of one RF and one LR run
+on (ONCOTREE_CODE, Hugo_Symbol), then writes, per feature:
+  race/: intersection_summary.csv, per-hit contingency plots, lollipop and diverging-dpp figures
+  sex/:  intersection_summary.csv (OR + 95% CI), per-hit counts, forest plots
 
 Usage:
-    # Post-SHAP-gate-audit (2026-05-07); see code_review_and_feedback/shap_gate_provenance_audit_2026-05-07.md
-    python visualize_rf_lr_hit_intersection.py \\
-        --rf-run-dir runs/run_20260505_164207 \\
-        --lr-run-dir runs/run_20260313_111146 \\
-        [--features race sex]
-        [--output-dir ...]
-    # Note: `tier7_posthoc_statistics/` must resolve to the post-audit regenerated
-    # outputs (symlink `tier7_posthoc_statistics → tier7_posthoc_statistics_REGENERATED_20260507`).
+  python visualize_rf_lr_hit_intersection.py --rf-run-dir runs/<rf_run> \
+      --lr-run-dir runs/<lr_run> [--features race sex] [--output-dir DIR]
 """
 
 from __future__ import annotations
@@ -50,7 +35,16 @@ from multi_tier_utils import (  # noqa: E402
     load_patient_to_group_mapping,
 )
 from raw_data_plot_utils import plot_categorical_contingency  # noqa: E402
-from figure_style import apply_publication_style, get_palette, get_color  # noqa: E402
+from figure_style import (  # noqa: E402
+    apply_publication_style, get_palette, get_color, get_neutral, panel_size_in,
+)
+
+# Panels are authored at their on-page size so figure_style type sizes are the printed sizes.
+SEX_FOREST_WIDTH_MM = 88.25
+ANCESTRY_PANEL_WIDTH_MM = 120.0
+ANCESTRY_BAR_HEIGHT_MM = 40.0  # per grid row
+ANCESTRY_BAR_LABEL_GUTTER_MM = 22.0  # shared y-axis category labels (leftmost column)
+MIN_SUBPANEL_MM = 30.0  # below this a small multiple's labels collide
 
 PATIENT_TABLE = "perPatientOncoKBFilteredForModeling"
 MAPPING_REL_PATH = Path("tier2_data_setup/multi_tier_groupings/patient_to_group_mapping.csv")
@@ -60,11 +54,11 @@ RACE_ORDER = [
     "Native American", "Pacific Islander",
 ]
 
-# Colors sourced from the shared palette (code/config/palette.json).
+# Colors from the shared palette (code/config/palette.json).
 SYSTEM_COLOR_DEFAULT = get_color("cancer_systems.default")
 SYSTEM_PALETTE = get_palette("qualitative")
 
-# Cancer-system color map for SEX forest plots (root cancer-area buckets)
+# Cancer-system color map for SEX forest plots
 SEX_SYSTEM_COLOR = {
     "lung":       get_color("cancer_systems.lung"),
     "colorectal": get_color("cancer_systems.colorectal"),
@@ -73,9 +67,7 @@ SEX_SYSTEM_COLOR = {
 }
 
 
-# -----------------------------------------------------------------------------
 # Feature spec
-# -----------------------------------------------------------------------------
 
 FEATURE_SPEC: Dict[str, dict] = {
     "race": {
@@ -101,9 +93,7 @@ FEATURE_SPEC: Dict[str, dict] = {
 }
 
 
-# -----------------------------------------------------------------------------
 # Loading and intersection (feature-aware)
-# -----------------------------------------------------------------------------
 
 def load_significant_hits(run_dir: Path, feature: str, pathway_label: str) -> pd.DataFrame:
     spec = FEATURE_SPEC[feature]
@@ -152,7 +142,7 @@ def intersect_hits(rf: pd.DataFrame, lr: pd.DataFrame, feature: str) -> pd.DataF
         rename_map_rf[c] = f"{c}_rf"
         rename_map_lr[c] = f"{c}_lr"
 
-    # Carry test_used through if present (feature='sex')
+    # Carry test_used through if present (sex)
     extra_cols = [c for c in ("test_used", "warning") if c in rf.columns]
     rf_sub = rf[base_cols + extra_cols].rename(columns=rename_map_rf)
     lr_sub = lr[base_cols + extra_cols].rename(columns=rename_map_lr)
@@ -206,9 +196,7 @@ def intersect_hits(rf: pd.DataFrame, lr: pd.DataFrame, feature: str) -> pd.DataF
 
 
 def split_by_tier(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-    # Plain (non-prefixed) OncoTree codes — what the tier1-only publication pipeline
-    # emits — count as tier1. Only explicit tier2_/tier3_ rollup codes (from the
-    # external rollup-aware runs) go to the tier2_tier3 panel.
+    # Plain OncoTree codes are leaf codes; only tier2_/tier3_ rollup codes go to the rollup panel.
     is_t23 = df["ONCOTREE_CODE"].str.match(r"^tier[23]_")
     return {
         "tier1": df[~is_t23].copy(),
@@ -217,7 +205,7 @@ def split_by_tier(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
 
 
 def _tier_subset_label(ot_code: str) -> str:
-    # Plain (non-prefixed) codes from the tier1-only publication pipeline are tier1.
+    # Plain codes are leaf codes.
     return "tier2_tier3" if ot_code.startswith(("tier2_", "tier3_")) else "tier1"
 
 
@@ -229,9 +217,7 @@ def _short_label(tier_prefixed_code: str, gene: str) -> str:
     return f"{pretty} · {gene}"
 
 
-# -----------------------------------------------------------------------------
-# RACE: Contingency reconstruction (for Δpp small multiples)
-# -----------------------------------------------------------------------------
+# RACE: contingency reconstruction (for dpp small multiples)
 
 def build_contingency(
     db_path: str,
@@ -243,8 +229,7 @@ def build_contingency(
         # Rollup-aware run: expand the group code to its constituent OncoTree codes.
         ot_codes = get_oncotree_codes_for_group(tier_prefixed_code, mapping_df)
     else:
-        # Plain OncoTree code (tier1-only publication run): the code IS the OncoTree
-        # code, so no rollup mapping is needed (mapping_df may be None here).
+        # Plain OncoTree code: no rollup mapping needed (mapping_df may be None).
         ot_codes = [tier_prefixed_code]
     if not ot_codes:
         raise ValueError(f"No OncoTree codes resolved for {tier_prefixed_code}")
@@ -319,9 +304,7 @@ def build_long_format(
     return pd.DataFrame(rows)
 
 
-# -----------------------------------------------------------------------------
-# RACE: Per-hit and summary figures
-# -----------------------------------------------------------------------------
+# RACE: per-hit and summary figures
 
 def render_race_per_hit(
     intersection: pd.DataFrame,
@@ -373,7 +356,8 @@ def _race_system_palette(intersection: pd.DataFrame) -> Dict[str, str]:
     return palette
 
 
-def fig1_lollipop(intersection: pd.DataFrame, output_path: Path, title_suffix: str) -> None:
+def fig1_lollipop(intersection: pd.DataFrame, output_path: Path, title_suffix: str,
+                  width_mm: float = ANCESTRY_PANEL_WIDTH_MM) -> None:
     if intersection.empty:
         print(f"  [skip] fig1 {title_suffix}: no hits")
         return
@@ -383,35 +367,38 @@ def fig1_lollipop(intersection: pd.DataFrame, output_path: Path, title_suffix: s
 
     y = np.arange(len(df))
     apply_publication_style()
-    fig, ax = plt.subplots(figsize=(10, max(3.0, 0.5 * len(df) + 1.5)),
-                           constrained_layout=True)
+    # Content-driven height: one row per intersected ancestry hit.
+    fig, ax = plt.subplots(
+        figsize=panel_size_in(width_mm, n_rows=len(df), row_mm=5.0, header_mm=20.0),
+        constrained_layout=True,
+    )
 
     for i, row in df.iterrows():
         color = palette.get(row["system_key"], SYSTEM_COLOR_DEFAULT)
         ax.hlines(y=i, xmin=0, xmax=row["cramers_v"],
-                  color=color, linewidth=2, alpha=0.7)
-        ax.plot(row["cramers_v"], i, "o", color=color, markersize=8,
-                markeredgecolor="white", markeredgewidth=0.8)
+                  color=color, linewidth=1.2, alpha=0.7)
+        ax.plot(row["cramers_v"], i, "o", color=color, markersize=3.2,
+                markeredgecolor=get_neutral("on_fill"), markeredgewidth=0.4)
         neg_log_p = -np.log10(max(row["p_fdr_max"], 1e-300))
         n_total = int(row["n_gene_actionable"]) + int(row["n_non_actionable"])
         ax.text(row["cramers_v"] + 0.005, i,
                 f"  -log10(p)={neg_log_p:5.1f}   N={n_total:,}",
-                va="center", ha="left", fontsize=8, color="#444")
+                va="center", ha="left", fontsize=5, color=get_neutral("rule"))
 
     ax.set_yticks(y)
     ax.set_yticklabels([_short_label(r["ONCOTREE_CODE"], r["Hugo_Symbol"]) for _, r in df.iterrows()])
     ax.set_xlabel("Cramer's V")
     xmax = df["cramers_v"].max() * 1.45
     ax.set_xlim(0, xmax if xmax > 0 else 0.1)
-    # In-figure title removed per figures/style/FIGURE_STYLE_GUIDE.md (-> caption).
+    # In-figure title omitted (goes in the caption).
     ax.grid(axis="x", alpha=0.3)
     ax.spines[["top", "right"]].set_visible(False)
 
-    legend_handles = [Line2D([0], [0], marker="o", color="w",
-                              markerfacecolor=c, markersize=9, label=k)
+    legend_handles = [Line2D([0], [0], marker="o", color=get_neutral("on_fill"),
+                              markerfacecolor=c, markersize=4, label=k)
                       for k, c in palette.items()]
     ax.legend(handles=legend_handles, loc="lower right", title="OT group code",
-              frameon=False, fontsize=8)
+              frameon=False)
 
     for ext in ("png", "pdf"):
         fig.savefig(output_path.with_suffix(f".{ext}"), dpi=180)
@@ -423,6 +410,7 @@ def fig2_diverging_dpp(
     long_format: pd.DataFrame,
     output_path: Path,
     title_suffix: str,
+    width_mm: float = ANCESTRY_PANEL_WIDTH_MM,
 ) -> None:
     if intersection.empty:
         print(f"  [skip] fig2 {title_suffix}: no hits")
@@ -431,13 +419,21 @@ def fig2_diverging_dpp(
     sub = long_format[long_format["ONCOTREE_CODE"].isin(hits["ONCOTREE_CODE"]) &
                       long_format["Hugo_Symbol"].isin(hits["Hugo_Symbol"])]
 
+    # Grid layout adapts to the authored width: keep one row while panels stay >= MIN_SUBPANEL_MM,
+    # otherwise wrap to a balanced grid. The y-axis is shared, so only the leftmost column carries labels.
     n_panels = len(hits)
-    ncols = 3 if n_panels >= 3 else max(1, n_panels)
+    ncols = max(1, min(n_panels,
+                       int((width_mm - ANCESTRY_BAR_LABEL_GUTTER_MM) // MIN_SUBPANEL_MM)))
     nrows = int(np.ceil(n_panels / ncols))
+    ncols = int(np.ceil(n_panels / nrows))  # rebalance: never strand a lone panel
     apply_publication_style()
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4.4 * ncols, 3.4 * nrows),
-                             sharex=True, constrained_layout=True)
-    axes = np.atleast_2d(axes).reshape(-1)
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=panel_size_in(width_mm,
+                              height_mm=ANCESTRY_BAR_HEIGHT_MM * nrows),
+        sharex=True, sharey=True, constrained_layout=True,
+    )
+    axes = np.atleast_1d(axes).reshape(-1)
 
     xmax = max(sub["delta_pp"].abs().max() * 1.15, 1.0)
     pos_color = get_color("direction.positive")
@@ -451,37 +447,35 @@ def fig2_diverging_dpp(
 
         colors = [pos_color if v >= 0 else neg_color for v in d["delta_pp"]]
         ax.barh(d["race"].astype(str), d["delta_pp"], color=colors, alpha=0.85)
-        ax.axvline(0, color="black", linewidth=0.8)
+        ax.axvline(0, color=get_neutral("ink"), linewidth=0.8)
         ax.set_xlim(-xmax, xmax)
         n_g = int(d["n_gene_total"].iloc[0]) if len(d) else 0
         n_n = int(d["n_non_total"].iloc[0]) if len(d) else 0
+        # Two short lines: subpanels are narrow. Regular weight keeps these identifiers from dominating.
         ax.set_title(
-            f"{_short_label(h['ONCOTREE_CODE'], h['Hugo_Symbol'])}    "
-            f"V={h['cramers_v']:.3f}\n"
-            f"n_actionable={n_g:,}   n_control={n_n:,}",
-            fontsize=10,
+            f"{_short_label(h['ONCOTREE_CODE'], h['Hugo_Symbol'])}\n"
+            f"V={h['cramers_v']:.3f}   n={n_g:,}/{n_n:,}",
+            fontsize=5.5, fontweight="normal", linespacing=1.3,
         )
         ax.grid(axis="x", alpha=0.25)
         ax.spines[["top", "right"]].set_visible(False)
         for j, v in enumerate(d["delta_pp"]):
             xtxt = v + (0.4 if v >= 0 else -0.4)
             ha = "left" if v >= 0 else "right"
-            ax.text(xtxt, j, f"{v:+.1f}", va="center", ha=ha, fontsize=8, color="#222")
+            ax.text(xtxt, j, f"{v:+.1f}", va="center", ha=ha, fontsize=5, color=get_neutral("annotation"))
 
     for ax in axes[n_panels:]:
         ax.set_visible(False)
 
-    # In-figure suptitle removed per figures/style/FIGURE_STYLE_GUIDE.md (-> caption).
-    fig.supxlabel("Δ percentage points", fontsize=11)
+    # In-figure suptitle omitted (goes in the caption).
+    fig.supxlabel("Δ percentage points")
 
     for ext in ("png", "pdf"):
         fig.savefig(output_path.with_suffix(f".{ext}"), dpi=180)
     plt.close(fig)
 
 
-# -----------------------------------------------------------------------------
 # SEX: per-hit counts + forest plot
-# -----------------------------------------------------------------------------
 
 def _sex_cancer_system(ot_code: str) -> str:
     code = ot_code.replace("tier1_", "").replace("tier2_", "").replace("tier3_", "")
@@ -523,22 +517,25 @@ def render_sex_forest(
     intersection: pd.DataFrame,
     output_path: Path,
     title_suffix: str,
+    width_mm: float = SEX_FOREST_WIDTH_MM,
 ) -> None:
     if intersection.empty:
         print(f"  [skip] sex forest {title_suffix}: no hits")
         return
 
     df = intersection.copy()
-    df["label"] = df.apply(lambda r: _short_label(r["ONCOTREE_CODE"], r["Hugo_Symbol"])
-                                      + f"  (rk {int(r['gene_rank_rf'])})", axis=1)
+    # Row label is cancer-gene only; rank lives in the caption/table.
+    df["label"] = df.apply(lambda r: _short_label(r["ONCOTREE_CODE"], r["Hugo_Symbol"]), axis=1)
     df["system"] = df["ONCOTREE_CODE"].apply(_sex_cancer_system)
     df["color"] = df["system"].map(SEX_SYSTEM_COLOR).fillna(SYSTEM_COLOR_DEFAULT)
     df = df.sort_values("odds_ratio", ascending=True).reset_index(drop=True)
 
     n = len(df)
-    fig_h = max(3.5, 0.42 * n + 1.6)
     apply_publication_style()
-    fig, ax = plt.subplots(figsize=(8.5, fig_h))
+    # Content-driven height: one row per intersected sex hit.
+    fig, ax = plt.subplots(
+        figsize=panel_size_in(width_mm, n_rows=n, row_mm=5.0, header_mm=18.0)
+    )
 
     y = np.arange(n)
     ors = df["odds_ratio"].to_numpy()
@@ -547,29 +544,30 @@ def render_sex_forest(
     colors = df["color"].to_numpy()
 
     for yi, lo_i, hi_i, c in zip(y, lo, hi, colors):
-        ax.hlines(yi, lo_i, hi_i, color=c, linewidth=1.8, alpha=0.85)
-    ax.scatter(ors, y, c=colors, s=42, zorder=3, edgecolors="black", linewidths=0.4)
+        ax.hlines(yi, lo_i, hi_i, color=c, linewidth=1.0, alpha=0.85)
+    ax.scatter(ors, y, c=colors, s=12, zorder=3, edgecolors=get_neutral("ink"), linewidths=0.3)
 
-    ax.axvline(1.0, color="grey", linestyle="--", linewidth=1.0, alpha=0.7)
+    ax.axvline(1.0, color=get_neutral("rule"), linestyle="--", linewidth=1.0, alpha=0.7)
 
     ax.set_xscale("log")
     ax.set_xticks([0.8, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0])
     ax.get_xaxis().set_major_formatter(plt.matplotlib.ticker.ScalarFormatter())
-    ax.set_xlabel("Odds ratio (Female / Male) for gene-actionable status — 95% Wald CI on log(OR)")
+    # Label shortened; the caption carries the gene-actionable definition.
+    ax.set_xlabel("Odds ratio (Female / Male) — 95% Wald CI on log(OR)")
 
     ax.set_yticks(y)
-    ax.set_yticklabels(df["label"], fontsize=9)
+    ax.set_yticklabels(df["label"])
     ax.set_ylim(-0.7, n - 0.3)
 
     handles = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=c,
-               markeredgecolor="black", markersize=8, label=label.title())
+        Line2D([0], [0], marker="o", color=get_neutral("on_fill"), markerfacecolor=c,
+               markeredgecolor=get_neutral("ink"), markersize=3.5, label=label.title())
         for label, c in SEX_SYSTEM_COLOR.items() if (df["system"] == label).any()
     ]
     if handles:
-        ax.legend(handles=handles, loc="lower right", frameon=False, fontsize=8)
+        ax.legend(handles=handles, loc="lower right", frameon=False)
 
-    # In-figure title removed per figures/style/FIGURE_STYLE_GUIDE.md (-> caption).
+    # In-figure title omitted (goes in the caption).
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -579,9 +577,7 @@ def render_sex_forest(
     plt.close(fig)
 
 
-# -----------------------------------------------------------------------------
 # Per-feature pipelines
-# -----------------------------------------------------------------------------
 
 def run_race_pipeline(
     rf_run: Path,
@@ -677,9 +673,7 @@ def run_sex_pipeline(
     }
 
 
-# -----------------------------------------------------------------------------
 # Mapping resolution + README
-# -----------------------------------------------------------------------------
 
 def resolve_mapping(rf_run_dir: Path, lr_run_dir: Path) -> Optional[Path]:
     for d in (rf_run_dir, lr_run_dir):
@@ -702,9 +696,7 @@ def resolve_mapping(rf_run_dir: Path, lr_run_dir: Path) -> Optional[Path]:
         print(f"  [info] mapping not in run dirs; using most-recent {chosen}")
         return chosen
 
-    # No multi_tier_groupings mapping anywhere — expected for a tier1-only publication
-    # run, whose plain OncoTree codes need no rollup expansion. The race contingency
-    # handles plain codes directly (build_contingency), so return None rather than fail.
+    # No rollup mapping found: expected for plain-OncoTree runs, which need no expansion; return None.
     print("  [info] no multi_tier_groupings mapping found; assuming plain tier1-only "
           "codes (race contingency queries OncoTree codes directly).")
     return None
@@ -753,9 +745,7 @@ def write_readme(
     (output_dir / "README.md").write_text("\n".join(lines) + "\n")
 
 
-# -----------------------------------------------------------------------------
 # Main
-# -----------------------------------------------------------------------------
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,

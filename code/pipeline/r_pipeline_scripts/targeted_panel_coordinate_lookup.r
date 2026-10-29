@@ -1,3 +1,8 @@
+# Builds the panel-design coverage lookup. For each cancer type x genomic position, computes the
+# percent of patients whose sequencing panel covered the position, plus per-sample median coverage
+# (written to the SQLite DB as medianCoveragePerSample and genomicPositionLookup).
+# Invoked by workflow/main.nf: Rscript <script> <baseDir> <dbName>
+
 library(dplyr)
 library(tidyr)
 library(DBI)
@@ -8,12 +13,10 @@ library(RColorBrewer)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-# Check if the correct number of arguments are provided
 if (length(args) != 2) {
   stop("Two arguments must be supplied", call. = FALSE)
 }
 
-# Assign Arguments to Variables
 baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
 dbName <- args[2]
 
@@ -22,7 +25,6 @@ source(utilFile1)
 utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
-### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/genomic_panel_coverage")
 geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
 if (!dir.exists(geneOutDir)) {
@@ -36,32 +38,20 @@ svCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM patientObservedVa
 svCompiled$SEQ_ASSAY_ID_mod <- svCompiled$SEQ_ASSAY_ID
 svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SEQ_ASSAY_ID_mod"] <- svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SourceStudy"]
 
-#############################
-### assay info from GENIE ###
-#############################
-
 inF <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_15p0_public/genomic_information.txt")
 genomicInfo <- read.csv(inF,sep="\t")
 
-##############################################
-### median genomic coverage per sample ####
-##############################################
 
 medianCoveragePerSample <- svCompiled %>%
   dplyr::group_by(Center,Tumor_Sample_Barcode) %>%
   dplyr::summarise(medianCoverage=median(t_alt_plus_ref_count,na.rm = TRUE))
 
-### write table
 outF <- paste0(outDir,"/median_coverage_per_sample.txt")
 write.table(medianCoveragePerSample,outF,row.names=F,quote=F,sep="\t")
 RSQLite::dbWriteTable(harmonizedDb, "medianCoveragePerSample", medianCoveragePerSample, overwrite =T)
 
-# what is the coverage by distribution for AACR GENIE
 print(summary(medianCoveragePerSample[medianCoveragePerSample$SourceStudy=="AACR-GENIE-data","medianCoverage"]))
 
-##############################################
-### panel proportions by genomic position ####
-##############################################
 
 panelGPCovTbl <- svCompiled %>%
   dplyr::filter(SourceStudy=="AACR-GENIE-data") %>%
@@ -90,7 +80,6 @@ for (pID in unique(panelGPCovTbl$positionCtypeID)) {
   pos <- unique(pDf$Start_Position)
   uSeqIDs <- unique(pDf$SEQ_ASSAY_ID)
   
-  ### get panel info ###
   geneSubset <- genomicInfo[genomicInfo$Hugo_Symbol==gene,]
   geneSubset$region_ID <- seq(1,dim(geneSubset)[1])
   geneSubset$assay_ID <- factor(geneSubset$SEQ_ASSAY_ID,labels=seq(1,length(unique(geneSubset$SEQ_ASSAY_ID))))
@@ -102,7 +91,6 @@ for (pID in unique(panelGPCovTbl$positionCtypeID)) {
   iLst <- geneSubset$coordinate <= geneSubset$End_Position
   geneSubset$posInTarget <- iGrtr & iLst
   
-  # which panels tested for the position of interest? 
   panelsWithCoordTested <- unique(geneSubset[geneSubset$posInTarget==T,"SEQ_ASSAY_ID"])
   iIDMatch <- perPatientPanelCount$SEQ_ASSAY_ID %in% panelsWithCoordTested
   iCtypeMatch <- perPatientPanelCount$ONCOTREE_CODE %in% cType
@@ -116,17 +104,13 @@ for (pID in unique(panelGPCovTbl$positionCtypeID)) {
 genomicPositionLookup <- genomicPositionLookup %>%
   dplyr::left_join(cTypeCnts,by="ONCOTREE_CODE") %>%
   dplyr::mutate(perc_of_patients_with_coverage=100*(patients_tested_in_panel_with_coverage/nCtype)) %>%
-  #dplyr::arrange(desc(nCtype)) 
   dplyr::arrange(desc(patients_tested_in_panel_with_coverage))
 
-### write table
 outF <- paste0(outDir,"/panel_design_genomic_coverage_lookup.txt")
 write.table(genomicPositionLookup,outF,row.names=F,quote=F,sep="\t")
 RSQLite::dbWriteTable(harmonizedDb, "genomicPositionLookup", genomicPositionLookup, overwrite =T)
-### Disconnect from SQL db ###
 RSQLite::dbDisconnect(harmonizedDb)
 
-#### reporting stats
 topPostions <- genomicPositionLookup[genomicPositionLookup$perc_of_patients_with_coverage > 90.0,]
 genomicPositionLookup$highCoveragePosition <- genomicPositionLookup$positionCtypeID %in% topPostions$positionCtypeID
 
@@ -135,11 +119,7 @@ iHighCoverage <- genomicPositionLookup$highCoveragePosition == T
 print(sum(genomicPositionLookup[iHighCoverage,"n_patients_mutated_at_position"]))
 print(sum(genomicPositionLookup[!iHighCoverage,"n_patients_mutated_at_position"]))
 
-#################
-### Plot data ###
-#################
 
-### cumulative sum of patients with coverage
 genomicPositionLookup$mutated_cumsum <- cumsum(genomicPositionLookup$patients_tested_in_panel_with_coverage)
 genomicPositionLookup$perc_of_total <- 100* genomicPositionLookup$mutated_cumsum / sum(genomicPositionLookup$patients_tested_in_panel_with_coverage)
 
@@ -159,7 +139,6 @@ ggplot(genomicPositionLookup[1:100,],aes(x=positionCtypeID,y=mutated_cumsum,colo
   geom_hline(yintercept = cMax,linetype="dotted")+
   theme_bw()+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  #theme(axis.text.x = element_blank())+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6, width = 15)
 
@@ -173,7 +152,6 @@ ggplot(genomicPositionLookup[1:250,],aes(x=positionCtypeID,y=mutated_cumsum,colo
   geom_hline(yintercept = cMax,linetype="dotted")+
   theme_bw()+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  #theme(axis.text.x = element_blank())+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6, width = 15)
 

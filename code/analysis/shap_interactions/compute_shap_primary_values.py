@@ -1,31 +1,9 @@
 #!/usr/bin/env python3
-"""
-Compute SHAP Primary Feature Values
-
-Entry point script for TIER 6a SHAP analysis. Calculates primary SHAP values
-(mean absolute SHAP per feature) to determine feature importance rankings.
-
-This script:
-- Loads pre-trained models from TIER 5
-- Uses test data (20% held-out) for SHAP calculations
-- Generates feature importance rankings
-- Creates beeswarm summary plots
-- Outputs combined cross-cancer-type summaries
-
-Prerequisites:
-- TIER 5 must be completed (trained models available)
-- Train/test split file must exist
+"""Compute SHAP primary (main-effect) feature values for trained random forest models.
 
 Usage:
     # Quick test (LUAD only)
     python compute_shap_primary_values.py --quick-test
-
-    # Full run (all cancer types from TIER 5)
-    python compute_shap_primary_values.py --model-dir ../../ml_experiments/final_models/run_YYYYMMDD_HHMMSS
-
-    # Custom cancer types
-    python compute_shap_primary_values.py --cancer-types LUAD BRCA MEL --model-dir /path/to/models
-
 """
 
 import argparse
@@ -88,26 +66,12 @@ def find_model_files(
     cancer_types: Optional[List[str]] = None,
     algorithm: str = 'random_forest'
 ) -> Dict[str, Path]:
-    """
-    Find TIER 5 model files in directory.
-
-    Args:
-        model_dir: Path to TIER 5 models directory
-        cancer_types: Optional list of cancer types to filter
-        algorithm: Algorithm type for model file discovery ('random_forest' or 'logistic')
-
-    Returns:
-        Dict mapping cancer type to model file path
-    """
+    """Find saved final-model files in a directory."""
     model_files = {}
 
-    # Look for model files in multiple possible locations:
-    # 1. model_dir (direct)
-    # 2. model_dir/models/ (subdirectory)
-    # 3. model_dir/run_*/models/ (nested run directory - from run_all_analyses.py)
+    # Look for model files in several possible locations.
     search_dirs = [model_dir, model_dir / 'models']
 
-    # Add nested run directories (e.g., tier5_final_models/run_20260119_162154/models/)
     for run_dir in model_dir.glob('run_*'):
         if run_dir.is_dir():
             search_dirs.append(run_dir)
@@ -138,20 +102,7 @@ def analyze_cancer_type(
     output_dir: Path,
     logger: logging.Logger
 ) -> Optional[Dict]:
-    """
-    Analyze single cancer type with SHAP primary values.
-
-    Args:
-        cancer_type: Cancer type code
-        model_file: Path to TIER 5 model file
-        test_data: Test set data for this cancer type
-        train_data: Training set data (for explainer background)
-        output_dir: Output directory for this cancer type
-        logger: Logger instance
-
-    Returns:
-        Result dict with metrics and status, or None if failed
-    """
+    """Analyze single cancer type with SHAP primary values."""
     logger.info("=" * 70)
     logger.info(f"ANALYZING {cancer_type}")
     logger.info("=" * 70)
@@ -257,14 +208,7 @@ def generate_combined_outputs(
     output_dir: Path,
     logger: logging.Logger
 ):
-    """
-    Generate combined outputs across all cancer types.
-
-    Args:
-        results: List of result dicts from analyze_cancer_type()
-        output_dir: Root output directory
-        logger: Logger instance
-    """
+    """Generate combined outputs across all cancer types."""
     logger.info("=" * 70)
     logger.info("GENERATING COMBINED OUTPUTS")
     logger.info("=" * 70)
@@ -486,7 +430,7 @@ def main():
     if args.model_dir:
         model_dir = Path(args.model_dir)
     else:
-        # Auto-detect: look for most recent TIER 5 run
+        # Auto-detect the most recent run containing final models
         possible_dirs = [
             repo_root / 'ml_experiments' / 'final_models',
             repo_root / 'runs'

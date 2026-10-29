@@ -1,5 +1,4 @@
-"""
-Unit tests for preprocessing.py
+"""Unit tests for preprocessing.py
 
 Tests feature list retrieval, preprocessor creation, and column type classification.
 """
@@ -128,16 +127,7 @@ class TestCreatePreprocessor:
     """Tests for create_preprocessor() function."""
 
     def test_create_preprocessor_default(self):
-        """Test creating preprocessor with default settings (no available_columns).
-
-        Updated 2026-05-22 (pre-lock review #8): when `available_columns is
-        None`, create_preprocessor returns the bare ColumnTransformer (no
-        missingness step). The previous contract — unconditionally adding the
-        missingness step for ANCESTRY/ETHNICITY — crashed any caller whose
-        data lacked those columns (e.g. legacy array entrypoints in
-        hyperparameter_optimizer.py). Callers that want the missingness step
-        must pass `available_columns` explicitly.
-        """
+        """Test creating preprocessor with default settings (no available_columns)."""
         from sklearn.compose import ColumnTransformer
 
         preprocessor = create_preprocessor()
@@ -148,12 +138,7 @@ class TestCreatePreprocessor:
         assert len(preprocessor.transformers) == 2  # num and cat
 
     def test_create_preprocessor_with_columns(self):
-        """Test creating preprocessor with specific columns.
-
-        When ANCESTRY (and/or ETHNICITY) are listed, create_preprocessor
-        returns a sklearn Pipeline wrapping the MissingnessIndicatorTransformer
-        plus the ColumnTransformer (Feature Review Fix b, 2026-05-21).
-        """
+        """Test creating preprocessor with specific columns."""
         from sklearn.pipeline import Pipeline
 
         columns = ['SEX', 'AGE_AT_SEQ_REPORT', 'ANCESTRY']

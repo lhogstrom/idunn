@@ -1,11 +1,7 @@
-"""
-Minimal Configuration System for OncoKB Analyzer
+"""Dataclass-based analysis configuration with YAML support.
 
-Simple dataclass-based configuration with YAML support.
-No advanced features - just basic functionality for end-to-end run.
-
-Feature definitions are loaded from code/config/features.yaml via feature_config.
-Use feature_config_path parameter to specify custom feature config per run.
+Feature definitions come from code/config/features.yaml via feature_config;
+set feature_config_path to use a custom feature config.
 """
 
 from dataclasses import dataclass, field
@@ -23,7 +19,7 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    """Minimal configuration for basic functionality"""
+    """Minimal configuration for basic functionality."""
 
     # Database
     db_path: str
@@ -41,11 +37,11 @@ class Config:
 
     # Cross-validation strategy
     cv_strategy: str = "stratified_group"  # "standard", "group", or "stratified_group" (recommended)
-    group_column: str = "SUBJECT_CENTER"  # Column for GroupKFold/StratifiedGroupKFold (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
+    group_column: str = "SUBJECT_CENTER"
 
     # Train-test split strategy
     institution_aware_test_split: bool = False  # Use GroupShuffleSplit for test splits
-    test_split_group_column: str = "SUBJECT_CENTER"  # Column for institution-aware test splits (can differ from cv group_column)
+    test_split_group_column: str = "SUBJECT_CENTER"
 
     # Multi-tier grouping (optional)
     grouping_mapping_file: str = None  # Path to patient-to-group mapping CSV for multi-tier analysis
@@ -54,10 +50,10 @@ class Config:
     train_test_split_file: str = None  # Path to train/test split CSV file (PATIENT_ID, split columns)
 
     # Parallel processing
-    n_jobs: int = -1  # Number of parallel jobs (-1 uses all cores, 1 for single-threaded to save memory)
+    n_jobs: int = -1
 
     # Feature configuration
-    feature_config_path: Optional[str] = None  # Path to custom feature config YAML (default: code/config/features.yaml)
+    feature_config_path: Optional[str] = None
 
     # Output
     output_dir: str = "output/"
@@ -70,7 +66,7 @@ class Config:
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> 'Config':
-        """Load configuration from YAML file"""
+        """Load configuration from YAML file."""
         yaml_path = Path(yaml_path)
         if not yaml_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {yaml_path}")
@@ -88,7 +84,7 @@ class Config:
 
     @classmethod
     def default(cls) -> 'Config':
-        """Default configuration for quick testing"""
+        """Default configuration for quick testing."""
         return cls(
             db_path=get_default_db_path(),
             cancer_types=["LUAD", "BRCA"],  # Start with just 2 common types
@@ -96,7 +92,7 @@ class Config:
         )
 
     def validate(self) -> bool:
-        """Basic validation of configuration parameters"""
+        """Basic validation of configuration parameters."""
         # Check algorithm choice
         if self.algorithm not in ["random_forest", "logistic"]:
             raise ValueError(f"Algorithm must be 'random_forest' or 'logistic', got: {self.algorithm}")

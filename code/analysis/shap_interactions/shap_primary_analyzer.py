@@ -1,23 +1,4 @@
-"""
-SHAP Primary Feature Value Analyzer
-
-Core analysis engine for computing primary SHAP values (mean absolute SHAP per feature)
-to determine feature importance rankings for actionability prediction.
-
-This module provides the SHAPPrimaryAnalyzer class which:
-- Calculates SHAP values using TreeExplainer or LinearExplainer with background data optimization
-- Ranks features by mean absolute SHAP value
-- Generates beeswarm summary plots
-- Handles pre-trained models from TIER 5
-
-Supported model families:
-- Tree-based: RandomForest, GradientBoosting, XGBoost, LightGBM (uses shap.TreeExplainer)
-- Linear: LogisticRegression (uses shap.LinearExplainer)
-
-Different from interaction_analyzer.py which computes pairwise interactions.
-This module focuses on individual feature importance.
-
-"""
+"""SHAP primary-value analyzer for pre-trained models."""
 
 import numpy as np
 import pandas as pd
@@ -31,23 +12,7 @@ from feature_name_mapper import FeatureNameMapper, create_mapper_from_data_loade
 
 
 class SHAPPrimaryAnalyzer:
-    """
-    SHAP primary value analyzer for pre-trained models.
-
-    Computes standard SHAP values (not interaction values) to determine
-    individual feature importance for actionability prediction.
-
-    Key Concepts:
-    - SHAP value: Contribution of a single feature to the prediction
-    - Mean |SHAP|: Average absolute contribution across all samples
-    - Feature importance ranking: Features sorted by mean |SHAP|
-
-    Example Usage:
-        >>> analyzer = SHAPPrimaryAnalyzer(model, preprocessor, feature_columns)
-        >>> shap_values, expected_value = analyzer.calculate_shap_values(X_test)
-        >>> importance_df = analyzer.get_feature_importance(shap_values)
-        >>> analyzer.plot_summary(shap_values, X_test, 'output/shap_summary.pdf')
-    """
+    """SHAP primary value analyzer for pre-trained models."""
 
     def __init__(
         self,
@@ -58,20 +23,7 @@ class SHAPPrimaryAnalyzer:
         background_sample_size: int = 500,
         random_seed: int = 42
     ):
-        """
-        Initialize analyzer with pre-trained model and preprocessor.
-
-        Args:
-            model: Trained sklearn classifier (e.g., RandomForestClassifier)
-            preprocessor: Fitted sklearn ColumnTransformer
-            feature_columns: Original feature column names (before transformation)
-            feature_name_mapper: Optional FeatureNameMapper for human-readable names
-            background_sample_size: Number of samples for TreeExplainer background
-            random_seed: Random seed for reproducibility
-
-        Raises:
-            ValueError: If model type is not supported by TreeExplainer
-        """
+        """Initialize analyzer with pre-trained model and preprocessor."""
         self.logger = logging.getLogger(__name__)
         self.model = model
         self.preprocessor = preprocessor
@@ -126,16 +78,7 @@ class SHAPPrimaryAnalyzer:
             self.logger.info(f"  Transformed features: {len(self.transformed_feature_names)}")
 
     def _create_explainer(self, X_train: pd.DataFrame):
-        """
-        Create SHAP explainer with background data sample.
-
-        Uses TreeExplainer for tree-based models and LinearExplainer for linear models.
-        A random sample of training data is used as background for faster computation
-        and reduced memory usage.
-
-        Args:
-            X_train: Training data (DataFrame with original feature columns)
-        """
+        """Create SHAP explainer with background data sample."""
         explainer_name = 'TreeExplainer' if self.model_family == 'tree' else 'LinearExplainer'
         self.logger.info(f"Creating {explainer_name} with background data...")
 
@@ -189,21 +132,7 @@ class SHAPPrimaryAnalyzer:
         X_test: pd.DataFrame,
         X_train: Optional[pd.DataFrame] = None
     ) -> Tuple[np.ndarray, float]:
-        """
-        Compute SHAP values for test set.
-
-        Args:
-            X_test: Test features (DataFrame with original feature columns)
-            X_train: Training data for background (required on first call)
-
-        Returns:
-            Tuple of (shap_values, expected_value)
-            - shap_values: 2D array (n_samples, n_features)
-            - expected_value: Base prediction value
-
-        Raises:
-            ValueError: If explainer not initialized and X_train not provided
-        """
+        """Compute SHAP values for test set."""
         if self.explainer is None:
             if X_train is None:
                 raise ValueError("X_train required to create explainer on first call")
@@ -246,30 +175,14 @@ class SHAPPrimaryAnalyzer:
 
         self.logger.info(f"  SHAP values calculated: shape {shap_values.shape}")
 
-        # Debug statistics
+        # Summary statistic
         mean_abs = np.mean(np.abs(shap_values))
         self.logger.info(f"  Mean |SHAP|: {mean_abs:.6f}")
 
         return shap_values, self.expected_value
 
     def get_feature_importance(self, shap_values: np.ndarray) -> pd.DataFrame:
-        """
-        Calculate feature importance rankings from SHAP values.
-
-        Features are ranked by mean absolute SHAP value across all samples.
-
-        Args:
-            shap_values: 2D array (n_samples, n_features) from calculate_shap_values()
-
-        Returns:
-            pd.DataFrame with columns:
-                - feature_name: Human-readable feature name
-                - feature_name_raw: sklearn transformed feature name
-                - mean_abs_shap: Mean |SHAP| across samples
-                - mean_shap: Mean signed SHAP value
-                - std_shap: Standard deviation
-                - rank: 1-based rank (1 = most important)
-        """
+        """Calculate feature importance rankings from SHAP values."""
         self.logger.info("Calculating feature importance rankings...")
 
         n_features = shap_values.shape[1]
@@ -324,19 +237,7 @@ class SHAPPrimaryAnalyzer:
         shap_values: np.ndarray,
         X_test_transformed: Optional[np.ndarray] = None
     ) -> pd.DataFrame:
-        """
-        Calculate feature importance with one-hot encoded features grouped.
-
-        Sums absolute SHAP values across all one-hot encoded columns for each
-        original categorical feature.
-
-        Args:
-            shap_values: 2D array from calculate_shap_values()
-            X_test_transformed: Transformed test data (optional, for validation)
-
-        Returns:
-            pd.DataFrame with grouped feature importance
-        """
+        """Calculate feature importance with one-hot encoded features grouped."""
         self.logger.info("Calculating grouped feature importance...")
 
         if self.transformed_feature_names is None:
@@ -390,16 +291,7 @@ class SHAPPrimaryAnalyzer:
         max_display: int = 20,
         plot_type: str = 'beeswarm'
     ):
-        """
-        Generate SHAP summary plot (beeswarm or bar).
-
-        Args:
-            shap_values: 2D array from calculate_shap_values()
-            X_test: Test features (for feature values in beeswarm)
-            output_path: Path to save PDF
-            max_display: Maximum number of features to display
-            plot_type: 'beeswarm' (default) or 'bar'
-        """
+        """Generate SHAP summary plot (beeswarm or bar)."""
         self.logger.info(f"Generating {plot_type} summary plot...")
 
         # Transform test data for plotting
@@ -458,15 +350,7 @@ class SHAPPrimaryAnalyzer:
         top_n: int = 20,
         title: Optional[str] = None
     ):
-        """
-        Generate bar chart of feature importance rankings.
-
-        Args:
-            importance_df: DataFrame from get_feature_importance()
-            output_path: Path to save PDF
-            top_n: Number of top features to display
-            title: Optional plot title
-        """
+        """Generate bar chart of feature importance rankings."""
         self.logger.info(f"Generating feature importance bar chart (top {top_n})...")
 
         # Get top N features
@@ -524,25 +408,7 @@ def create_analyzer_from_tier5_model(
     feature_name_mapper: Optional[FeatureNameMapper] = None,
     background_sample_size: int = 500
 ) -> SHAPPrimaryAnalyzer:
-    """
-    Convenience function to create analyzer from TIER 5 saved model.
-
-    Supports both tree-based models (RandomForest, etc.) and linear models
-    (LogisticRegression). The appropriate SHAP explainer (TreeExplainer or
-    LinearExplainer) is selected automatically based on the model type.
-
-    Args:
-        model_file: Path to joblib model file from TIER 5
-        feature_name_mapper: Optional custom feature name mapper
-        background_sample_size: Number of background samples for SHAP explainer
-
-    Returns:
-        Configured SHAPPrimaryAnalyzer instance
-
-    Example:
-        >>> analyzer = create_analyzer_from_tier5_model('LUAD_random_forest_model.joblib')
-        >>> analyzer = create_analyzer_from_tier5_model('LUAD_logistic_model.joblib')
-    """
+    """Create an analyzer from a saved final-model file."""
     import joblib
 
     # Load model dict

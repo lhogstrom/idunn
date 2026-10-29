@@ -1,20 +1,13 @@
-"""
-Create presentation-ready tables from post-hoc statistical analysis results.
+"""Build presentation-ready tables from post-hoc association results.
 
-This module transforms raw analysis output into publication-ready tables with:
-- Human-readable cancer type names
-- Clear association labels
-- Formatted statistics and confidence intervals
-- Filtered to exclude "Other/Unknown" values
-- Comprehensive legends explaining all columns
-
+Adds cancer type names, association labels, formatted statistics and CIs,
+drops Other/Unknown values, and writes legends for each table.
 """
 
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-# Add tools to path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
@@ -35,54 +28,33 @@ from presentation_formatters import (
 
 
 def create_sex_presentation_table(sex_df, oncotree_mapping):
-    """
-    Transform sex associations to presentation format.
-
-    Parameters
-    ----------
-    sex_df : pd.DataFrame
-        Raw sex associations dataframe
-    oncotree_mapping : dict
-        OncoTree code to name mapping
-
-    Returns
-    -------
-    pd.DataFrame
-        Presentation-ready dataframe
-    """
+    """Transform sex associations to presentation format."""
     if len(sex_df) == 0:
         return pd.DataFrame()
 
     print("\nCreating SEX presentation table...")
     df = sex_df.copy()
 
-    # Add cancer type names
     df = add_cancer_type_names(df, oncotree_mapping)
 
-    # Filter Other/Unknown
     n_before = len(df)
     df = filter_unknown_other(df, 'feature')
     n_after = len(df)
 
-    # Create association labels
     df['association'] = df.apply(
         lambda row: create_association_label(row['cancer_type'], row['feature'], 'sex'),
         axis=1
     )
 
-    # Format SHAP importance
     df['shap_importance_fmt'] = df['shap_importance'].apply(format_shap_importance)
 
-    # Format odds ratio with CI
     df['odds_ratio_ci'] = df.apply(
         lambda row: format_ci(row['odds_ratio'], row['or_ci_lower'], row['or_ci_upper'], precision=2),
         axis=1
     )
 
-    # Format p_fdr
     df['p_fdr_fmt'] = df['p_fdr'].apply(lambda x: format_scientific(x, precision=2))
 
-    # Select columns for presentation
     presentation_df = df[[
         'cancer_type',
         'association',
@@ -93,7 +65,6 @@ def create_sex_presentation_table(sex_df, oncotree_mapping):
         'test_used'
     ]].copy()
 
-    # Rename columns
     presentation_df.columns = [
         'cancer_type',
         'association',
@@ -104,8 +75,7 @@ def create_sex_presentation_table(sex_df, oncotree_mapping):
         'test'
     ]
 
-    # Sort by significance
-    # Note: Need to sort by original p_fdr values, not formatted strings
+    # Sort by the original p_fdr values, not the formatted strings.
     df['_p_fdr_for_sort'] = df['p_fdr']
     df['_or_for_sort'] = df['odds_ratio']
     presentation_df['_p_fdr_for_sort'] = df['_p_fdr_for_sort'].values
@@ -118,7 +88,6 @@ def create_sex_presentation_table(sex_df, oncotree_mapping):
         ascending_effect=False
     )
 
-    # Drop sort columns
     presentation_df = presentation_df.drop(columns=['_p_fdr_for_sort', '_or_for_sort'])
 
     print(f"  Rows: {n_before} → {n_after} (removed {n_before - n_after} Other/Unknown)")
@@ -128,51 +97,30 @@ def create_sex_presentation_table(sex_df, oncotree_mapping):
 
 
 def create_race_presentation_table(race_df, oncotree_mapping):
-    """
-    Transform race/ethnicity associations to presentation format.
-
-    Parameters
-    ----------
-    race_df : pd.DataFrame
-        Raw race/ethnicity associations dataframe
-    oncotree_mapping : dict
-        OncoTree code to name mapping
-
-    Returns
-    -------
-    pd.DataFrame
-        Presentation-ready dataframe
-    """
+    """Transform race/ethnicity associations to presentation format."""
     if len(race_df) == 0:
         return pd.DataFrame()
 
     print("\nCreating RACE/ETHNICITY presentation table...")
     df = race_df.copy()
 
-    # Add cancer type names
     df = add_cancer_type_names(df, oncotree_mapping)
 
-    # Filter Other/Unknown
     n_before = len(df)
     df = filter_unknown_other(df, 'feature')
     n_after = len(df)
 
-    # Create association labels
     df['association'] = df.apply(
         lambda row: create_association_label(row['cancer_type'], row['feature']),
         axis=1
     )
 
-    # Format SHAP importance
     df['shap_importance_fmt'] = df['shap_importance'].apply(format_shap_importance)
 
-    # Format Cramér's V
     df['cramers_v_fmt'] = df['cramers_v'].apply(lambda x: format_scientific(x, precision=3))
 
-    # Format p_fdr
     df['p_fdr_fmt'] = df['p_fdr'].apply(lambda x: format_scientific(x, precision=2))
 
-    # Select columns for presentation
     presentation_df = df[[
         'cancer_type',
         'association',
@@ -182,7 +130,6 @@ def create_race_presentation_table(race_df, oncotree_mapping):
         'p_fdr_fmt'
     ]].copy()
 
-    # Rename columns
     presentation_df.columns = [
         'cancer_type',
         'association',
@@ -192,7 +139,6 @@ def create_race_presentation_table(race_df, oncotree_mapping):
         'p_fdr'
     ]
 
-    # Sort by significance
     df['_p_fdr_for_sort'] = df['p_fdr']
     df['_v_for_sort'] = df['cramers_v']
     presentation_df['_p_fdr_for_sort'] = df['_p_fdr_for_sort'].values
@@ -205,7 +151,6 @@ def create_race_presentation_table(race_df, oncotree_mapping):
         ascending_effect=False
     )
 
-    # Drop sort columns
     presentation_df = presentation_df.drop(columns=['_p_fdr_for_sort', '_v_for_sort'])
 
     print(f"  Rows: {n_before} → {n_after} (removed {n_before - n_after} Other/Unknown)")
@@ -215,27 +160,13 @@ def create_race_presentation_table(race_df, oncotree_mapping):
 
 
 def create_tech_presentation_table(tech_df, oncotree_mapping):
-    """
-    Transform technical feature associations to presentation format.
-
-    Parameters
-    ----------
-    tech_df : pd.DataFrame
-        Raw technical feature associations dataframe
-    oncotree_mapping : dict
-        OncoTree code to name mapping
-
-    Returns
-    -------
-    pd.DataFrame
-        Presentation-ready dataframe
-    """
-    # Technical features use same format as race/ethnicity (chi-square, Cramér's V)
+    """Transform technical feature associations to presentation format."""
+    # Technical features use the same format as race/ethnicity (chi-square, Cramér's V).
     return create_race_presentation_table(tech_df, oncotree_mapping)
 
 
 def generate_sex_legend(output_path, db_version="v20250522"):
-    """Generate legend file for sex associations table"""
+    """Generate legend file for the sex associations table."""
 
     legend_text = f"""# Sex Associations with Actionability - Table Legend
 
@@ -386,7 +317,7 @@ Lung Adenocarcinoma | Actionability vs. Female sex | 0.017 | 10,286 | 1.71 [1.62
 
 
 def generate_race_legend(output_path, db_version="v20250522"):
-    """Generate legend file for race/ethnicity associations table"""
+    """Generate legend file for the race/ethnicity associations table."""
 
     legend_text = f"""# Race/Ethnicity Associations with Actionability - Table Legend
 
@@ -561,7 +492,7 @@ For comparison:
 
 
 def generate_tech_legend(output_path, db_version="v20250522"):
-    """Generate legend file for technical feature associations table"""
+    """Generate legend file for the technical feature associations table."""
 
     legend_text = f"""# Technical Feature Associations with Actionability - Table Legend
 

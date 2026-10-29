@@ -1,11 +1,6 @@
-"""
-Basic Model Trainer for OncoKB Analyzer
+"""Train and cross-validate Random Forest or Logistic Regression models.
 
-Simple trainer with demographic features only (no technical features to avoid data leakage).
-Supports Random Forest or Logistic Regression with basic preprocessing.
-
-Feature definitions are imported from preprocessing.py, which loads them
-from the centralized config at code/config/features.yaml.
+Feature lists come from preprocessing.py.
 """
 
 import pandas as pd
@@ -28,25 +23,13 @@ from .preprocessing import (
 
 
 class ModelTrainer:
-    """Simple model trainer with basic preprocessing"""
+    """Simple model trainer with basic preprocessing."""
 
     def __init__(self, algorithm: str = "random_forest", cv_folds: int = 5, random_state: int = 42,
                  cv_strategy: str = "stratified_group", group_column: str = "SUBJECT_CENTER",
                  institution_aware_test_split: bool = False, test_split_group_column: str = "SUBJECT_CENTER",
                  n_jobs: int = -1):
-        """
-        Initialize model trainer.
-
-        Args:
-            algorithm: Either "random_forest" or "logistic"
-            cv_folds: Number of cross-validation folds
-            random_state: Random seed for reproducibility
-            cv_strategy: "standard" (KFold), "group" (GroupKFold), or "stratified_group" (StratifiedGroupKFold)
-            group_column: Column name for grouping in GroupKFold (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
-            institution_aware_test_split: Use GroupShuffleSplit for test splits (prevents institutional overlap)
-            test_split_group_column: Column for grouping in test splits (e.g., "SUBJECT_CENTER", "SEQ_ASSAY_ID")
-            n_jobs: Number of parallel jobs (-1 uses all cores, 1 for single-threaded to save memory)
-        """
+        """Initialize model trainer."""
         self.algorithm = algorithm
         self.cv_folds = cv_folds
         self.random_state = random_state
@@ -66,21 +49,7 @@ class ModelTrainer:
             raise ValueError(f"cv_strategy must be 'standard', 'group', or 'stratified_group', got: {cv_strategy}")
 
     def prepare_features(self, data: pd.DataFrame, outcome_col: str, feature_set: str = "both"):
-        """
-        Prepare features for modeling with flexible feature selection.
-
-        Args:
-            data: Patient data
-            outcome_col: Name of outcome column
-            feature_set: Which features to use - "demographic", "technical", or "both" (default)
-
-        Returns:
-            Tuple of (X, y, groups) for modeling. groups is None if cv_strategy is "standard",
-            otherwise contains group identifiers for GroupKFold
-
-        Raises:
-            ValueError: If insufficient data, missing outcome column, or invalid feature_set
-        """
+        """Prepare features for modeling with flexible feature selection."""
         if outcome_col not in data.columns:
             raise ValueError(f"Outcome column '{outcome_col}' not found in data")
 
@@ -89,9 +58,7 @@ class ModelTrainer:
         if feature_set not in valid_feature_sets:
             raise ValueError(f"feature_set must be one of {valid_feature_sets}, got: {feature_set}")
 
-        # Feature lists imported from preprocessing.py (centralized in config/features.yaml)
-        # Excluded columns documented in config/features.yaml metadata
-        # Select features based on feature_set parameter
+        # Feature lists come from preprocessing.py.
         if feature_set == "demographic":
             feature_list = DEMOGRAPHIC_FEATURES.copy()
         elif feature_set == "technical":
@@ -141,19 +108,8 @@ class ModelTrainer:
         return X, y, groups
 
     def create_pipeline(self, available_columns=None):
-        """
-        Create preprocessing + model pipeline.
-
-        Args:
-            available_columns: List of available columns to filter preprocessing
-
-        Returns:
-            Scikit-learn Pipeline object
-        """
+        """Create preprocessing + model pipeline."""
         # Delegate to the shared preprocessor factory in preprocessing.py.
-        # It handles the MissingnessIndicatorTransformer for ANCESTRY/ETHNICITY
-        # (Feature Review Fix b, 2026-05-21) and the ColumnTransformer for
-        # numeric/categorical encoding in one returned step.
         preprocessor = create_preprocessor(available_columns=available_columns)
 
         # Select model
@@ -183,20 +139,7 @@ class ModelTrainer:
         return pipeline
 
     def train_and_evaluate(self, X: pd.DataFrame, y: pd.Series, groups: pd.Series = None):
-        """
-        Train model and get basic evaluation metrics.
-
-        Args:
-            X: Feature matrix
-            y: Target vector
-            groups: Group labels for GroupKFold (required if cv_strategy is "group")
-
-        Returns:
-            Dictionary with evaluation results
-
-        Raises:
-            ValueError: If insufficient data for training or groups missing for GroupKFold
-        """
+        """Train model and get basic evaluation metrics."""
         if len(X) < 20:
             raise ValueError(f"Insufficient data for training: {len(X)} samples (minimum 20 required)")
 
@@ -249,8 +192,7 @@ class ModelTrainer:
 
         # Train-test split for additional evaluation
         if self.institution_aware_test_split and groups is not None:
-            # Use GroupShuffleSplit to ensure institutions don't overlap between train and test
-            # Note: This uses the same groups as CV (from groups parameter)
+            # Group shuffle split keeps institutions from overlapping between train and test.
             self.logger.info(f"Using institution-aware test split with GroupShuffleSplit on '{self.group_column}'")
 
             splitter = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=self.random_state)

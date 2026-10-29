@@ -1,15 +1,7 @@
-"""
-Post-Hoc Statistical Testing: Age Differences by Actionability Status
+"""Age differences by actionability status, per cancer type.
 
-This script analyzes age differences between patients with and without
-clinically actionable events across all cancer types.
-
-For each cancer type:
-1. Calculates mean and median age for isOncoKbLevel1=TRUE vs FALSE
-2. Performs Mann-Whitney U test (non-parametric)
-3. Performs t-test (parametric, for comparison)
-4. Applies Benjamini-Hochberg FDR correction across all tests
-
+Compares age for isOncoKbLevel1=TRUE vs FALSE with a Mann-Whitney U test and a
+t-test, with BH FDR correction across cancer types.
 """
 
 import sqlite3
@@ -18,7 +10,6 @@ import numpy as np
 import argparse
 from pathlib import Path
 
-# Add tools to path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
@@ -26,12 +17,10 @@ from db_config import get_default_db_path
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
-# Configuration
 DB_PATH = get_default_db_path()
 DEFAULT_OUTPUT_DIR = Path("../../../analysis_output/posthoc_statistics")
 OUTPUT_DIR = None  # Set by main()
 
-# Table to use
 TABLE_NAME = "perPatientOncoKBFilteredForModeling"
 
 
@@ -95,11 +84,9 @@ def calculate_age_statistics(df_group):
 def test_age_differences(df_cancer_type):
     """Test age differences between actionable and non-actionable patients"""
 
-    # Split by actionability status
     actionable = df_cancer_type[df_cancer_type['isOncoKbLevel1'] == 1]['AGE_AT_SEQ_REPORT'].dropna()
     non_actionable = df_cancer_type[df_cancer_type['isOncoKbLevel1'] == 0]['AGE_AT_SEQ_REPORT'].dropna()
 
-    # Check if we have enough data
     if len(actionable) < 5 or len(non_actionable) < 5:
         return {
             'mann_whitney_u': np.nan,
@@ -113,10 +100,8 @@ def test_age_differences(df_cancer_type):
             'warning': f'Insufficient data (n_actionable={len(actionable)}, n_non_actionable={len(non_actionable)})'
         }
 
-    # Mann-Whitney U test (non-parametric)
     try:
         u_stat, p_mann = stats.mannwhitneyu(actionable, non_actionable, alternative='two-sided')
-        # Rank-biserial correlation (natural effect size for Mann-Whitney U)
         n1, n2 = len(actionable), len(non_actionable)
         rank_biserial_r = 1 - (2 * u_stat) / (n1 * n2)
     except Exception as e:
@@ -124,18 +109,15 @@ def test_age_differences(df_cancer_type):
         rank_biserial_r = np.nan
         print(f"  Warning: Mann-Whitney U test failed - {e}")
 
-    # T-test (parametric)
     try:
         t_stat, p_ttest = stats.ttest_ind(actionable, non_actionable, equal_var=False)
     except Exception as e:
         t_stat, p_ttest = np.nan, np.nan
         print(f"  Warning: t-test failed - {e}")
 
-    # Calculate effect size (Cohen's d)
     mean_diff = actionable.mean() - non_actionable.mean()
     median_diff = actionable.median() - non_actionable.median()
 
-    # Cohen's d
     pooled_std = np.sqrt(((len(actionable) - 1) * actionable.std()**2 +
                           (len(non_actionable) - 1) * non_actionable.std()**2) /
                          (len(actionable) + len(non_actionable) - 2))
@@ -170,14 +152,12 @@ def analyze_all_cancer_types(df):
 
         df_cancer = df[df['ONCOTREE_CODE'] == cancer_type].copy()
 
-        # Overall statistics
         n_total = len(df_cancer)
         n_actionable = (df_cancer['isOncoKbLevel1'] == 1).sum()
         n_non_actionable = (df_cancer['isOncoKbLevel1'] == 0).sum()
 
         print(f"  Total: {n_total}, Actionable: {n_actionable}, Non-actionable: {n_non_actionable}")
 
-        # Calculate statistics for each group
         actionable_stats = calculate_age_statistics(
             df_cancer[df_cancer['isOncoKbLevel1'] == 1]
         )
@@ -185,10 +165,8 @@ def analyze_all_cancer_types(df):
             df_cancer[df_cancer['isOncoKbLevel1'] == 0]
         )
 
-        # Statistical tests
         test_results = test_age_differences(df_cancer)
 
-        # Compile results
         result = {
             'ONCOTREE_CODE': cancer_type,
             'n_total': n_total,
@@ -196,7 +174,6 @@ def analyze_all_cancer_types(df):
             'n_non_actionable': n_non_actionable,
             'actionable_rate': n_actionable / n_total if n_total > 0 else np.nan,
 
-            # Actionable group
             'actionable_n': actionable_stats['n'],
             'actionable_n_missing': actionable_stats['n_missing'],
             'actionable_mean_age': actionable_stats['mean'],
@@ -207,7 +184,6 @@ def analyze_all_cancer_types(df):
             'actionable_q25_age': actionable_stats['q25'],
             'actionable_q75_age': actionable_stats['q75'],
 
-            # Non-actionable group
             'non_actionable_n': non_actionable_stats['n'],
             'non_actionable_n_missing': non_actionable_stats['n_missing'],
             'non_actionable_mean_age': non_actionable_stats['mean'],
@@ -218,7 +194,6 @@ def analyze_all_cancer_types(df):
             'non_actionable_q25_age': non_actionable_stats['q25'],
             'non_actionable_q75_age': non_actionable_stats['q75'],
 
-            # Test results
             'mean_age_difference': test_results['mean_diff'],
             'median_age_difference': test_results['median_diff'],
             'cohens_d': test_results['cohens_d'],
@@ -248,7 +223,6 @@ def apply_fdr_correction(results_df):
 
     print("\nApplying FDR correction (Benjamini-Hochberg)...")
 
-    # Get valid p-values (not NaN)
     valid_mask = ~results_df['mann_whitney_p'].isna()
     n_valid = valid_mask.sum()
 
@@ -262,7 +236,6 @@ def apply_fdr_correction(results_df):
         results_df['t_test_significant_fdr'] = False
         return results_df
 
-    # FDR correction for Mann-Whitney test
     mann_whitney_fdr = np.full(len(results_df), np.nan)
     if valid_mask.sum() > 0:
         _, fdr_pvals, _, _ = multipletests(
@@ -275,7 +248,6 @@ def apply_fdr_correction(results_df):
     results_df['mann_whitney_p_fdr'] = mann_whitney_fdr
     results_df['mann_whitney_significant_fdr'] = mann_whitney_fdr < 0.05
 
-    # FDR correction for t-test
     valid_mask_t = ~results_df['t_test_p'].isna()
     t_test_fdr = np.full(len(results_df), np.nan)
     if valid_mask_t.sum() > 0:
@@ -289,7 +261,6 @@ def apply_fdr_correction(results_df):
     results_df['t_test_p_fdr'] = t_test_fdr
     results_df['t_test_significant_fdr'] = t_test_fdr < 0.05
 
-    # Count significant results
     n_sig_mann = results_df['mann_whitney_significant_fdr'].sum()
     n_sig_t = results_df['t_test_significant_fdr'].sum()
 
@@ -321,7 +292,6 @@ def generate_summary_report(results_df, output_file):
         f.write(f"Significant results (Mann-Whitney, FDR < 0.05): {sig_mann}\n")
         f.write(f"Significant results (t-test, FDR < 0.05): {sig_t}\n\n")
 
-        # Significant results details
         if sig_mann > 0:
             f.write("\n" + "=" * 80 + "\n")
             f.write("Significant Age Differences (Mann-Whitney, FDR < 0.05)\n")
@@ -348,7 +318,6 @@ def generate_summary_report(results_df, output_file):
                 f.write(f"  t-test FDR: {row['t_test_p_fdr']:.4e}\n")
                 f.write("\n" + "-" * 80 + "\n\n")
 
-        # All results summary table
         f.write("\n" + "=" * 80 + "\n")
         f.write("All Cancer Types - Summary Table\n")
         f.write("=" * 80 + "\n\n")
@@ -366,7 +335,6 @@ def generate_summary_report(results_df, output_file):
         f.write(summary.to_string(index=False))
         f.write("\n\n")
 
-        # Statistical interpretation guide
         f.write("\n" + "=" * 80 + "\n")
         f.write("Statistical Interpretation Guide\n")
         f.write("=" * 80 + "\n\n")
@@ -392,13 +360,17 @@ def generate_summary_report(results_df, output_file):
 def main():
     """Main execution function"""
 
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Age by actionability statistical testing')
     parser.add_argument('--output-dir', type=str, default=None,
                        help='Output directory for results')
+    parser.add_argument('--groupings-file', type=str, default=None,
+                       help=('Path to TIER 2a cancer_type_group_definitions.csv. When given, '
+                             'testing is restricted to the OncoTree codes it lists. This matters '
+                             'beyond bookkeeping: BH-FDR is applied ACROSS cancer types here, so '
+                             'an extra cancer type shifts every q-value. Without it, every code '
+                             'present in the modeling table is tested.'))
     args = parser.parse_args()
 
-    # Set output directory
     global OUTPUT_DIR
     if args.output_dir:
         OUTPUT_DIR = Path(args.output_dir)
@@ -410,21 +382,32 @@ def main():
     print("Post-Hoc Statistical Testing: Age by Actionability Status")
     print("=" * 80)
 
-    # Load data
     df = load_data(DB_PATH, TABLE_NAME)
 
-    # Analyze all cancer types
+    # Fail on a bad cohort path rather than testing every code: FDR spans cancer types, so a wrong cohort changes every q-value.
+    if args.groupings_file:
+        groupings_path = Path(args.groupings_file)
+        if not groupings_path.exists():
+            print(f"ERROR: --groupings-file does not exist: {groupings_path}")
+            sys.exit(1)
+        eligible = set(pd.read_csv(groupings_path)['ONCOTREE_CODE'].astype(str))
+        before = df['ONCOTREE_CODE'].nunique()
+        df = df[df['ONCOTREE_CODE'].astype(str).isin(eligible)].copy()
+        after = df['ONCOTREE_CODE'].nunique()
+        print(f"\nRestricted to canonical cancer types from: {groupings_path}")
+        print(f"  Cancer types: {before} -> {after}")
+        if after == 0:
+            print("ERROR: groupings file matched no cancer types in the modeling table.")
+            sys.exit(1)
+
     results_df = analyze_all_cancer_types(df)
 
-    # Apply FDR correction
     results_df = apply_fdr_correction(results_df)
 
-    # Save results
     output_csv = OUTPUT_DIR / "age_actionability_results.csv"
     results_df.to_csv(output_csv, index=False)
     print(f"\nFull results saved to: {output_csv}")
 
-    # Save significant results only
     sig_results = results_df[results_df['mann_whitney_significant_fdr'] == True].copy()
     if len(sig_results) > 0:
         sig_csv = OUTPUT_DIR / "age_actionability_significant.csv"
@@ -433,7 +416,6 @@ def main():
     else:
         print("No significant results to save")
 
-    # Generate summary report
     report_file = OUTPUT_DIR / "age_actionability_report.txt"
     generate_summary_report(results_df, report_file)
 

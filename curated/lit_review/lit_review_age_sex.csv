@@ -1,0 +1,25 @@
+ONCOTREE_CODE,Hugo_Symbol,feature_category,feature,direction,Lit status,PMID or Lit review studies
+ASTR,IDH1,age,AGE_AT_SEQ_REPORT,younger,confirmed,"21088844, 22646770"
+SKCM,BRAF,age,AGE_AT_SEQ_REPORT,younger,confirmed,22535154
+MEL,BRAF,age,AGE_AT_SEQ_REPORT,younger,confirmed,22535154
+HGSOC,BRCA1,age,AGE_AT_SEQ_REPORT,younger,confirmed,"22274685, 29793803, 33926482"
+IDC,PTEN,age,AGE_AT_SEQ_REPORT,older,unresolved,"41898157, 37145128"
+IDC,PIK3CA,age,AGE_AT_SEQ_REPORT,older,confirmed,"32067679, 19671852, 36446041, 36279023"
+THPA,BRAF,age,AGE_AT_SEQ_REPORT,older,confirmed,"17717450, 21594703, 30916170, 27064992"
+BRCA,PIK3CA,age,AGE_AT_SEQ_REPORT,older,confirmed,"32067679, 19671852, 36446041, 36279023"
+BRCANOS,PIK3CA,age,AGE_AT_SEQ_REPORT,older,confirmed,"32067679, 19671852, 36446041, 36279023"
+GIST,KIT,age,AGE_AT_SEQ_REPORT,older,unresolved,"21997692 (Miettinen 2011) -- indirect, consistent; 25886494 (Kramer 2015) -- survival only, not supporting"
+BRCNOS,PIK3CA,age,AGE_AT_SEQ_REPORT,older,confirmed,"32067679, 19671852, 36446041, 36279023"
+COADREAD,BRAF,age,AGE_AT_SEQ_REPORT,older,confirmed,"32741580, 37350948"
+COAD,BRAF,age,AGE_AT_SEQ_REPORT,older,confirmed,https://www.sciencedirect.com/science/article/pii/S0923753419392609
+NSCLC,KRAS,sex,SEX,higher_female,confirmed,"33497555, 30735816, 23014527, 37296038"
+LUAD,KRAS,sex,SEX,higher_female,confirmed,"33497555, 30735816, 23014527, 37296038"
+IHCH,IDH1,sex,SEX,higher_female,confirmed,39251514
+AML,FLT3,sex,SEX,higher_female,confirmed,"40981231, 32203582"
+LUAD,EGFR,sex,SEX,higher_female,confirmed,"27738317, 24419411"
+COAD,BRAF,sex,SEX,higher_female,confirmed,"20635392, 24594804"
+NSCLC,EGFR,sex,SEX,higher_female,confirmed,"27738317, 24419411"
+BRCA,ESR1,age,AGE_AT_SEQ_REPORT,older,confirmed,39357123
+AML,IDH2,age,AGE_AT_SEQ_REPORT,older,confirmed,"20567020 (Paschka et al., J Clin Oncol 2010;28(22):3636-43)"
+BLCA,FGFR3,sex,SEX,higher_female,confirmed,"37682528 (Guercio et al., Clin Cancer Res 2023;29(22):4586-4595) -- supporting, matched design; 36273937 (Shi et al., Eur Urol 2023;83(1):70-81) -- contradicting, different design"
+LUAD,KRAS,age,AGE_AT_SEQ_REPORT,older,confirmed,"30735816 (El Osta et al., J Thorac Oncol 2019;14(5):876-889); 35637133 (Chatsirisupachai et al., Trends Cancer 2022;8(11):962-971)"

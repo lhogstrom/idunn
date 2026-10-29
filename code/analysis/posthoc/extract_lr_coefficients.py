@@ -1,40 +1,14 @@
 #!/usr/bin/env python3
-"""
-Extract Logistic Regression Coefficients, Odds Ratios, and Wald CIs
+"""Extract logistic regression coefficients, odds ratios and Wald CIs.
 
-Extracts and analyzes logistic regression model coefficients from TIER 5
-trained models. For each cancer type:
-1. Loads LR model from joblib
-2. Extracts log-odds coefficients and computes odds ratios
-3. Computes Wald-based standard errors via Fisher information (Hessian)
-4. Performs Wald z-tests with FDR correction (Benjamini-Hochberg)
-5. Maps feature names to human-readable labels
-6. Aggregates one-hot encoded features to parent variable level
-7. Documents reference categories for each categorical feature
-
-Outputs per cancer type:
-    - lr_coefficients.csv: Per-feature coefficients, ORs, CIs, p-values, standardized coefs
-    - lr_odds_ratio_forest_plot.pdf: Forest plot of odds ratios with CIs
-    - lr_grouped_importance.csv: Aggregated to parent variable level
-
-Combined outputs:
-    - combined_lr_coefficients.csv: All cancer types combined
-    - combined_lr_grouped_importance.csv: Grouped importance across types
-    - lr_or_heatmap.pdf: Raw log-odds heatmap across cancer types
-    - standardized_lr_or_heatmap.pdf: Standardized log-odds heatmap (scale-corrected)
+For each cancer type, loads the trained LR model, computes odds ratios and Wald
+standard errors (Fisher information), runs Wald z-tests with BH FDR, and
+aggregates one-hot columns to the parent variable. Writes per-cancer and
+combined coefficient / grouped-importance CSVs plus forest plots and heatmaps.
 
 Usage:
-    # Quick test (LUAD only)
     python extract_lr_coefficients.py --quick-test
-
-    # Full run
-    python extract_lr_coefficients.py \\
-        --model-dir /path/to/tier5_models \\
-        --train-test-split-file /path/to/split.csv \\
-        --db-path /path/to/database.sqlite
-
-    # Specific cancer types
-    python extract_lr_coefficients.py --cancer-types LUAD BRCA MEL
+    python extract_lr_coefficients.py --model-dir DIR --train-test-split-file CSV --db-path DB
 """
 
 import argparse
@@ -53,15 +27,12 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
-# Add tools directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
 from db_config import get_default_db_path
 
-# Add modeling directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'modeling'))
 from oncokb_analyzer.data_loader import DataLoader
 
-# Add shap_interactions directory to path for feature name mapper
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shap_interactions'))
 from feature_name_mapper import FeatureNameMapper, create_mapper_from_data_loader
 
@@ -74,7 +45,6 @@ def setup_logging(output_dir: Path, verbose: bool = False) -> logging.Logger:
     logger.setLevel(log_level)
     logger.handlers = []
 
-    # File handler
     file_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
@@ -84,7 +54,6 @@ def setup_logging(output_dir: Path, verbose: bool = False) -> logging.Logger:
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
-    # Console handler
     console_formatter = logging.Formatter('%(levelname)s: %(message)s')
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
@@ -98,21 +67,11 @@ def find_model_files(
     model_dir: Path,
     cancer_types: Optional[List[str]] = None
 ) -> Dict[str, Path]:
-    """
-    Find TIER 5 logistic regression model files in directory.
-
-    Args:
-        model_dir: Path to TIER 5 models directory
-        cancer_types: Optional list of cancer types to filter
-
-    Returns:
-        Dict mapping cancer type to model file path
-    """
+    """Find TIER 5 logistic regression model files in directory."""
     model_files = {}
 
     search_dirs = [model_dir, model_dir / 'models']
 
-    # Add nested run directories
     for run_dir in model_dir.glob('run_*'):
         if run_dir.is_dir():
             search_dirs.append(run_dir)
@@ -138,29 +97,9 @@ def compute_wald_standard_errors(
     train_data: pd.DataFrame,
     logger: logging.Logger
 ) -> Tuple[np.ndarray, bool]:
-    """
-    Compute standard errors for LR coefficients via the Fisher information matrix.
-
-    Uses the Hessian-based Wald approach:
-        Var(beta) = inv(X^T W X)
-    where W = diag(p * (1 - p)) and p = predicted probabilities.
-
-    Args:
-        model: Trained LogisticRegression model
-        preprocessor: Fitted ColumnTransformer
-        feature_columns: Original feature column names
-        train_data: Training data DataFrame
-        logger: Logger instance
-
-    Returns:
-        Tuple of (standard_errors, se_reliable)
-        - standard_errors: array of SEs for each coefficient
-        - se_reliable: True if Fisher info matrix was invertible
-    """
-    # Transform training data
+    """Compute standard errors for LR coefficients via the Fisher information matrix."""
     X_train_raw = preprocessor.transform(train_data[feature_columns])
 
-    # Convert sparse to dense
     if hasattr(X_train_raw, 'toarray'):
         X_train = X_train_raw.toarray()
     else:
@@ -168,24 +107,18 @@ def compute_wald_standard_errors(
 
     n_samples, n_features = X_train.shape
 
-    # Compute predicted probabilities
     y_proba = model.predict_proba(X_train)[:, 1]
 
-    # Diagonal weight matrix: W = p * (1 - p)
+    # W = p(1-p)
     W = y_proba * (1 - y_proba)
 
-    # Clip to avoid numerical issues with near-0 or near-1 probabilities
     W = np.clip(W, 1e-10, 1 - 1e-10)
 
-    # Add intercept column
     X_with_intercept = np.column_stack([np.ones(n_samples), X_train])
 
-    # Fisher information matrix: X^T W X
-    # Compute as X^T @ diag(W) @ X efficiently
     X_weighted = X_with_intercept * W[:, np.newaxis]
     fisher_info = X_with_intercept.T @ X_weighted
 
-    # Invert Fisher information matrix
     se_reliable = True
     try:
         cov_matrix = np.linalg.inv(fisher_info)
@@ -194,7 +127,6 @@ def compute_wald_standard_errors(
         cov_matrix = np.linalg.pinv(fisher_info)
         se_reliable = False
 
-    # Check for negative diagonal elements (numerical instability)
     diag_values = np.diag(cov_matrix)
     if np.any(diag_values < 0):
         logger.warning(
@@ -205,7 +137,6 @@ def compute_wald_standard_errors(
         diag_values = np.diag(cov_matrix)
         se_reliable = False
 
-    # Standard errors = sqrt(diag(cov_matrix)), skip intercept [0]
     standard_errors = np.sqrt(np.maximum(diag_values[1:], 0))
 
     logger.info(f"  Computed Wald SEs for {n_features} features (reliable={se_reliable})")
@@ -214,22 +145,10 @@ def compute_wald_standard_errors(
 
 
 def get_reference_categories(preprocessor, feature_columns: List[str]) -> Dict[str, str]:
-    """
-    Extract reference (dropped) categories from the preprocessor's OneHotEncoder.
-
-    Args:
-        preprocessor: Fitted ColumnTransformer, OR a sklearn Pipeline wrapping
-            one (post-Feature-Review-Fix-b: missingness step → column_transformer).
-        feature_columns: Original feature column names
-
-    Returns:
-        Dict mapping feature name to its reference category
-    """
+    """Extract reference (dropped) categories from the preprocessor's OneHotEncoder."""
     reference_cats = {}
 
-    # Post-Feature-Review-Fix-b (2026-05-21), create_preprocessor returns a
-    # Pipeline when ANCESTRY/ETHNICITY are in scope. Unwrap to the inner
-    # ColumnTransformer; otherwise the .transformers_ access below crashes.
+    # create_preprocessor may return a Pipeline; unwrap to the ColumnTransformer
     if hasattr(preprocessor, 'named_steps') and 'column_transformer' in preprocessor.named_steps:
         column_transformer = preprocessor.named_steps['column_transformer']
     else:
@@ -239,15 +158,7 @@ def get_reference_categories(preprocessor, feature_columns: List[str]) -> Dict[s
         if name == 'cat' and hasattr(transformer, 'named_steps'):
             encoder = transformer.named_steps.get('encoder') or transformer.named_steps.get('onehot')
             if encoder is not None and hasattr(encoder, 'categories_') and hasattr(encoder, 'drop_idx_'):
-                # `columns` is the categorical column list as configured on
-                # the ColumnTransformer's ('cat', transformer, columns) tuple —
-                # by construction it matches encoder.categories_ order. The
-                # previous implementation reconstructed cat_features_used from
-                # feature_columns (which is feature_sets.demographic order in
-                # features.yaml) and zipped it against encoder.categories_
-                # (which is feature_types.categorical order). They coincided
-                # only by author convention; reordering either yaml block, or
-                # a feature_set=both run, silently swapped reference categories.
+                # Use the ColumnTransformer's own categorical column list so it matches encoder.categories_ order
                 if encoder.drop_idx_ is not None:
                     for col_name, cats, drop_idx in zip(columns, encoder.categories_, encoder.drop_idx_):
                         if drop_idx is not None:
@@ -262,22 +173,7 @@ def compute_feature_stds(
     train_data: pd.DataFrame,
     logger: logging.Logger
 ) -> np.ndarray:
-    """
-    Compute standard deviations of transformed features on training data.
-
-    Used for standardizing LR coefficients: standardized_beta = beta * SD(x).
-    This makes coefficients comparable across features with different scales
-    (e.g., age in years vs binary one-hot indicators).
-
-    Args:
-        preprocessor: Fitted ColumnTransformer
-        feature_columns: Original feature column names
-        train_data: Training data DataFrame
-        logger: Logger instance
-
-    Returns:
-        Array of standard deviations, one per transformed feature
-    """
+    """Compute standard deviations of transformed features on training data."""
     X_train_raw = preprocessor.transform(train_data[feature_columns])
 
     if hasattr(X_train_raw, 'toarray'):
@@ -299,25 +195,12 @@ def extract_coefficients_single_cancer_type(
     output_dir: Path,
     logger: logging.Logger
 ) -> Optional[Dict]:
-    """
-    Extract LR coefficients for a single cancer type.
-
-    Args:
-        cancer_type: Cancer type code
-        model_file: Path to TIER 5 logistic model file
-        train_data: Training data for this cancer type
-        output_dir: Output directory for this cancer type
-        logger: Logger instance
-
-    Returns:
-        Result dict with status and metadata, or None if failed
-    """
+    """Extract LR coefficients for a single cancer type."""
     logger.info("=" * 70)
     logger.info(f"EXTRACTING COEFFICIENTS: {cancer_type}")
     logger.info("=" * 70)
 
     try:
-        # Load model
         logger.info(f"Loading model from {model_file}")
         model_dict = joblib.load(model_file)
 
@@ -335,11 +218,9 @@ def extract_coefficients_single_cancer_type(
         logger.info(f"  Features: {len(feature_columns)}")
         logger.info(f"  Train samples: {len(train_data)}")
 
-        # Extract coefficients
         log_odds = model.coef_[0]
         intercept = model.intercept_[0]
 
-        # Get transformed feature names
         transformed_names = list(preprocessor.get_feature_names_out())
         logger.info(f"  Transformed features: {len(transformed_names)}")
 
@@ -350,21 +231,17 @@ def extract_coefficients_single_cancer_type(
             )
             return {'cancer_type': cancer_type, 'status': 'failed', 'error': 'Dimension mismatch'}
 
-        # Compute Wald standard errors
         standard_errors, se_reliable = compute_wald_standard_errors(
             model, preprocessor, feature_columns, train_data, logger
         )
 
-        # Wald z-test: z = beta / se(beta)
         z_scores = np.where(standard_errors > 0, log_odds / standard_errors, 0.0)
         p_values = 2 * stats.norm.sf(np.abs(z_scores))
 
-        # Odds ratios with 95% CI
         odds_ratios = np.exp(log_odds)
         or_ci_lower = np.exp(log_odds - 1.96 * standard_errors)
         or_ci_upper = np.exp(log_odds + 1.96 * standard_errors)
 
-        # FDR correction (Benjamini-Hochberg)
         valid_mask = ~np.isnan(p_values) & (p_values > 0)
         fdr_pvalues = np.full_like(p_values, np.nan)
         significant_fdr = np.full(len(p_values), False)
@@ -376,23 +253,20 @@ def extract_coefficients_single_cancer_type(
             fdr_pvalues[valid_mask] = fdr_vals
             significant_fdr[valid_mask] = fdr_vals < 0.05
 
-        # Compute standardized coefficients: standardized_beta = beta * SD(x)
+        # standardized_beta = beta * SD(x)
         feature_stds = compute_feature_stds(
             preprocessor, feature_columns, train_data, logger
         )
         standardized_log_odds = log_odds * feature_stds
 
-        # Map feature names
         mapper = create_mapper_from_data_loader(feature_columns)
         readable_names = mapper.map_all_feature_names(
             transformed_names, include_value=True, short_form=False
         )
         feature_groups = [mapper.get_feature_group(name) for name in transformed_names]
 
-        # Get reference categories
         reference_cats = get_reference_categories(preprocessor, feature_columns)
 
-        # Build per-feature DataFrame
         coef_df = pd.DataFrame({
             'feature_name': readable_names,
             'feature_name_raw': transformed_names,
@@ -412,20 +286,16 @@ def extract_coefficients_single_cancer_type(
             'cancer_type': cancer_type
         })
 
-        # Sort by absolute standardized log-odds (scale-corrected importance)
         coef_df = coef_df.sort_values('standardized_log_odds', key=abs, ascending=False).reset_index(drop=True)
         coef_df['rank'] = range(1, len(coef_df) + 1)
 
-        # Create output directory
         cancer_output_dir = output_dir / cancer_type
         cancer_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save coefficients CSV
         coef_file = cancer_output_dir / 'lr_coefficients.csv'
         coef_df.to_csv(coef_file, index=False)
         logger.info(f"  Saved: {coef_file}")
 
-        # Save reference categories
         if reference_cats:
             ref_df = pd.DataFrame([
                 {'feature': k, 'reference_category': v, 'cancer_type': cancer_type}
@@ -435,18 +305,15 @@ def extract_coefficients_single_cancer_type(
             ref_df.to_csv(ref_file, index=False)
             logger.info(f"  Saved: {ref_file}")
 
-        # Aggregate to parent variable level
         grouped_df = _aggregate_to_parent_variable(coef_df, cancer_type)
         grouped_file = cancer_output_dir / 'lr_grouped_importance.csv'
         grouped_df.to_csv(grouped_file, index=False)
         logger.info(f"  Saved: {grouped_file}")
 
-        # Generate forest plot
         plot_file = cancer_output_dir / 'lr_odds_ratio_forest_plot.pdf'
         _plot_odds_ratio_forest(coef_df, cancer_type, str(plot_file))
         logger.info(f"  Saved: {plot_file}")
 
-        # Log top features
         n_sig = coef_df['significant_fdr'].sum()
         logger.info(f"  Intercept: {intercept:.4f}")
         logger.info(f"  Significant features (FDR < 0.05): {n_sig}/{len(coef_df)}")
@@ -485,23 +352,7 @@ def extract_coefficients_single_cancer_type(
 
 
 def _aggregate_to_parent_variable(coef_df: pd.DataFrame, cancer_type: str) -> pd.DataFrame:
-    """
-    Aggregate one-hot encoded feature coefficients to parent variable level.
-
-    For each original feature (e.g., SEX, RACE), computes:
-    - max_abs_log_odds: Maximum absolute log-odds across categories
-    - sum_abs_log_odds: Sum of absolute log-odds (total effect size)
-    - n_categories: Number of encoded categories
-    - min_p_value: Minimum p-value across categories
-    - any_significant_fdr: Whether any category is FDR-significant
-
-    Args:
-        coef_df: Per-feature coefficient DataFrame
-        cancer_type: Cancer type code
-
-    Returns:
-        Grouped importance DataFrame
-    """
+    """Aggregate one-hot encoded feature coefficients to parent variable level."""
     grouped = coef_df.groupby('feature_group').agg(
         max_abs_log_odds=('log_odds', lambda x: x.abs().max()),
         sum_abs_log_odds=('log_odds', lambda x: x.abs().sum()),
@@ -529,19 +380,7 @@ def _plot_odds_ratio_forest(
     output_path: str,
     max_display: int = 25
 ):
-    """
-    Generate odds ratio forest plot for a single cancer type.
-
-    Horizontal bars with CI whiskers, reference line at OR=1,
-    FDR significance markers.
-
-    Args:
-        coef_df: Per-feature coefficient DataFrame
-        cancer_type: Cancer type code
-        output_path: Path to save PDF
-        max_display: Maximum number of features to display
-    """
-    # Select top features by absolute log-odds
+    """Generate odds ratio forest plot for a single cancer type."""
     plot_df = coef_df.head(max_display).copy()
     plot_df = plot_df.sort_values('odds_ratio', ascending=True).reset_index(drop=True)
 
@@ -549,10 +388,8 @@ def _plot_odds_ratio_forest(
 
     y_pos = np.arange(len(plot_df))
 
-    # Color by significance
     colors = ['#c0392b' if sig else '#7f8c8d' for sig in plot_df['significant_fdr']]
 
-    # Plot horizontal error bars (CI whiskers)
     ax.errorbar(
         plot_df['odds_ratio'], y_pos,
         xerr=[
@@ -562,15 +399,12 @@ def _plot_odds_ratio_forest(
         fmt='o', color='black', markersize=5, capsize=3, linewidth=1, zorder=5
     )
 
-    # Color the markers
     for i, (or_val, sig) in enumerate(zip(plot_df['odds_ratio'], plot_df['significant_fdr'])):
         color = '#c0392b' if sig else '#7f8c8d'
         ax.plot(or_val, i, 'o', color=color, markersize=7, zorder=6)
 
-    # Reference line at OR = 1
     ax.axvline(x=1.0, color='navy', linestyle='--', linewidth=1.5, alpha=0.7, label='OR = 1')
 
-    # Truncate feature names for display
     display_names = [
         (name[:40] + '...' if len(name) > 43 else name)
         for name in plot_df['feature_name']
@@ -581,12 +415,10 @@ def _plot_odds_ratio_forest(
     ax.set_xlabel('Odds Ratio (95% CI)', fontsize=11)
     ax.set_title(f'{cancer_type} - Logistic Regression Odds Ratios', fontsize=13, fontweight='bold')
 
-    # Use log scale for x-axis if range is large
     or_range = plot_df['or_ci_upper'].max() / max(plot_df['or_ci_lower'].min(), 0.01)
     if or_range > 10:
         ax.set_xscale('log')
 
-    # Add significance markers
     n_sig = plot_df['significant_fdr'].sum()
     ax.text(
         0.98, 0.02,
@@ -606,14 +438,7 @@ def generate_combined_outputs(
     output_dir: Path,
     logger: logging.Logger
 ):
-    """
-    Generate combined outputs across all cancer types.
-
-    Args:
-        results: List of result dicts from extract_coefficients_single_cancer_type()
-        output_dir: Root output directory
-        logger: Logger instance
-    """
+    """Generate combined outputs across all cancer types."""
     logger.info("=" * 70)
     logger.info("GENERATING COMBINED OUTPUTS")
     logger.info("=" * 70)
@@ -624,7 +449,6 @@ def generate_combined_outputs(
         logger.warning("No successful extractions to combine")
         return
 
-    # Combine per-feature coefficients
     all_coefs = []
     all_grouped = []
 
@@ -653,11 +477,9 @@ def generate_combined_outputs(
         combined_grouped.to_csv(grouped_file, index=False)
         logger.info(f"  Saved: {grouped_file}")
 
-        # Create OR heatmaps across cancer types
         _plot_or_heatmap(combined_coefs, output_dir, logger)
         _plot_standardized_or_heatmap(combined_coefs, output_dir, logger)
 
-    # Generate summary report
     _generate_summary_report(results, output_dir, logger)
 
 
@@ -666,15 +488,7 @@ def _plot_or_heatmap(
     output_dir: Path,
     logger: logging.Logger
 ):
-    """
-    Generate heatmap of log-odds ratios across cancer types (grouped by parent feature).
-
-    Args:
-        combined_coefs: Combined coefficient DataFrame
-        output_dir: Output directory
-        logger: Logger instance
-    """
-    # Pivot by feature group and cancer type, using max absolute log-odds
+    """Generate heatmap of log-odds ratios across cancer types (grouped by parent feature)."""
     pivot_data = combined_coefs.groupby(['feature_group', 'cancer_type']).agg(
         max_abs_log_odds=('log_odds', lambda x: x.abs().max())
     ).reset_index()
@@ -689,7 +503,6 @@ def _plot_or_heatmap(
         logger.warning("No data for heatmap")
         return
 
-    # Sort rows by mean importance
     pivot['mean'] = pivot.mean(axis=1)
     pivot = pivot.sort_values('mean', ascending=False).drop(columns='mean')
 
@@ -719,22 +532,11 @@ def _plot_standardized_or_heatmap(
     output_dir: Path,
     logger: logging.Logger
 ):
-    """
-    Generate heatmap of standardized log-odds across cancer types (grouped by parent feature).
-
-    Standardized log-odds = log_odds * SD(feature), making coefficients comparable
-    across features with different scales (e.g., age in years vs binary indicators).
-
-    Args:
-        combined_coefs: Combined coefficient DataFrame (must contain 'standardized_log_odds')
-        output_dir: Output directory
-        logger: Logger instance
-    """
+    """Generate heatmap of standardized log-odds across cancer types (grouped by parent feature)."""
     if 'standardized_log_odds' not in combined_coefs.columns:
         logger.warning("No standardized_log_odds column, skipping standardized heatmap")
         return
 
-    # Pivot by feature group and cancer type, using max absolute standardized log-odds
     pivot_data = combined_coefs.groupby(['feature_group', 'cancer_type']).agg(
         max_abs_std_log_odds=('standardized_log_odds', lambda x: x.abs().max())
     ).reset_index()
@@ -749,7 +551,6 @@ def _plot_standardized_or_heatmap(
         logger.warning("No data for standardized heatmap")
         return
 
-    # Sort rows by mean importance
     pivot['mean'] = pivot.mean(axis=1)
     pivot = pivot.sort_values('mean', ascending=False).drop(columns='mean')
 
@@ -878,34 +679,28 @@ def main():
 
     args = parser.parse_args()
 
-    # Resolve paths
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent.parent.parent
 
-    # Output directory
     if args.output_dir.startswith('/'):
         output_dir = Path(args.output_dir)
     else:
         output_dir = script_dir / args.output_dir
 
-    # Add timestamp subdirectory unless --no-timestamp-subdir is set
     if not args.no_timestamp_subdir:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = output_dir / f"run_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Setup logging
     logger = setup_logging(output_dir, args.verbose)
 
     logger.info("=" * 70)
     logger.info("LOGISTIC REGRESSION COEFFICIENT EXTRACTION")
     logger.info("=" * 70)
 
-    # Database path
     db_path = args.db_path or get_default_db_path()
     logger.info(f"Database: {db_path}")
 
-    # Find train/test split file
     if args.train_test_split_file:
         split_file = Path(args.train_test_split_file)
     else:
@@ -925,7 +720,6 @@ def main():
 
     logger.info(f"Train/test split: {split_file}")
 
-    # Find model directory
     if args.model_dir:
         model_dir = Path(args.model_dir)
     else:
@@ -957,7 +751,6 @@ def main():
 
     logger.info(f"Model directory: {model_dir}")
 
-    # Find model files
     cancer_types = args.cancer_types
     if args.quick_test:
         cancer_types = ['LUAD']
@@ -973,30 +766,25 @@ def main():
     for ct, mf in sorted(model_files.items()):
         logger.info(f"  {ct}: {mf.name}")
 
-    # Load train/test split
     logger.info("Loading train/test split...")
     split_df = pd.read_csv(split_file)
     train_patient_ids = set(split_df[split_df['split'] == 'train']['PATIENT_ID'])
     logger.info(f"  Train patients: {len(train_patient_ids)}")
 
-    # Load full dataset
     logger.info("Loading data from database...")
     loader = DataLoader(db_path)
     full_data = loader.load_patient_data()
     logger.info(f"  Total patients: {len(full_data)}")
 
-    # Process each cancer type
     results = []
 
     for cancer_type, model_file in sorted(model_files.items()):
-        # Filter data for this cancer type
         cancer_data = loader.filter_for_cancer_type(full_data, cancer_type)
 
         if len(cancer_data) == 0:
             logger.warning(f"No data for {cancer_type}, skipping")
             continue
 
-        # Get training data only
         train_data = cancer_data[cancer_data['PATIENT_ID'].isin(train_patient_ids)]
 
         if len(train_data) == 0:
@@ -1014,15 +802,12 @@ def main():
         if result:
             results.append(result)
 
-    # Generate combined outputs
     generate_combined_outputs(results, output_dir, logger)
 
-    # Save results JSON
     results_file = output_dir / 'results.json'
     with open(results_file, 'w') as f:
         json.dump(results, f, indent=2)
 
-    # Final summary
     successful = sum(1 for r in results if r.get('status') == 'success')
     failed = len(results) - successful
 

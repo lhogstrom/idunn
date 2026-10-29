@@ -1,9 +1,4 @@
-"""
-Simple OncoKB Analyzer - Main Orchestrator
-
-Minimal implementation for end-to-end analysis with basic modular structure.
-No advanced features - just basic functionality to get working.
-"""
+"""Main orchestrator: loads data, trains per-cancer-type models, and summarizes results."""
 
 import logging
 from typing import Dict, Any, List, Optional
@@ -17,19 +12,10 @@ from .trainer import ModelTrainer
 
 
 class OncoKBAnalyzer:
-    """
-    Simple main orchestrator for OncoKB actionability analysis.
-
-    Coordinates basic components: config, data loading, and model training.
-    """
+    """Simple main orchestrator for OncoKB actionability analysis."""
 
     def __init__(self, config: Config):
-        """
-        Initialize analyzer with configuration.
-
-        Args:
-            config: Configuration object containing analysis parameters
-        """
+        """Initialize analyzer with configuration."""
         self.config = config
 
         # Validate configuration
@@ -58,12 +44,7 @@ class OncoKBAnalyzer:
         self.logger.info(f"Initialized OncoKBAnalyzer with {config.algorithm} algorithm using {config.cv_strategy} CV")
 
     def _load_train_patient_ids(self) -> Optional[List[str]]:
-        """
-        Load training patient IDs from train/test split file if configured.
-
-        Returns:
-            List of training patient IDs, or None if no split file configured
-        """
+        """Load training patient IDs from train/test split file if configured."""
         if not self.config.train_test_split_file:
             return None
 
@@ -82,15 +63,7 @@ class OncoKBAnalyzer:
             return None
 
     def run_analysis(self) -> Dict[str, Any]:
-        """
-        Run basic end-to-end analysis for configured cancer types.
-
-        Returns:
-            Dictionary containing analysis results for each cancer type
-
-        Raises:
-            Exception: If analysis fails
-        """
+        """Run basic end-to-end analysis for configured cancer types."""
         start_time = datetime.now()
         self.logger.info("Starting OncoKB actionability analysis...")
 
@@ -193,20 +166,7 @@ class OncoKBAnalyzer:
             raise
 
     def _analyze_cancer_type(self, data, cancer_type: str, cancer_data_dict=None) -> Dict[str, Any]:
-        """
-        Analyze a single cancer type.
-
-        Args:
-            data: Full patient dataset (None if using multi-tier mode)
-            cancer_type: Cancer type to analyze
-            cancer_data_dict: Pre-loaded multi-tier data dict (None if using standard mode)
-
-        Returns:
-            Dictionary with analysis results
-
-        Raises:
-            Exception: If analysis fails for this cancer type
-        """
+        """Analyze a single cancer type."""
         if cancer_data_dict is not None:
             # Multi-tier mode: data is already prepared
             if cancer_type not in cancer_data_dict:
@@ -262,15 +222,7 @@ class OncoKBAnalyzer:
         return model_results
 
     def get_summary(self, results: Dict[str, Any]) -> str:
-        """
-        Get formatted summary of analysis results.
-
-        Args:
-            results: Analysis results from run_analysis()
-
-        Returns:
-            Formatted summary string
-        """
+        """Get formatted summary of analysis results."""
         if not results:
             return "No analysis results available."
 

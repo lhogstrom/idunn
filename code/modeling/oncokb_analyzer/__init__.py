@@ -1,9 +1,4 @@
-"""
-OncoKB Analyzer Package
-
-A modular, extensible framework for analyzing OncoKB actionability in cancer genomics data.
-Addresses methodological issues including data leakage, statistical rigor, and clinical utility.
-"""
+"""Framework for modeling OncoKB actionability in cancer genomics data."""
 
 from .analyzer import OncoKBAnalyzer
 from .config import Config

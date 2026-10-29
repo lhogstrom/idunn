@@ -1,15 +1,10 @@
-"""
-Post-Hoc Statistical Testing: SHAP Feature Associations with Actionability
+"""Cancer-level association tests for features ranked in the top 5 by SHAP.
 
-This script analyzes demographic and technical feature associations with
-actionability based on SHAP feature importance rankings.
-
-For features ranking in top 5:
-1. SEX: Odds ratios and Fisher's exact test / chi-square
-2. RACE/ETHNICITY: Chi-square tests across groups
-3. Technical features (library_selection, calling_strategy): Chi-square tests
-4. Applies Benjamini-Hochberg FDR correction for each category
-
+For each cancer type, tests the demographic and technical features that rank in
+the top 5 against actionability: sex (odds ratio, Fisher/chi-square),
+ancestry/ethnicity and sample type (chi-square, Cramer's V), and technical
+features (chi-square / Mann-Whitney U). Benjamini-Hochberg FDR is applied per
+feature category.
 """
 
 import sqlite3
@@ -18,7 +13,6 @@ import numpy as np
 import argparse
 from pathlib import Path
 
-# Add tools to path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
@@ -34,7 +28,6 @@ from scipy import stats
 from scipy.stats import chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
-# Configuration
 DB_PATH = get_default_db_path()
 
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "analysis_output" / "posthoc_statistics"
@@ -42,6 +35,13 @@ OUTPUT_DIR = None  # Set by main()
 
 TABLE_NAME = "perPatientOncoKBFilteredForModeling"
 TOP_N_FEATURES = 5
+
+# Unrecorded ancestry/ethnicity ("Unknown") is excluded from the tests, matching the model's missingness handling.
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'modeling'))
+from oncokb_analyzer.missingness_indicator import DEFAULT_MISSING_SENTINEL as MISSING_SENTINEL
+from oncokb_analyzer.preprocessing import MISSINGNESS_INDICATOR_COLS
+
+SENTINEL_GATED_FEATURES = frozenset(MISSINGNESS_INDICATOR_COLS)
 
 
 def load_shap_rankings(shap_file):
@@ -54,10 +54,8 @@ def load_patient_data(db_path, cancer_types, columns):
 
     conn = sqlite3.connect(db_path)
 
-    # Build column list
     col_str = ', '.join(columns)
 
-    # Build cancer type filter
     cancer_type_str = "', '".join(cancer_types)
 
     query = f"""
@@ -75,8 +73,6 @@ def load_patient_data(db_path, cancer_types, columns):
 def calculate_odds_ratio_sex(df_cancer):
     """Calculate odds ratio for sex association with actionability"""
 
-    # Create contingency table: rows=sex, columns=actionability
-    # Use Female as reference (Female vs Male)
 
     df = df_cancer[df_cancer['SEX'].isin(['Female', 'Male'])].copy()
 
@@ -99,14 +95,12 @@ def calculate_odds_ratio_sex(df_cancer):
             'warning': 'No valid sex data'
         }
 
-    # Contingency table
     contingency = pd.crosstab(
         df['SEX'],
         df['isOncoKbLevel1'],
         margins=False
     )
 
-    # Ensure we have both sexes and both outcomes
     if contingency.shape != (2, 2):
         return {
             'n_total': len(df),
@@ -126,7 +120,6 @@ def calculate_odds_ratio_sex(df_cancer):
             'warning': 'Incomplete contingency table'
         }
 
-    # Extract counts (Female first, then Male)
     try:
         female_non_act = contingency.loc['Female', 0]
         female_act = contingency.loc['Female', 1]
@@ -157,9 +150,7 @@ def calculate_odds_ratio_sex(df_cancer):
     female_rate = female_act / female_total if female_total > 0 else np.nan
     male_rate = male_act / male_total if male_total > 0 else np.nan
 
-    # Calculate odds ratio (Female vs Male)
-    # OR = (female_act / female_non_act) / (male_act / male_non_act)
-    # Apply Haldane correction (+0.5 to all cells) when any cell is zero
+    # OR = (female_act/female_non_act)/(male_act/male_non_act); Haldane +0.5 if any cell is zero
     cells = [female_act, female_non_act, male_act, male_non_act]
     if any(c == 0 for c in cells):
         ha_fa, ha_fn, ha_ma, ha_mn = [c + 0.5 for c in cells]
@@ -169,8 +160,7 @@ def calculate_odds_ratio_sex(df_cancer):
     else:
         odds_ratio = np.nan
 
-    # Decide on test: Fisher's exact if expected frequencies < 5, chi-square otherwise
-    # Compute expected frequencies for the 2x2 table
+    # Fisher's exact if any expected count < 5, else chi-square
     grand_total = female_total + male_total
     total_act = female_act + male_act
     total_non_act = female_non_act + male_non_act
@@ -186,11 +176,8 @@ def calculate_odds_ratio_sex(df_cancer):
     else:
         min_expected = 0
 
-    # Prepare contingency table for tests
     table = [[female_non_act, female_act], [male_non_act, male_act]]
 
-    # Calculate CI for odds ratio using Woolf's method (with Haldane correction if needed)
-    # Haldane correction: add 0.5 to all cells when any cell is zero
     cells_for_ci = [female_act, female_non_act, male_act, male_non_act]
     if any(c == 0 for c in cells_for_ci):
         ci_fa, ci_fn, ci_ma, ci_mn = [c + 0.5 for c in cells_for_ci]
@@ -208,7 +195,6 @@ def calculate_odds_ratio_sex(df_cancer):
         ci_lower, ci_upper = np.nan, np.nan
 
     if min_expected < 5:
-        # Use Fisher's exact test for small expected frequencies
         try:
             odds_ratio_fisher, p_value = fisher_exact(table)
             test_used = 'fisher_exact'
@@ -218,7 +204,6 @@ def calculate_odds_ratio_sex(df_cancer):
             ci_lower, ci_upper = np.nan, np.nan
             test_used = 'failed'
     else:
-        # Use chi-square test
         try:
             chi2, p_value, dof, expected = chi2_contingency(contingency)
             test_used = 'chi_square'
@@ -247,11 +232,13 @@ def calculate_odds_ratio_sex(df_cancer):
     }
 
 
-def test_race_ethnicity_association(df_cancer, feature_name):
+def test_race_ethnicity_association(df_cancer, feature_name, exclude_unknown=True):
     """Test race or ethnicity association with actionability using chi-square"""
 
-    # Clean data
+    # GENIE stores unrecorded values as a literal sentinel string, not NULL, so drop it explicitly
     df = df_cancer[df_cancer[feature_name].notna()].copy()
+    if exclude_unknown and feature_name in SENTINEL_GATED_FEATURES:
+        df = df[df[feature_name] != MISSING_SENTINEL].copy()
 
     if len(df) < 20:
         return {
@@ -263,10 +250,8 @@ def test_race_ethnicity_association(df_cancer, feature_name):
             'warning': f'Insufficient data (n={len(df)})'
         }
 
-    # Create contingency table
     contingency = pd.crosstab(df[feature_name], df['isOncoKbLevel1'])
 
-    # Need at least 2 categories and both outcomes
     if contingency.shape[0] < 2 or contingency.shape[1] < 2:
         return {
             'n_total': len(df),
@@ -277,11 +262,9 @@ def test_race_ethnicity_association(df_cancer, feature_name):
             'warning': 'Insufficient categories'
         }
 
-    # Chi-square test
     try:
         chi2, p_value, dof, expected = chi2_contingency(contingency)
 
-        # Check expected frequency assumption
         min_expected_freq = expected.min()
         pct_below_5 = (expected < 5).sum() / expected.size * 100
         warning = None
@@ -290,7 +273,6 @@ def test_race_ethnicity_association(df_cancer, feature_name):
         elif min_expected_freq < 5:
             warning = f'Chi-square may be unreliable: {pct_below_5:.0f}% of expected frequencies < 5 (min={min_expected_freq:.1f})'
 
-        # Calculate Cramér's V (effect size)
         n = contingency.sum().sum()
         min_dim = min(contingency.shape[0] - 1, contingency.shape[1] - 1)
         cramers_v = np.sqrt(chi2 / (n * min_dim)) if min_dim > 0 else np.nan
@@ -321,7 +303,6 @@ def test_race_ethnicity_association(df_cancer, feature_name):
 def test_technical_feature_association(df_cancer, feature_name):
     """Test technical feature association with actionability using chi-square"""
 
-    # Same as race/ethnicity test
     return test_race_ethnicity_association(df_cancer, feature_name)
 
 
@@ -332,19 +313,15 @@ def analyze_sex_associations(shap_df, db_path):
     print("Analyzing SEX associations")
     print("=" * 80)
 
-    # Identify cancer types with sex features in top 5
-    # Use both old (SEX_) and new (Sex:) patterns for compatibility
     sex_features = identify_top_features(shap_df, FEATURE_PATTERNS['SEX'], TOP_N_FEATURES)
 
     if len(sex_features) == 0:
         print("No cancer types with SEX features in top 5")
         return pd.DataFrame()
 
-    # Get unique cancer types
     cancer_types = sex_features['ONCOTREE_CODE'].unique()
     print(f"\nTesting {len(cancer_types)} cancer types")
 
-    # Load patient data
     df = load_patient_data(db_path, cancer_types, ['ONCOTREE_CODE', 'SEX', 'isOncoKbLevel1'])
 
     results = []
@@ -354,10 +331,8 @@ def analyze_sex_associations(shap_df, db_path):
 
         df_cancer = df[df['ONCOTREE_CODE'] == cancer_type].copy()
 
-        # Get SHAP rank info
         shap_info = sex_features[sex_features['ONCOTREE_CODE'] == cancer_type].iloc[0]
 
-        # Calculate odds ratio and test
         test_result = calculate_odds_ratio_sex(df_cancer)
 
         result = {
@@ -382,7 +357,6 @@ def analyze_sex_associations(shap_df, db_path):
         print("\nNo cancer types with SEX in top features — skipping FDR correction")
         return results_df
 
-    # Apply FDR correction
     valid_mask = ~results_df['p_value'].isna()
     if valid_mask.sum() > 0:
         _, fdr_pvals, _, _ = multipletests(
@@ -408,9 +382,7 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
     print("Analyzing RACE and ETHNICITY associations")
     print("=" * 80)
 
-    # Identify cancer types with ancestry/ethnicity features in top 5.
-    # Pattern set covers ANCESTRY_ / Ancestry: (new), Race: (display-name
-    # legacy), and RACE_ (sklearn-name legacy from pre-rename runs).
+    # Legacy and display-name forms of ancestry/ethnicity features are all matched
     race_eth_features = identify_top_features(
         shap_df,
         FEATURE_PATTERNS['ANCESTRY_ETHNICITY'],
@@ -421,11 +393,9 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
         print("No cancer types with RACE/ETHNICITY features in top 5")
         return pd.DataFrame()
 
-    # Get unique cancer types
     cancer_types = race_eth_features['ONCOTREE_CODE'].unique()
     print(f"\nTesting {len(cancer_types)} cancer types")
 
-    # Load patient data
     df = load_patient_data(
         db_path,
         cancer_types,
@@ -439,31 +409,34 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
 
         df_cancer = df[df['ONCOTREE_CODE'] == cancer_type].copy()
 
-        # Get features for this cancer type
         features_ct = race_eth_features[race_eth_features['ONCOTREE_CODE'] == cancer_type]
+
+        # One test per DB column: several dummies of one feature must not enter BH as separate hypotheses
+        tested_columns = set()
 
         for _, feat_info in features_ct.iterrows():
             feature_name = feat_info['feature']
 
-            # Determine column name (RACE/ANCESTRY or ETHNICITY). Post-Fix-b
-            # (2026-05-21) the Python identifier is ANCESTRY but the DB column
-            # is still RACE, so we map both new and legacy feature-name forms
-            # to the DB column 'RACE' used by test_race_ethnicity_association.
+            # Map feature names to the DB column (RACE/ETHNICITY); skip _missing indicators so they are not read as ancestry.
+            lowered = feature_name.lower()
+            if 'missing' in lowered:
+                continue
             if (
-                'ANCESTRY_' in feature_name
-                or 'Ancestry:' in feature_name
-                or 'RACE_' in feature_name
-                or 'Race:' in feature_name
+                'ancestry' in lowered
+                or 'race' in lowered
             ):
                 column = 'RACE'
-            elif 'ETHNICITY_' in feature_name or 'Ethnicity:' in feature_name:
+            elif 'ethnicity' in lowered:
                 column = 'ETHNICITY'
             else:
                 continue
 
+            if column in tested_columns:
+                continue
+            tested_columns.add(column)
+
             print(f"  Testing {column}...")
 
-            # Test association
             test_result = test_race_ethnicity_association(df_cancer, column)
 
             result = {
@@ -488,7 +461,6 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
         print("\nNo cancer types with RACE/ETHNICITY in top features — skipping FDR correction")
         return results_df
 
-    # Apply FDR correction
     valid_mask = ~results_df['p_value'].isna()
     if valid_mask.sum() > 0:
         _, fdr_pvals, _, _ = multipletests(
@@ -508,22 +480,12 @@ def analyze_race_ethnicity_associations(shap_df, db_path):
 
 
 def analyze_sample_type_associations(shap_df, db_path):
-    """Analyze SAMPLE_TYPE and SAMPLE_TYPE_DETAILED associations for top-ranked features.
-
-    Tests whether sample type (Primary, Metastasis, etc.) is associated with
-    actionability using Chi-square tests.
-    """
+    """Analyze SAMPLE_TYPE and SAMPLE_TYPE_DETAILED associations for top-ranked features."""
 
     print("\n" + "=" * 80)
     print("Analyzing SAMPLE_TYPE associations")
     print("=" * 80)
 
-    # Plain SAMPLE_TYPE was dropped from the modeling feature set 2026-05-21
-    # (Feature Review Fix a); only SAMPLE_TYPE_DETAILED is a current modeling
-    # feature, and FEATURE_PATTERNS['SAMPLE_TYPE_DETAILED'] narrows matches to
-    # SAMPLE_TYPE_DETAILED forms only. The legacy plain-SAMPLE_TYPE dispatcher
-    # branch was removed 2026-05-22 (pre-lock review #7) — it was unreachable
-    # after the pattern narrowing.
     sample_type_features = identify_top_features(
         shap_df,
         FEATURE_PATTERNS['SAMPLE_TYPE_DETAILED'],
@@ -534,11 +496,9 @@ def analyze_sample_type_associations(shap_df, db_path):
         print("No cancer types with SAMPLE_TYPE_DETAILED features in top 5")
         return pd.DataFrame()
 
-    # Get unique cancer types
     cancer_types = sample_type_features['ONCOTREE_CODE'].unique()
     print(f"\nTesting {len(cancer_types)} cancer types")
 
-    # Load patient data
     df = load_patient_data(
         db_path,
         cancer_types,
@@ -552,20 +512,23 @@ def analyze_sample_type_associations(shap_df, db_path):
 
         df_cancer = df[df['ONCOTREE_CODE'] == cancer_type].copy()
 
-        # Get features for this cancer type
         features_ct = sample_type_features[sample_type_features['ONCOTREE_CODE'] == cancer_type]
+
+        # One test per DB column: several dummies of one feature must not enter BH as separate hypotheses
+        tested_columns = set()
 
         for _, feat_info in features_ct.iterrows():
             feature_name = feat_info['feature']
 
-            # Upstream identify_top_features filters to SAMPLE_TYPE_DETAILED
-            # forms via FEATURE_PATTERNS['SAMPLE_TYPE_DETAILED'], so every
-            # surviving feature maps to the SAMPLE_TYPE_DETAILED DB column.
+            # FEATURE_PATTERNS already restricts matches to SAMPLE_TYPE_DETAILED
             column = 'SAMPLE_TYPE_DETAILED'
+
+            if column in tested_columns:
+                continue
+            tested_columns.add(column)
 
             print(f"  Testing {column}...")
 
-            # Test association using chi-square (same as race/ethnicity)
             test_result = test_race_ethnicity_association(df_cancer, column)
 
             result = {
@@ -586,7 +549,6 @@ def analyze_sample_type_associations(shap_df, db_path):
 
     results_df = pd.DataFrame(results)
 
-    # Apply FDR correction
     if len(results_df) > 0:
         valid_mask = ~results_df['p_value'].isna()
         if valid_mask.sum() > 0:
@@ -607,20 +569,12 @@ def analyze_sample_type_associations(shap_df, db_path):
 
 
 def analyze_technical_feature_associations(shap_df, db_path):
-    """Analyze technical feature associations for top-ranked features.
-
-    Handles all technical features from features.yaml:
-    - SUBJECT_CENTER (categorical): Chi-square test
-    - number_of_genes (numeric): Mann-Whitney U test
-    - preservation_technique (categorical): Chi-square test
-    - calling_strategy (categorical): Chi-square test
-    """
+    """Analyze technical feature associations for top-ranked features."""
 
     print("\n" + "=" * 80)
     print("Analyzing TECHNICAL feature associations")
     print("=" * 80)
 
-    # Identify cancer types with technical features in top 5
     tech_features = identify_top_features(
         shap_df,
         FEATURE_PATTERNS['TECHNICAL'],
@@ -631,12 +585,10 @@ def analyze_technical_feature_associations(shap_df, db_path):
         print("No cancer types with technical features in top 5")
         return pd.DataFrame()
 
-    # Get unique cancer types
     cancer_types = tech_features['ONCOTREE_CODE'].unique()
     print(f"\nTesting {len(cancer_types)} cancer types")
 
-    # Map SHAP feature names to database column names
-    # Key: patterns to match in SHAP feature name, Value: (db_column, is_numeric)
+    # SHAP feature-name pattern -> (db_column, is_numeric)
     TECH_FEATURE_MAPPING = {
         ('SUBJECT_CENTER', 'Subject Center'): ('SUBJECT_CENTER', False),
         ('number_of_genes', 'Number of Genes'): ('number_of_genes', True),
@@ -645,18 +597,14 @@ def analyze_technical_feature_associations(shap_df, db_path):
         ('library_selection', 'Library Selection'): ('library_selection', False),
     }
 
-    # Load patient data
     conn = sqlite3.connect(db_path)
 
-    # Get available columns
     query = f"PRAGMA table_info({TABLE_NAME})"
     col_info = pd.read_sql_query(query, conn)
     all_columns = col_info['name'].tolist()
 
-    # Determine which columns to load
     columns_to_load = ['ONCOTREE_CODE', 'isOncoKbLevel1']
     for patterns, (db_col, _) in TECH_FEATURE_MAPPING.items():
-        # Find the actual column name (may be case-insensitive match)
         matching_cols = [c for c in all_columns if c.lower() == db_col.lower()]
         if matching_cols:
             columns_to_load.append(matching_cols[0])
@@ -684,19 +632,19 @@ def analyze_technical_feature_associations(shap_df, db_path):
 
         df_cancer = df[df['ONCOTREE_CODE'] == cancer_type].copy()
 
-        # Get features for this cancer type
         features_ct = tech_features[tech_features['ONCOTREE_CODE'] == cancer_type]
+
+        # One test per DB column: several dummies of one feature must not enter BH as separate hypotheses
+        tested_columns = set()
 
         for _, feat_info in features_ct.iterrows():
             feature_name = feat_info['feature']
 
-            # Find matching database column
             column = None
             is_numeric = False
 
             for patterns, (db_col, numeric) in TECH_FEATURE_MAPPING.items():
                 if any(p.lower() in feature_name.lower() for p in patterns):
-                    # Find actual column name in loaded data
                     matching_cols = [c for c in df_cancer.columns if c.lower() == db_col.lower()]
                     if matching_cols:
                         column = matching_cols[0]
@@ -707,9 +655,12 @@ def analyze_technical_feature_associations(shap_df, db_path):
                 print(f"  Skipping {feature_name} - no matching column")
                 continue
 
+            if column in tested_columns:
+                continue
+            tested_columns.add(column)
+
             print(f"  Testing {column} ({'numeric' if is_numeric else 'categorical'})...")
 
-            # Test association based on feature type
             if is_numeric:
                 test_result = test_numeric_technical_feature(df_cancer, column)
             else:
@@ -739,7 +690,6 @@ def analyze_technical_feature_associations(shap_df, db_path):
 
     results_df = pd.DataFrame(results)
 
-    # Apply FDR correction
     if len(results_df) > 0:
         valid_mask = ~results_df['p_value'].isna()
         if valid_mask.sum() > 0:
@@ -760,11 +710,7 @@ def analyze_technical_feature_associations(shap_df, db_path):
 
 
 def test_numeric_technical_feature(df, column):
-    """
-    Test association between a numeric technical feature and actionability.
-
-    Uses Mann-Whitney U test (non-parametric comparison of distributions).
-    """
+    """Test association between a numeric technical feature and actionability."""
     try:
         df_clean = df.dropna(subset=[column, 'isOncoKbLevel1'])
 
@@ -774,10 +720,9 @@ def test_numeric_technical_feature(df, column):
         if len(actionable) < 5 or len(non_actionable) < 5:
             return {'p_value': np.nan, 'statistic': np.nan, 'effect_size': np.nan}
 
-        # Mann-Whitney U test
         statistic, p_value = stats.mannwhitneyu(actionable, non_actionable, alternative='two-sided')
 
-        # Effect size: rank-biserial correlation (r)
+        # Effect size: rank-biserial correlation
         n1, n2 = len(actionable), len(non_actionable)
         effect_size = 1 - (2 * statistic) / (n1 * n2)
 
@@ -803,7 +748,6 @@ def generate_summary_report(sex_results, race_eth_results, sample_type_results, 
         f.write("SHAP Feature Associations with Actionability - Statistical Analysis\n")
         f.write("=" * 80 + "\n\n")
 
-        # SEX associations
         if len(sex_results) > 0:
             f.write("\n" + "=" * 80 + "\n")
             f.write("SEX Associations\n")
@@ -826,7 +770,6 @@ def generate_summary_report(sex_results, race_eth_results, sample_type_results, 
                     f.write(f"  p-value: {row['p_value']:.4e}, FDR: {row['p_fdr']:.4e}\n")
                     f.write(f"  Test: {row['test_used']}\n\n")
 
-        # RACE/ETHNICITY associations
         if len(race_eth_results) > 0:
             f.write("\n" + "=" * 80 + "\n")
             f.write("RACE / ETHNICITY Associations\n")
@@ -848,7 +791,6 @@ def generate_summary_report(sex_results, race_eth_results, sample_type_results, 
                     f.write(f"  Cramér's V: {row['cramers_v']:.3f}\n")
                     f.write(f"  p-value: {row['p_value']:.4e}, FDR: {row['p_fdr']:.4e}\n\n")
 
-        # SAMPLE_TYPE associations
         if len(sample_type_results) > 0:
             f.write("\n" + "=" * 80 + "\n")
             f.write("SAMPLE TYPE Associations\n")
@@ -870,7 +812,6 @@ def generate_summary_report(sex_results, race_eth_results, sample_type_results, 
                     f.write(f"  Cramér's V: {row['cramers_v']:.3f}\n")
                     f.write(f"  p-value: {row['p_value']:.4e}, FDR: {row['p_fdr']:.4e}\n\n")
 
-        # TECHNICAL feature associations
         if len(tech_results) > 0:
             f.write("\n" + "=" * 80 + "\n")
             f.write("TECHNICAL Feature Associations\n")
@@ -892,7 +833,6 @@ def generate_summary_report(sex_results, race_eth_results, sample_type_results, 
                     f.write(f"  Cramér's V: {row['cramers_v']:.3f}\n")
                     f.write(f"  p-value: {row['p_value']:.4e}, FDR: {row['p_fdr']:.4e}\n\n")
 
-        # Interpretation guide
         f.write("\n" + "=" * 80 + "\n")
         f.write("Statistical Interpretation Guide\n")
         f.write("=" * 80 + "\n\n")
@@ -915,7 +855,6 @@ def generate_summary_report(sex_results, race_eth_results, sample_type_results, 
 def main():
     """Main execution function"""
 
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description='SHAP feature association testing',
         epilog="""
@@ -942,12 +881,17 @@ Examples:
                        help='When using LR rankings, only include features with Wald-significant '
                             'coefficients (FDR < 0.05). Features without significant associations '
                             'in the LR model are excluded from post-hoc testing.')
-    # Legacy flags accepted but ignored after the OT-rollup strip
+    # Rank features by summing SHAP across a feature's one-hot columns
+    parser.add_argument('--no-group-rf-levels', dest='group_rf_levels',
+                       action='store_false', default=True,
+                       help='Rank RF one-hot dummy COLUMNS rather than features when '
+                            'applying the importance gate (pre-2026-08-31 behaviour). '
+                            'Only for reproducing historical runs.')
+    # Legacy flags accepted but ignored
     parser.add_argument('--tier', type=str, default=None, help=argparse.SUPPRESS)
     parser.add_argument('--no-tier-filter', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    # Set output directory
     global OUTPUT_DIR
     if args.output_dir:
         OUTPUT_DIR = Path(args.output_dir)
@@ -959,7 +903,6 @@ Examples:
     print("Post-Hoc Statistical Testing: SHAP Feature Associations")
     print("=" * 80)
 
-    # Determine SHAP file to use
     if args.shap_file:
         shap_file = args.shap_file
         print(f"\nUsing specified SHAP file: {shap_file}")
@@ -970,15 +913,19 @@ Examples:
             print(f"\nERROR: {e}")
             return 1
 
-    # Verify SHAP file exists
     if not Path(shap_file).exists():
         print(f"\nERROR: SHAP file not found: {shap_file}")
         return 1
 
-    # Load SHAP rankings (auto-detects format)
-    shap_df = load_shap_rankings_adaptive(shap_file, lr_significant_only=args.lr_significant_only)
+    shap_df = load_shap_rankings_adaptive(
+        shap_file,
+        lr_significant_only=args.lr_significant_only,
+        group_rf_levels=args.group_rf_levels,
+        rf_group_agg='sum',
+        rf_group_missingness='fold',
+    )
 
-    # Filter to canonical cancer types from TIER 2a's group-definitions CSV
+    # Restrict to the eligible cancer types
     groupings_file = args.groupings_file
     if groupings_file is None:
         candidates = sorted(
@@ -1000,45 +947,38 @@ Examples:
     else:
         print("\nNo cancer_type_group_definitions.csv found; using all cancer types in SHAP file")
 
-    # Save top 5 features for all cancer types
     top5_all = shap_df[shap_df['feature_rank'] <= TOP_N_FEATURES].copy()
     top5_file = OUTPUT_DIR / "shap_top5_features.csv"
     top5_all.to_csv(top5_file, index=False)
     print(f"\nTop-5 features saved to: {top5_file}")
 
-    # Analyze SEX associations
     sex_results = analyze_sex_associations(shap_df, DB_PATH)
     if len(sex_results) > 0:
         sex_file = OUTPUT_DIR / "sex_associations.csv"
         sex_results.to_csv(sex_file, index=False)
         print(f"SEX results saved to: {sex_file}")
 
-    # Analyze RACE/ETHNICITY associations
     race_eth_results = analyze_race_ethnicity_associations(shap_df, DB_PATH)
     if len(race_eth_results) > 0:
         race_eth_file = OUTPUT_DIR / "race_ethnicity_associations.csv"
         race_eth_results.to_csv(race_eth_file, index=False)
         print(f"RACE/ETHNICITY results saved to: {race_eth_file}")
 
-    # Analyze SAMPLE_TYPE associations
     sample_type_results = analyze_sample_type_associations(shap_df, DB_PATH)
     if len(sample_type_results) > 0:
         sample_type_file = OUTPUT_DIR / "sample_type_associations.csv"
         sample_type_results.to_csv(sample_type_file, index=False)
         print(f"SAMPLE_TYPE results saved to: {sample_type_file}")
 
-    # Analyze technical feature associations
     tech_results = analyze_technical_feature_associations(shap_df, DB_PATH)
     if len(tech_results) > 0:
         tech_file = OUTPUT_DIR / "technical_feature_associations.csv"
         tech_results.to_csv(tech_file, index=False)
         print(f"Technical feature results saved to: {tech_file}")
 
-    # Generate summary report
     report_file = OUTPUT_DIR / "shap_associations_report.txt"
     generate_summary_report(sex_results, race_eth_results, sample_type_results, tech_results, report_file)
 
-    # Generate presentation tables
     print("\n" + "=" * 80)
     print("Creating presentation-friendly tables...")
     print("=" * 80)
@@ -1053,10 +993,8 @@ Examples:
         load_oncotree_mapping
     )
 
-    # Load OncoTree mapping
     oncotree_mapping = load_oncotree_mapping(DB_PATH)
 
-    # Create presentation tables
     if len(sex_results) > 0:
         sex_pres = create_sex_presentation_table(sex_results, oncotree_mapping)
         if len(sex_pres) > 0:
@@ -1064,7 +1002,6 @@ Examples:
             sex_pres.to_csv(sex_pres_file, index=False)
             print(f"Sex presentation table: {sex_pres_file}")
 
-            # Generate legend
             sex_legend_file = OUTPUT_DIR / "sex_associations_LEGEND.md"
             generate_sex_legend(sex_legend_file)
 
@@ -1075,7 +1012,6 @@ Examples:
             race_pres.to_csv(race_pres_file, index=False)
             print(f"Race/Ethnicity presentation table: {race_pres_file}")
 
-            # Generate legend
             race_legend_file = OUTPUT_DIR / "race_ethnicity_associations_LEGEND.md"
             generate_race_legend(race_legend_file)
 
@@ -1086,7 +1022,6 @@ Examples:
             tech_pres.to_csv(tech_pres_file, index=False)
             print(f"Technical features presentation table: {tech_pres_file}")
 
-            # Generate legend
             tech_legend_file = OUTPUT_DIR / "technical_feature_associations_LEGEND.md"
             generate_tech_legend(tech_legend_file)
 

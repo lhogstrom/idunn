@@ -1,58 +1,15 @@
-"""
-Phase 2b Step 1: Universal Hyperparameter Optimization
+"""Universal hyperparameter optimization on pooled data (TIER 3).
 
-This script implements Phase 2b Step 1, which optimizes hyperparameters using a
-universal approach (pooled data from all 21 cancer types) for three algorithms:
-1. Random Forest
-2. Logistic Regression
-3. XGBoost (NEW)
+Runs nested-CV randomized search for random forest, logistic regression and XGBoost on
+training data pooled across the eligible cancer types, and reports the best parameters.
 
-Based on Phase 2a findings:
-- Universal hyperparameters perform equivalently to cancer-specific (Δ AUC = -0.0094)
-- Parameter stability across cancer types = 1.000
-- Therefore, use single universal parameter set for all cancer types
-
-Objective:
-- Pool all 21 eligible cancer types (~83,000 patients, ~30,000 actionable)
-- Run RandomizedSearchCV with 100 iterations for each algorithm
-- Use nested CV (5 outer × 4 inner folds) to prevent data leakage
-- Identify optimal hyperparameters for each algorithm
-
-Output:
-- Optimal hyperparameters for RF, LR, and XGBoost
-- Nested CV performance estimates
-- Comparison of three algorithms on pooled data
-- JSON results for reproducibility
-
-Cancer Types (21 eligible types, ≥250 actionable events):
-LUAD, IDC, BRCA, MEL, GIST, COAD, THPA, ILC, PRAD, AML,
-BLCA, SKCM, NSCLC, ODG, HGSOC, ASTR, MDLC, BRCNOS, BRCANOS, COADREAD, IHCH
-
-Usage Examples:
-    # Quick test with limited parallelism (recommended for testing)
+Usage:
     python run_ml_model_selection_full.py --algorithm logistic --quick-test --n-jobs 2
+    python run_ml_model_selection_full.py --feature-set demographic --n-jobs 1
 
-    # Full run with memory-safe configuration
-    python run_ml_model_selection_full.py --n-jobs 2
-
-    # Use 50% of data to reduce memory (recommended for systems with <16 GB RAM)
-    python run_ml_model_selection_full.py --sample-fraction 0.5 --n-jobs 1
-
-    # Use demographic features only (low memory)
-    python run_ml_model_selection_full.py --feature-set demographic
-
-    # Full run with all cores (REQUIRES 100+ GB RAM with feature_set='both')
-    python run_ml_model_selection_full.py
-
-IMPORTANT - Memory Usage:
-    Default configuration (--feature-set both --n-jobs -1) can consume 50-100+ GB RAM
-    due to one-hot encoding of high-cardinality features (SEQ_ASSAY_ID, SUBJECT_CENTER).
-
-    Memory reduction strategies:
-    - Use --sample-fraction 0.5 to use 50% of data (~42k samples instead of ~85k)
-    - Use --n-jobs 1 or --n-jobs 2 for sequential/limited parallel processing
-    - Use --feature-set demographic (6 features instead of 24)
-
+Memory: --feature-set both with --n-jobs -1 can need 50-100+ GB RAM (one-hot encoding of
+high-cardinality features). Reduce with --sample-fraction, --n-jobs 1-2, or
+--feature-set demographic.
 """
 
 import sys
@@ -65,7 +22,6 @@ import pandas as pd
 import numpy as np
 import argparse
 
-# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
 
@@ -78,7 +34,6 @@ from oncokb_analyzer.param_spaces import (
     count_grid_combinations
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -87,43 +42,10 @@ logger = logging.getLogger(__name__)
 
 
 class Phase2bUniversal:
-    """
-    Phase 2b Step 1: Universal hyperparameter optimization for 3 algorithms.
-    """
+    """Universal (pooled) hyperparameter optimization for RF, LR and XGBoost."""
 
     def __init__(self, db_path, output_dir='../../ml_experiments/phase2b_universal', quick_mode=False, cv_strategy='group', n_jobs=-1, feature_set='both', sample_fraction=1.0, train_test_split_file=None, n_iter=None, institution_weight_alpha=0.0, institution_column='SUBJECT_CENTER'):
-        """
-        Initialize Phase 2b universal optimization.
-
-        Parameters
-        ----------
-        db_path : str
-            Path to SQLite database
-        output_dir : str
-            Directory for output files
-        quick_mode : bool
-            If True, use reduced search space and fewer iterations for testing
-        cv_strategy : str
-            CV strategy: 'standard', 'group', or 'stratified_group' (default: 'group')
-        n_jobs : int
-            Number of parallel jobs for RandomizedSearchCV (-1 uses all cores, 1 for sequential)
-            IMPORTANT: Use n_jobs=1 or 2 with feature_set='both' to avoid memory issues
-        feature_set : str
-            Feature set to use: 'demographic', 'technical', or 'both' (default: 'both')
-        sample_fraction : float
-            Fraction of data to use for optimization (0.0 to 1.0, default: 1.0)
-            Use < 1.0 to reduce memory usage (e.g., 0.5 for 50% of data)
-        train_test_split_file : str, optional
-            Path to train/test split CSV file. If provided, only training data will be used.
-            File should have columns: PATIENT_ID, split (with 'train'/'test' values)
-        n_iter : int, optional
-            Number of RandomizedSearchCV iterations. Overrides the default (10 for quick, 200 for full).
-        institution_weight_alpha : float
-            Power parameter for institutional sample weighting (0.0 to 1.0).
-            0.0 = no weighting (default), 0.5 = moderate correction, 1.0 = full inverse frequency.
-        institution_column : str
-            Column name for institution grouping (default: 'SUBJECT_CENTER')
-        """
+        """Set up paths, configuration and the optional train/test split restriction."""
         self.db_path = db_path
         self.output_dir = Path(output_dir)
         self.quick_mode = quick_mode
@@ -136,7 +58,6 @@ class Phase2bUniversal:
         self.institution_column = institution_column
         self.train_patient_ids = None
 
-        # Load train/test split if provided
         if train_test_split_file is not None:
             split_path = Path(train_test_split_file)
             if split_path.exists():
@@ -147,7 +68,6 @@ class Phase2bUniversal:
                 logger.warning(f"Train/test split file not found: {train_test_split_file}")
                 logger.warning("Using ALL data (no train/test split filtering)")
 
-        # Create output directory with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_dir = self.output_dir / f'run_{timestamp}'
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +84,6 @@ class Phase2bUniversal:
         if self.train_patient_ids:
             logger.info(f"Train/test split: TRAINING DATA ONLY ({len(self.train_patient_ids):,} patients)")
 
-        # Memory warning for high-memory configurations
         if feature_set == 'both' and n_jobs == -1 and sample_fraction >= 0.9:
             logger.warning("⚠️  WARNING: Using feature_set='both' with n_jobs=-1 (all cores)")
             logger.warning("   This can consume 50-100+ GB of RAM due to one-hot encoding of")
@@ -173,23 +92,21 @@ class Phase2bUniversal:
             logger.warning("   OR: Use --feature-set demographic (6 features vs 24)")
             logger.warning("   OR: Use --sample-fraction 0.5 (use 50% of data)")
 
-        # Phase 2b configuration - ALL 21 eligible cancer types
+        # Eligible cancer types, pooled for the universal search
         self.cancer_types = [
             'LUAD', 'IDC', 'BRCA', 'MEL', 'GIST', 'COAD', 'THPA', 'ILC', 'PRAD', 'AML',
             'BLCA', 'SKCM', 'NSCLC', 'ODG', 'HGSOC', 'ASTR', 'MDLC', 'BRCNOS',
             'BRCANOS', 'COADREAD', 'IHCH'
         ]
 
-        # Three algorithms: RF, LR, and XGBoost (NEW)
         self.algorithms = ['random_forest', 'logistic', 'xgboost']
 
-        # CV configuration
         if n_iter is not None:
             self.n_iter = n_iter
         elif quick_mode:
-            self.n_iter = 10  # Reduced for testing
+            self.n_iter = 10
         else:
-            self.n_iter = 200  # Full Phase 2b search (increased from 100 for thorough exploration)
+            self.n_iter = 200
 
         logger.info(f"Cancer types: {len(self.cancer_types)} types (pooled)")
         logger.info(f"Algorithms: {self.algorithms}")
@@ -198,22 +115,7 @@ class Phase2bUniversal:
         logger.info(f"Search iterations: {self.n_iter}")
 
     def load_pooled_data(self):
-        """
-        Load and pool data from all 21 cancer types.
-
-        If train_test_split_file was provided, only training data is loaded.
-
-        Returns
-        -------
-        X_pooled : pd.DataFrame
-            Pooled feature matrix
-        y_pooled : pd.Series
-            Pooled outcome vector
-        groups_pooled : pd.Series
-            Pooled institution groups
-        cancer_type_pooled : pd.Series
-            Cancer type labels for each sample
-        """
+        """Load and pool training data across cancer types; return X, y, groups, cancer-type labels."""
         if self.train_patient_ids:
             logger.info("Loading and pooling TRAINING DATA from 21 cancer types...")
             logger.info(f"Filtering to {len(self.train_patient_ids):,} training patients")
@@ -222,7 +124,6 @@ class Phase2bUniversal:
 
         loader = DataLoader(self.db_path)
 
-        # Load data for all cancer types (with optional patient ID filter)
         cancer_data_dict = loader.prepare_cancer_data_dict(
             cancer_types=self.cancer_types,
             feature_set=self.feature_set,
@@ -231,7 +132,6 @@ class Phase2bUniversal:
             patient_ids_filter=self.train_patient_ids
         )
 
-        # Pool data from all cancer types
         X_list = []
         y_list = []
         groups_list = []
@@ -275,7 +175,6 @@ class Phase2bUniversal:
         )
         logger.info("=" * 90)
 
-        # Concatenate all data
         X_pooled = pd.concat(X_list, axis=0, ignore_index=True)
         y_pooled = pd.concat(y_list, axis=0, ignore_index=True)
         groups_pooled = pd.concat(groups_list, axis=0, ignore_index=True)
@@ -283,17 +182,15 @@ class Phase2bUniversal:
 
         logger.info(f"\nPooled dataset: {X_pooled.shape[0]:,} samples, {X_pooled.shape[1]} features")
 
-        # Sample data if sample_fraction < 1.0
         if self.sample_fraction < 1.0:
             n_samples = len(X_pooled)
             n_sampled = int(n_samples * self.sample_fraction)
 
             logger.info(f"Sampling {self.sample_fraction:.1%} of data ({n_sampled:,} / {n_samples:,} samples)")
 
-            # Random sampling with fixed seed for reproducibility
             np.random.seed(42)
             sample_idx = np.random.choice(n_samples, size=n_sampled, replace=False)
-            sample_idx = np.sort(sample_idx)  # Sort to maintain order
+            sample_idx = np.sort(sample_idx)
 
             X_pooled = X_pooled.iloc[sample_idx].reset_index(drop=True)
             y_pooled = y_pooled.iloc[sample_idx].reset_index(drop=True)
@@ -305,22 +202,7 @@ class Phase2bUniversal:
         return X_pooled, y_pooled, groups_pooled, cancer_type_pooled
 
     def _compute_institution_weights(self, groups: pd.Series) -> np.ndarray:
-        """
-        Compute sample weights based on institution frequency using power weighting.
-
-        Weights are computed as: weight_i = (1 / count_i) ^ alpha
-        where count_i is the number of samples from that institution.
-
-        Parameters
-        ----------
-        groups : pd.Series
-            Institution group labels for each sample
-
-        Returns
-        -------
-        weights : np.ndarray or None
-            Normalized sample weights (sum to N, mean of 1.0), or None if alpha <= 0
-        """
+        """Institution sample weights (1 / count) ** alpha, normalized to mean 1; None if alpha <= 0."""
         if self.institution_weight_alpha <= 0:
             return None
 
@@ -332,7 +214,6 @@ class Phase2bUniversal:
         # Normalize so weights sum to N (mean weight = 1.0)
         normalized_weights = raw_weights / raw_weights.sum() * len(raw_weights)
 
-        # Log weight statistics
         weight_by_inst = pd.DataFrame({'group': groups, 'weight': normalized_weights.values}).groupby('group')['weight'].mean().sort_values(ascending=False)
 
         logger.info(f"  Institution weights (alpha={self.institution_weight_alpha}):")
@@ -343,29 +224,13 @@ class Phase2bUniversal:
         return normalized_weights.values
 
     def optimize_universal_hyperparameters(self, algorithm='random_forest'):
-        """
-        Run universal hyperparameter optimization for one algorithm.
-
-        Uses nested cross-validation on pooled data from all 21 cancer types.
-
-        Parameters
-        ----------
-        algorithm : str
-            'random_forest', 'logistic', or 'xgboost'
-
-        Returns
-        -------
-        results : dict
-            Optimization results including best parameters and CV score
-        """
+        """Nested-CV universal hyperparameter search for one algorithm on the pooled data."""
         logger.info(f"\n{'='*90}")
         logger.info(f"UNIVERSAL HYPERPARAMETER OPTIMIZATION: {algorithm.upper()}")
         logger.info(f"{'='*90}\n")
 
-        # Load pooled data
         X_pooled, y_pooled, groups_pooled, cancer_type_pooled = self.load_pooled_data()
 
-        # Get hyperparameter search space
         if self.quick_mode:
             param_distributions = get_param_distributions_quick(algorithm)
             logger.info(f"Using quick search space for testing")
@@ -373,35 +238,31 @@ class Phase2bUniversal:
             param_distributions = get_param_distributions(algorithm)
             logger.info(f"Using full search space")
 
-        # XGBoost gets reduced iterations (slower per iteration, exploratory only)
+        # XGBoost gets fewer iterations (slower per iteration, exploratory only)
         effective_n_iter = self.n_iter
         if algorithm == 'xgboost' and self.n_iter > 100:
             effective_n_iter = min(self.n_iter, 100)
             logger.info(f"XGBoost: reducing n_iter from {self.n_iter} to {effective_n_iter} (slower algorithm)")
 
-        # Log search space statistics
         n_combos = count_grid_combinations(param_distributions)
         logger.info(f"Search space: {len(param_distributions)} parameters")
         logger.info(f"Grid combinations: {n_combos:,}")
         logger.info(f"RandomizedSearchCV iterations: {effective_n_iter}")
         logger.info(f"Total models to fit (nested CV): ~{effective_n_iter * 5 * 4:,}")
 
-        # Create optimizer
         optimizer = NestedCVOptimizer(
             param_distributions=param_distributions,
             search_method='random',
             n_iter=effective_n_iter,
             scoring='roc_auc',
-            n_jobs=self.n_jobs,  # Use configured n_jobs
+            n_jobs=self.n_jobs,
             random_state=42,
-            verbose=2,  # More verbose for long runs
-            cv_strategy=self.cv_strategy  # Use configured CV strategy
+            verbose=2,
+            cv_strategy=self.cv_strategy
         )
 
-        # Compute institution sample weights if alpha > 0
         sample_weight = self._compute_institution_weights(groups_pooled)
 
-        # Run nested CV optimization on pooled data
         logger.info(f"\nRunning nested cross-validation on pooled dataset...")
         logger.info(f"This will take approximately {self._estimate_runtime(algorithm, n_combos, effective_n_iter)} minutes")
 
@@ -413,7 +274,6 @@ class Phase2bUniversal:
             sample_weight=sample_weight
         )
 
-        # Add metadata
         results['algorithm'] = algorithm
         results['n_cancer_types'] = len(self.cancer_types)
         results['cancer_types'] = self.cancer_types
@@ -423,7 +283,6 @@ class Phase2bUniversal:
         results['actionable_rate'] = float(y_pooled.mean())
         results['n_institutions'] = int(groups_pooled.nunique())
 
-        # Save results
         self._save_results(results, algorithm)
 
         logger.info(f"\n{'='*90}")
@@ -438,14 +297,7 @@ class Phase2bUniversal:
         return results
 
     def run_all_algorithms(self):
-        """
-        Run universal hyperparameter optimization for all three algorithms.
-
-        Returns
-        -------
-        all_results : dict
-            {algorithm: results, ...}
-        """
+        """Run the universal search for every configured algorithm."""
         logger.info(f"\n{'#'*90}")
         logger.info(f"PHASE 2B STEP 1: UNIVERSAL HYPERPARAMETER OPTIMIZATION")
         logger.info(f"Optimizing hyperparameters for {len(self.algorithms)} algorithms")
@@ -462,7 +314,6 @@ class Phase2bUniversal:
                 logger.exception(e)
                 continue
 
-        # Generate comparison report
         self._generate_comparison_report(all_results)
 
         logger.info(f"\n{'#'*90}")
@@ -474,13 +325,11 @@ class Phase2bUniversal:
 
     def _save_results(self, results, algorithm):
         """Save results for one algorithm."""
-        # Save JSON
         json_file = self.output_dir / f'{algorithm}_universal_params.json'
         with open(json_file, 'w') as f:
             json.dump(results, f, indent=2, default=str)
         logger.info(f"Saved results: {json_file}")
 
-        # Save best params as CSV for easy reference
         params_df = pd.DataFrame([results['best_params_consensus']])
         params_df.insert(0, 'algorithm', algorithm)
         params_df.insert(1, 'cv_auc', results['mean_score'])
@@ -499,7 +348,6 @@ class Phase2bUniversal:
             logger.warning("No algorithm results to compare — all algorithms failed.")
             return
 
-        # Create summary table
         summary_data = []
         for algorithm, results in all_results.items():
             summary_data.append({
@@ -516,12 +364,10 @@ class Phase2bUniversal:
         summary_df = pd.DataFrame(summary_data)
         summary_df = summary_df.sort_values('cv_auc', ascending=False)
 
-        # Save summary table
         summary_file = self.output_dir / 'algorithm_comparison.csv'
         summary_df.to_csv(summary_file, index=False)
         logger.info(f"Saved comparison table: {summary_file}")
 
-        # Generate text report
         report_lines = []
         report_lines.append("=" * 90)
         report_lines.append("PHASE 2B STEP 1: ALGORITHM COMPARISON")
@@ -544,7 +390,6 @@ class Phase2bUniversal:
         report_lines.append("-" * 90)
         report_lines.append("")
 
-        # Add best parameters for each algorithm
         for algorithm in self.algorithms:
             if algorithm in all_results:
                 report_lines.append(f"\nBest Parameters (Consensus) - {algorithm.upper()}:")
@@ -565,35 +410,31 @@ class Phase2bUniversal:
 
         report_text = "\n".join(report_lines)
 
-        # Save text report
         report_file = self.output_dir / 'comparison_report.txt'
         with open(report_file, 'w') as f:
             f.write(report_text)
         logger.info(f"Saved comparison report: {report_file}")
 
-        # Print to console
         print("\n" + report_text)
 
     def _estimate_runtime(self, algorithm, n_combos, n_iter=None):
         """Estimate runtime in minutes."""
-        # Rough estimates based on Phase 2a experience
-        # Nested CV: 5 outer × 4 inner = 20 fits per iteration
-        # Total fits: n_iter * 20
+        # Nested CV: 5 outer x 4 inner = 20 fits per iteration
         n_iter = n_iter or self.n_iter
 
         if self.quick_mode:
-            base_time = 0.5  # minutes per iteration (quick mode)
+            base_time = 0.5
         else:
             if algorithm == 'random_forest':
-                base_time = 2.0  # minutes per iteration
+                base_time = 2.0
             elif algorithm == 'logistic':
-                base_time = 0.5  # faster
+                base_time = 0.5
             elif algorithm == 'xgboost':
-                base_time = 3.0  # slower than RF
+                base_time = 3.0
             else:
                 base_time = 2.0
 
-        # Adjust for large pooled dataset (~83k samples vs Phase 2a's ~20k per cancer type)
+        # Pooled data is much larger than a single cancer type
         pooled_multiplier = 2.0
 
         estimated_minutes = n_iter * base_time * pooled_multiplier
@@ -695,14 +536,11 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate sample_fraction
     if not (0.0 < args.sample_fraction <= 1.0):
         logger.error(f"Invalid --sample-fraction: {args.sample_fraction}. Must be between 0.0 and 1.0")
         sys.exit(1)
 
-    # Check database exists
     if not Path(args.db_path).exists():
-        # Try alternative path
         alt_path = '../../../output/actionability_db_curration_20250522/balder-harmonized-biomarker-data-v20250522.sqlite'
         if Path(alt_path).exists():
             args.db_path = alt_path
@@ -713,7 +551,6 @@ def main():
             logger.error(f"Set BALDER_DB_PATH environment variable or check database location")
             sys.exit(1)
 
-    # Initialize Phase 2b
     phase2b = Phase2bUniversal(
         db_path=args.db_path,
         output_dir=args.output_dir,
@@ -727,7 +564,7 @@ def main():
         institution_weight_alpha=args.institution_weight_alpha
     )
 
-    # Resolve --algorithm: accept canonical names, "all", or comma-separated shorthand.
+    # Resolve --algorithm: canonical names, "all", or comma-separated shorthand
     SHORTHAND = {'rf': 'random_forest', 'lr': 'logistic', 'xgb': 'xgboost'}
     CANONICAL = {'random_forest', 'logistic', 'xgboost'}
 

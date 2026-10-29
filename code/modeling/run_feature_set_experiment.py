@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Feature Set Comparison Experiment
-
-Comparison of demographic vs. technical features across cancer types and algorithms.
-Provides comprehensive statistical analysis and reporting.
+"""Compare demographic vs. technical feature sets across cancer types and algorithms.
 
 Usage: python run_feature_set_experiment.py [options]
 """
@@ -12,7 +8,6 @@ import sys
 import argparse
 from pathlib import Path
 
-# Add the code directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
 
@@ -22,13 +17,12 @@ from feature_config import load_feature_config, copy_config_to_run_dir, get_conf
 
 
 def parse_arguments():
-    """Parse command line arguments"""
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Run feature set comparison experiment",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # Database and data options
     parser.add_argument(
         "--db-path",
         type=str,
@@ -44,7 +38,6 @@ def parse_arguments():
         help="Cancer types to analyze (OncoTree codes)"
     )
 
-    # Algorithm options
     parser.add_argument(
         "--algorithms",
         type=str,
@@ -63,7 +56,6 @@ def parse_arguments():
         help="Feature sets to compare"
     )
 
-    # Experimental design options
     parser.add_argument(
         "--cv-folds",
         type=int,
@@ -129,7 +121,6 @@ def parse_arguments():
         help="Specific random seeds to use"
     )
 
-    # Output options
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -144,7 +135,6 @@ def parse_arguments():
         help="Custom experiment name (auto-generated if not provided)"
     )
 
-    # Statistical options
     parser.add_argument(
         "--no-statistical-tests",
         action="store_true",
@@ -158,7 +148,6 @@ def parse_arguments():
         help="Significance level for statistical tests"
     )
 
-    # Performance options
     parser.add_argument(
         "--n-jobs",
         type=int,
@@ -166,7 +155,6 @@ def parse_arguments():
         help="Number of parallel jobs for cross-validation (-1 uses all cores, 1 for single-threaded to save memory)"
     )
 
-    # Quick test options
     parser.add_argument(
         "--quick-test",
         action="store_true",
@@ -185,7 +173,6 @@ def parse_arguments():
         help="Skip confirmation prompt and run immediately"
     )
 
-    # Feature configuration
     parser.add_argument(
         "--feature-config",
         type=str,
@@ -201,30 +188,28 @@ def parse_arguments():
 
 
 def create_experiment_config(args) -> ExperimentConfig:
-    """Create experiment configuration from command line arguments"""
+    """Build an ExperimentConfig from parsed arguments."""
 
-    # Determine institution-aware test split settings
     institution_aware = args.institution_aware_test_split is not None
     test_split_group_col = args.institution_aware_test_split if institution_aware else "SUBJECT_CENTER"
 
-    # Handle quick test mode
     if args.quick_test:
         config = ExperimentConfig(
             db_path=args.db_path,
-            cancer_types=[args.cancer_types[0]],  # Just first cancer type
-            algorithms=[args.algorithms[0]],      # Just first algorithm
-            feature_sets=args.feature_sets,       # Keep all feature sets for comparison
-            cv_folds=3,                          # Fewer folds for speed
-            cv_strategies=args.cv_strategies,    # Keep all CV strategies for comparison
+            cancer_types=[args.cancer_types[0]],
+            algorithms=[args.algorithms[0]],
+            feature_sets=args.feature_sets,
+            cv_folds=3,
+            cv_strategies=args.cv_strategies,
             group_column=args.group_column,
             institution_aware_test_split=institution_aware,
             test_split_group_column=test_split_group_col,
             train_test_split_file=args.train_test_split_file,
-            n_random_seeds=2,                    # Fewer seeds for speed
-            random_seeds=[42, 123],              # Just 2 seeds
+            n_random_seeds=2,
+            random_seeds=[42, 123],
             n_jobs=args.n_jobs,
             output_dir=args.output_dir,
-            experiment_name=args.experiment_name or "",  # Auto-generates timestamped name if empty
+            experiment_name=args.experiment_name or "",
             statistical_tests=not args.no_statistical_tests,
             alpha=args.alpha
         )
@@ -253,7 +238,7 @@ def create_experiment_config(args) -> ExperimentConfig:
 
 
 def print_experiment_summary(config: ExperimentConfig):
-    """Print summary of experiment configuration"""
+    """Print the experiment design summary."""
     print("Feature Set Comparison Experiment")
     print("=" * 50)
     print(f"Experiment Name: {config.experiment_name}")
@@ -272,7 +257,6 @@ def print_experiment_summary(config: ExperimentConfig):
     print(f"Statistical Tests: {'Yes' if config.statistical_tests else 'No'}")
     print(f"Output Directory: {config.output_dir}")
 
-    # Calculate total experiments
     total_experiments = (
         len(config.cancer_types) *
         len(config.algorithms) *
@@ -282,28 +266,24 @@ def print_experiment_summary(config: ExperimentConfig):
     )
     print(f"Total Experiments: {total_experiments}")
 
-    # Estimate time (rough estimate: 5-10 seconds per experiment)
-    estimated_minutes = (total_experiments * 7) / 60  # 7 seconds average
+    # rough estimate: ~7 s per experiment
+    estimated_minutes = (total_experiments * 7) / 60
     print(f"Estimated Time: ~{estimated_minutes:.1f} minutes")
     print()
 
 
 def main():
-    """Main experiment runner"""
+    """Entry point."""
 
-    # Parse arguments
     args = parse_arguments()
 
-    # Load feature configuration (before creating experiment config)
     if args.feature_config:
         print(f"Loading custom feature config: {args.feature_config}")
         load_feature_config(args.feature_config)
     else:
-        # Load default config to ensure it's initialized
         load_feature_config()
     print(f"Feature config loaded from: {get_config_path()}")
 
-    # Create experiment configuration
     try:
         config = create_experiment_config(args)
         config.validate()
@@ -311,16 +291,13 @@ def main():
         print(f"ERROR: Invalid configuration: {e}")
         return 1
 
-    # Print experiment summary
     print_experiment_summary(config)
 
-    # Handle dry run
     if args.dry_run:
         print("Dry run mode - configuration validated successfully!")
         print("Use --no-dry-run or remove --dry-run to execute the experiment.")
         return 0
 
-    # Confirm execution for large experiments
     if not args.quick_test:
         total_experiments = (
             len(config.cancer_types) *
@@ -339,13 +316,11 @@ def main():
             else:
                 print(f"Running {total_experiments} experiments (confirmation skipped with --yes flag)...")
 
-    # Run experiment
     try:
         print("Starting experiment...")
         experiment = FeatureSetExperiment(config)
         results = experiment.run_full_experiment()
 
-        # Copy feature config to output directory for reproducibility
         output_path = Path(config.output_dir) / config.experiment_name
         copied_config = copy_config_to_run_dir(str(output_path), args.feature_config)
         print(f"Feature config copied to: {copied_config}")
@@ -353,7 +328,6 @@ def main():
         print("\nExperiment completed successfully!")
         print(f"Results saved to: {config.output_dir}/{config.experiment_name}/")
 
-        # Print quick summary
         print("\nQuick Summary:")
         print("-" * 15)
         for cancer_type in results:

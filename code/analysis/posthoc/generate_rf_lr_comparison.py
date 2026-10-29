@@ -1,49 +1,18 @@
 #!/usr/bin/env python3
-"""
-Generate the merged RF/SHAP vs LR (--lr-significant-only) post-hoc comparison.
+"""Generate the merged RF (SHAP) vs LR post-hoc comparison.
 
-This is the canonical home for what used to live (untracked) as
-``runs/rf_vs_lr_comparison_*/generate_comparison.py``. Promoted into the repo
-2026-06-09 for the publication run-lock so the merged comparison table has a
-tracked, synced generator (it is a publication artifact).
+Reads the per-pathway TIER 7 outputs of an RF run and an LR run and writes, to --output-dir:
+  - gene_stratified_comparison.csv: one row per (cancer x gene x feature_category x feature),
+    with membership (both/RF_only/LR_only), effect size, direction and both FDR q-values.
+  - cancer_level_comparison.csv: cancer-level age/sex/technical/sample-type membership.
+  - Summary PDFs (overlap, category breakdown, effect sizes, cancer x category heatmap).
 
-It reads the per-pathway TIER 7 outputs of an RF run and an LR run and emits the
-side-by-side hit comparison the manuscript cites:
+The `feature_category` value `race` is unchanged by the ancestry display rename.
+Codes not prefixed `tier2_`/`tier3_` are treated as leaf (plain OncoTree) codes.
 
-Generates (in --output-dir):
-  - gene_stratified_comparison.csv   <- one row per (cancer x gene x feature_category x
-                                        feature); membership (both/RF_only/LR_only),
-                                        effect_size + direction, rf_p_fdr AND lr_p_fdr
-                                        side by side, n_actionable / n_non_actionable.
-  - cancer_level_comparison.csv      <- cancer-level age/sex/technical/sample_type
-                                        membership (has a known RF-one-hot vs LR-grouped
-                                        feature-naming caveat; see the gene-level file for
-                                        the clean comparison).
-  - Visualization PDFs (overlap bar, category breakdown, effect-size scatter,
-    cancer x category heatmap, cancer-level summary).
-
-Inputs per run (both --rf-run and --lr-run must contain these):
-  tier7_posthoc_statistics/gene_stratified/gene_stratified_significant_hits.csv
-  tier7_posthoc_statistics/age_actionability/age_actionability_results.csv
-  tier7_posthoc_statistics/shap_associations/sex_associations.csv
-  tier7_posthoc_statistics/shap_associations/technical_feature_associations.csv
-  tier7_posthoc_statistics/shap_associations/sample_type_associations.csv
-
-v2.1 / publication-lock notes:
-  - The ``feature_category`` column in the hit CSV still uses ``race`` (not
-    ``ancestry``) even after the v2.1 RACE->ANCESTRY *display* rename, so the
-    category list below is unchanged.
-  - The publication branch emits PLAIN OncoTree codes (AML, ASTR, ...), not the
-    ``tier1_``/``tier2_``/``tier3_`` prefixes used by rollup-aware runs. The
-    cancer x category heatmap therefore treats any code that is NOT
-    ``tier2_``/``tier3_``-prefixed as a Tier-1 (leaf) code, so it renders for
-    both the plain-code publication runs and the legacy rollup-aware runs.
-
-Reference invocation (locked RF+LR pair, run from the idunn checkout):
-    python code/analysis/posthoc/generate_rf_lr_comparison.py \
-        --rf-run runs/run_20260607_212932_rf \
-        --lr-run runs/run_20260609_005856_lr \
-        --output-dir runs/rf_vs_lr_comparison_<ts>
+Usage:
+  python generate_rf_lr_comparison.py --rf-run runs/<rf_run> --lr-run runs/<lr_run> \
+      --output-dir runs/<comparison_dir>
 """
 import argparse
 import csv
@@ -57,13 +26,10 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-# ---------------------------------------------------------------------------
 # Data loading helpers
-# ---------------------------------------------------------------------------
 
 def load_gene_hits(path):
-    """Load gene_stratified_significant_hits.csv into dict keyed by
-    (ONCOTREE_CODE, Hugo_Symbol, feature_category, feature)."""
+    """Load gene_stratified_significant_hits.csv into a dict keyed by (ONCOTREE_CODE, Hugo_Symbol, feature_category, feature)."""
     hits = {}
     with open(path) as f:
         for row in csv.DictReader(f):
@@ -90,7 +56,7 @@ def load_sex_results(path):
 
 
 def load_keyed_results(path, key_cols):
-    """Generic loader returning dict keyed by tuple of *key_cols*."""
+    """Generic loader returning a dict keyed by a tuple of *key_cols*."""
     hits = {}
     with open(path) as f:
         for row in csv.DictReader(f):
@@ -98,9 +64,7 @@ def load_keyed_results(path, key_cols):
             hits[key] = row
     return hits
 
-# ---------------------------------------------------------------------------
 # CSV generation
-# ---------------------------------------------------------------------------
 
 def write_gene_csv(rf, lr, out_path):
     rf_keys, lr_keys = set(rf), set(lr)
@@ -138,7 +102,7 @@ def write_gene_csv(rf, lr, out_path):
 def write_cancer_csv(rf_run, lr_run, out_path):
     rows = []
 
-    # --- age ---
+    # age
     rf_age = load_age_results(rf_run / "tier7_posthoc_statistics/age_actionability/age_actionability_results.csv")
     lr_age = load_age_results(lr_run / "tier7_posthoc_statistics/age_actionability/age_actionability_results.csv")
     for cancer in sorted(set(rf_age) | set(lr_age)):
@@ -154,7 +118,7 @@ def write_cancer_csv(rf_run, lr_run, out_path):
                      rf_age.get(cancer, {}).get("mann_whitney_p_fdr", ""),
                      lr_age.get(cancer, {}).get("mann_whitney_p_fdr", "")])
 
-    # --- sex ---
+    # sex
     rf_sex = load_sex_results(rf_run / "tier7_posthoc_statistics/shap_associations/sex_associations.csv")
     lr_sex = load_sex_results(lr_run / "tier7_posthoc_statistics/shap_associations/sex_associations.csv")
     for cancer in sorted(set(rf_sex) | set(lr_sex)):
@@ -170,12 +134,12 @@ def write_cancer_csv(rf_run, lr_run, out_path):
                      rf_sex.get(cancer, {}).get("p_fdr", ""),
                      lr_sex.get(cancer, {}).get("p_fdr", "")])
 
-    # --- technical ---
+    # technical
     _add_keyed_rows(rows, rf_run, lr_run,
                     "tier7_posthoc_statistics/shap_associations/technical_feature_associations.csv",
                     "technical_association")
 
-    # --- sample type ---
+    # sample type
     _add_keyed_rows(rows, rf_run, lr_run,
                     "tier7_posthoc_statistics/shap_associations/sample_type_associations.csv",
                     "sample_type_association")
@@ -228,24 +192,17 @@ def _membership(rf_sig, lr_sig):
 
 
 def _is_leaf_code(ot_code):
-    """True for a Tier-1 (leaf) OncoTree code.
-
-    Publication runs emit plain codes (AML, ASTR, ...); rollup-aware runs emit
-    ``tier1_``/``tier2_``/``tier3_`` prefixes. A leaf is anything NOT rolled up,
-    i.e. not ``tier2_``/``tier3_``-prefixed (plain codes and ``tier1_`` both pass).
-    """
+    """True for a leaf OncoTree code, i.e. not `tier2_`/`tier3_`-prefixed (plain and `tier1_` codes pass)."""
     return not ot_code.startswith(("tier2_", "tier3_"))
 
-# ---------------------------------------------------------------------------
 # Visualizations
-# ---------------------------------------------------------------------------
 
 COLORS = {"both": "#2ca02c", "RF_only": "#1f77b4", "LR_only": "#ff7f0e"}
 LABELS = {"both": "Both", "RF_only": "RF only", "LR_only": "LR only"}
 
 
 def plot_venn_summary(intersection, rf_only, lr_only, out_dir):
-    """Simple proportional Venn-style bar showing overlap counts."""
+    """Proportional bar showing overlap counts."""
     fig, ax = plt.subplots(figsize=(7, 2.5))
     counts = [len(rf_only), len(intersection), len(lr_only)]
     labels = [f"RF only\n({counts[0]})", f"Both\n({counts[1]})", f"LR only\n({counts[2]})"]
@@ -255,7 +212,6 @@ def plot_venn_summary(intersection, rf_only, lr_only, out_dir):
     bars = ax.barh([0], counts[1], left=counts[0], color=colors[1], edgecolor="white")
     bars = ax.barh([0], counts[2], left=counts[0]+counts[1], color=colors[2], edgecolor="white")
 
-    # Center labels on each segment
     for i, (cnt, lbl) in enumerate(zip(counts, labels)):
         left = sum(counts[:i])
         ax.text(left + cnt / 2, 0, lbl, ha="center", va="center",
@@ -290,7 +246,6 @@ def plot_category_breakdown(intersection, rf_only, lr_only, out_dir):
         vals = [data[c][mem_key] for c in categories]
         ax.bar(x, vals, w, bottom=bottoms, label=LABELS[mem_key],
                color=COLORS[mem_key], edgecolor="white", linewidth=0.5)
-        # Add count labels inside segments
         for i, v in enumerate(vals):
             if v > 0:
                 ax.text(x[i], bottoms[i] + v / 2, str(v),
@@ -310,9 +265,7 @@ def plot_category_breakdown(intersection, rf_only, lr_only, out_dir):
 
 
 def plot_effect_size_comparison(rf, lr, intersection, out_dir):
-    """Scatter plot of effect sizes: RF vs LR for intersection hits.
-    Since the post-hoc tests are identical, effect sizes match — but we
-    can color by category to show the composition of the intersection."""
+    """Scatter of RF vs LR effect sizes for intersection hits, colored by category."""
     cat_colors = {
         "age": "#e41a1c", "sex": "#377eb8", "race": "#4daf4a",
         "ethnicity": "#984ea3", "sample_type": "#ff7f00", "technical": "#a65628"
@@ -324,7 +277,6 @@ def plot_effect_size_comparison(rf, lr, intersection, out_dir):
         cat = k[2]
         ax.scatter(es, es, c=cat_colors[cat], s=30, alpha=0.7, edgecolors="none")
 
-    # Dummy artists for legend
     for cat, color in cat_colors.items():
         count = sum(1 for k in intersection if k[2] == cat)
         if count > 0:
@@ -344,13 +296,12 @@ def plot_effect_size_comparison(rf, lr, intersection, out_dir):
 
 def plot_cancer_heatmap(rf, lr, out_dir):
     """Heatmap: cancer type (rows) x feature category (cols), colored by membership."""
-    # Restrict to Tier-1 (leaf) codes to avoid double-counting rolled-up groups.
-    # Plain publication codes (no prefix) and legacy tier1_ codes both qualify.
+    # Restrict to leaf codes to avoid double-counting rolled-up groups.
     t1_keys = sorted({k for k in (set(rf) | set(lr)) if _is_leaf_code(k[0])})
     cancers = sorted({k[0] for k in t1_keys})
     categories = ["age", "sex", "race", "ethnicity", "sample_type", "technical"]
 
-    # Build matrix: 0=not tested, 1=both, 2=RF_only, 3=LR_only
+    # Matrix: 0=not tested, 1=both, 2=RF_only, 3=LR_only
     rf_keys, lr_keys = set(rf), set(lr)
     matrix = np.zeros((len(cancers), len(categories)))
     for ci, cancer in enumerate(cancers):
@@ -380,7 +331,6 @@ def plot_cancer_heatmap(rf, lr, out_dir):
     ax.set_yticklabels([c.replace("tier1_", "") for c in cancers], fontsize=9)
     ax.set_title("Gene-Stratified Hits by Cancer Type (Tier 1)\nand Feature Category")
 
-    # Legend
     patches = [
         mpatches.Patch(color="#f0f0f0", label="No significant hit"),
         mpatches.Patch(color=COLORS["both"], label="Both methods"),
@@ -390,7 +340,6 @@ def plot_cancer_heatmap(rf, lr, out_dir):
     ax.legend(handles=patches, loc="upper left", bbox_to_anchor=(1.02, 1),
               fontsize=8, framealpha=0.9)
 
-    # Grid lines
     ax.set_xticks(np.arange(-0.5, len(categories), 1), minor=True)
     ax.set_yticks(np.arange(-0.5, len(cancers), 1), minor=True)
     ax.grid(which="minor", color="white", linewidth=1.5)
@@ -439,17 +388,15 @@ def plot_cancer_level_summary(cancer_rows, out_dir):
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
         description="Generate the merged RF/SHAP vs LR post-hoc comparison.")
     parser.add_argument("--rf-run", type=Path, required=True,
-                        help="Path to RF/SHAP run directory (e.g. runs/run_20260607_212932_rf)")
+                        help="Path to RF/SHAP run directory (e.g. runs/<rf_run>)")
     parser.add_argument("--lr-run", type=Path, required=True,
-                        help="Path to LR run directory (e.g. runs/run_20260609_005856_lr)")
+                        help="Path to LR run directory (e.g. runs/<lr_run>)")
     parser.add_argument("--output-dir", type=Path, default=Path("."),
                         help="Output directory for CSVs and plots (default: .)")
     args = parser.parse_args()
@@ -457,7 +404,7 @@ def main():
     out = args.output_dir
     out.mkdir(parents=True, exist_ok=True)
 
-    # --- Gene-stratified ---
+    # Gene-stratified
     print("Gene-stratified comparison:")
     rf_gene = load_gene_hits(
         args.rf_run / "tier7_posthoc_statistics/gene_stratified/gene_stratified_significant_hits.csv")
@@ -466,12 +413,12 @@ def main():
     intersection, rf_only, lr_only = write_gene_csv(
         rf_gene, lr_gene, out / "gene_stratified_comparison.csv")
 
-    # --- Cancer-level ---
+    # Cancer-level
     print("Cancer-level comparison:")
     cancer_rows = write_cancer_csv(args.rf_run, args.lr_run,
                                    out / "cancer_level_comparison.csv")
 
-    # --- Plots ---
+    # Plots
     print("Generating plots...")
     plot_venn_summary(intersection, rf_only, lr_only, out)
     plot_category_breakdown(intersection, rf_only, lr_only, out)

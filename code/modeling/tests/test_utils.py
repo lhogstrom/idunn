@@ -1,5 +1,4 @@
-"""
-Unit tests for utils.py
+"""Unit tests for utils.py
 
 Tests custom exception classes.
 """

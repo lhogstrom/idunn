@@ -1,9 +1,4 @@
-"""
-Experiment Framework for Feature Set Comparison
-
-Systematic comparison of demographic vs. technical features across cancer types and algorithms.
-Provides statistical rigor and comprehensive reporting for experimental analysis.
-"""
+"""Compare demographic vs. technical feature sets across cancer types and algorithms."""
 
 import logging
 import numpy as np
@@ -22,7 +17,7 @@ from .analyzer import OncoKBAnalyzer
 
 @dataclass
 class ExperimentConfig:
-    """Configuration for feature set comparison experiments"""
+    """Configuration for feature set comparison experiments."""
 
     # Base settings
     db_path: str
@@ -43,7 +38,7 @@ class ExperimentConfig:
     train_test_split_file: str = None  # Path to train/test split CSV file (PATIENT_ID, split columns)
 
     # Parallel processing
-    n_jobs: int = -1  # Number of parallel jobs (-1 uses all cores, 1 for single-threaded to save memory)
+    n_jobs: int = -1
 
     # Output settings
     output_dir: str = "../../ml_experiments/"
@@ -54,7 +49,7 @@ class ExperimentConfig:
     alpha: float = 0.05  # Significance level
 
     def __post_init__(self):
-        """Post-initialization setup"""
+        """Post-initialization setup."""
         # Auto-generate experiment name if not provided
         if not self.experiment_name:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -74,7 +69,7 @@ class ExperimentConfig:
                 self.random_seeds = self.random_seeds[:self.n_random_seeds]
 
     def validate(self) -> bool:
-        """Validate experiment configuration"""
+        """Validate experiment configuration."""
         # Check required fields
         if not self.db_path:
             raise ValueError("db_path is required")
@@ -112,7 +107,7 @@ class ExperimentConfig:
         return True
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
+        """Convert to dictionary for serialization."""
         return {
             'db_path': self.db_path,
             'cancer_types': self.cancer_types,
@@ -135,10 +130,10 @@ class ExperimentConfig:
 
 
 class FeatureSetExperiment:
-    """Systematic comparison of feature sets across cancer types and algorithms"""
+    """Systematic comparison of feature sets across cancer types and algorithms."""
 
     def __init__(self, config: ExperimentConfig):
-        """Initialize experiment with configuration"""
+        """Initialize experiment with configuration."""
         self.config = config
         self.config.validate()  # Validate configuration
 
@@ -159,7 +154,7 @@ class FeatureSetExperiment:
         self.logger.info(f"Random seeds: {self.config.n_random_seeds}")
 
     def run_full_experiment(self) -> Dict[str, Any]:
-        """Run complete feature set comparison experiment"""
+        """Run complete feature set comparison experiment."""
 
         self.logger.info("Starting full experiment...")
 
@@ -241,7 +236,7 @@ class FeatureSetExperiment:
 
     def _run_single_experiment(self, cancer_type: str, algorithm: str, cv_strategy: str,
                               feature_set: str, random_seed: int) -> Dict[str, Any]:
-        """Run a single experimental condition"""
+        """Run a single experimental condition."""
 
         # Create specific config for this run
         run_config = Config(
@@ -290,11 +285,11 @@ class FeatureSetExperiment:
         }
 
     def _get_output_dir(self) -> Path:
-        """Get output directory path"""
+        """Get output directory path."""
         return Path(self.config.output_dir) / self.config.experiment_name
 
     def _compute_summary_statistics(self):
-        """Compute summary statistics across multiple runs"""
+        """Compute summary statistics across multiple runs."""
         self.logger.info("Computing summary statistics...")
 
         for cancer_type in self.results:
@@ -342,7 +337,7 @@ class FeatureSetExperiment:
                         }
 
     def _perform_statistical_tests(self):
-        """Perform statistical tests between feature sets"""
+        """Perform statistical tests between feature sets."""
         self.logger.info("Performing statistical tests...")
 
         # Import here to avoid dependency issues if not available
@@ -362,12 +357,7 @@ class FeatureSetExperiment:
                     for feature_set in self.config.feature_sets:
                         if feature_set in self.results[cancer_type][algorithm][cv_strategy]:
                             entry = self.results[cancer_type][algorithm][cv_strategy][feature_set]
-                            # _compute_summary_statistics only rewrites the entry
-                            # to a dict ({'individual_runs': ..., 'summary': ...})
-                            # when at least one run succeeded; otherwise the entry
-                            # stays a list (the original initialization at line ~194).
-                            # Skip cleanly rather than crashing with
-                            # "list indices must be integers or slices, not str".
+                            # Summary statistics may replace this entry with a dict, so check before indexing.
                             if not isinstance(entry, dict) or 'individual_runs' not in entry:
                                 continue
                             runs = entry['individual_runs']
@@ -409,7 +399,7 @@ class FeatureSetExperiment:
                         self.results[cancer_type][algorithm][cv_strategy]['statistical_tests'] = comparisons
 
     def _generate_experiment_report(self):
-        """Generate comprehensive experiment report"""
+        """Generate comprehensive experiment report."""
         self.logger.info("Generating experiment report...")
 
         # Create output directory
@@ -438,7 +428,7 @@ class FeatureSetExperiment:
         self.logger.info(f"Report generated in: {report_dir}")
 
     def _create_summary_table(self, report_dir: Path):
-        """Create summary table of results"""
+        """Create summary table of results."""
 
         rows = []
         for cancer_type in self.results:
@@ -479,7 +469,7 @@ class FeatureSetExperiment:
             pivot_table.to_csv(report_dir / "performance_matrix.csv")
 
     def _create_text_report(self, report_dir: Path):
-        """Create detailed text report"""
+        """Create detailed text report."""
 
         with open(report_dir / "detailed_report.txt", 'w') as f:
             f.write("Feature Set Comparison Experiment Report\n")
@@ -532,26 +522,15 @@ class FeatureSetExperiment:
                                 f.write(f"(effect size: {result['effect_size']:.3f})\n")
 
     def _create_roc_curves(self, report_dir: Path):
-        """
-        Create ROC curves for each cancer type comparing feature sets.
-
-        Args:
-            report_dir: Directory to save plots
-        """
+        """Create ROC curves for each cancer type comparing feature sets."""
         self.logger.info("Generating ROC curves...")
 
-        # Need to store predict_proba results - for now, skip if not available
-        # This would require modifying analyzer to return probability predictions
+        # Not yet implemented: needs stored predict_proba results.
         self.logger.warning("ROC curves require probability predictions - not yet implemented")
         self.logger.warning("Will be added in future update after modifying trainer.py")
 
     def _create_performance_barchart(self, report_dir: Path):
-        """
-        Create multiple performance visualization plots stratified by different factors.
-
-        Args:
-            report_dir: Directory to save plots
-        """
+        """Create multiple performance visualization plots stratified by different factors."""
         self.logger.info("Generating performance visualizations...")
 
         # Collect data for plotting
@@ -586,7 +565,7 @@ class FeatureSetExperiment:
         self._plot_algorithm_panels(df, report_dir)
 
     def _plot_feature_comparison_by_cv(self, df: pd.DataFrame, report_dir: Path):
-        """Figure 1: Compare feature sets, grouped by CV strategy"""
+        """Bar chart of performance by feature set, grouped by CV strategy."""
 
         # Color palette for feature sets
         feature_colors = {
@@ -655,7 +634,7 @@ class FeatureSetExperiment:
         self.logger.info(f"Figure 1 saved to: {outfile}")
 
     def _plot_cv_comparison_by_feature(self, df: pd.DataFrame, report_dir: Path):
-        """Figure 2: Compare CV strategies, grouped by feature set"""
+        """Bar chart of performance by CV strategy, grouped by feature set."""
 
         # Color palette for CV strategies
         cv_colors = {
@@ -723,7 +702,7 @@ class FeatureSetExperiment:
         self.logger.info(f"Figure 2 saved to: {outfile}")
 
     def _plot_heatmap_by_cancer_type(self, df: pd.DataFrame, report_dir: Path):
-        """Figure 3: Heatmap showing AUC across conditions"""
+        """Heatmap of AUC by cancer type and feature set / CV combination."""
 
         # Create separate heatmaps for each algorithm
         algorithms = df['Algorithm'].unique()
@@ -799,7 +778,7 @@ class FeatureSetExperiment:
             self.logger.info(f"Figure 3 ({algorithm}) saved to: {outfile}")
 
     def _plot_algorithm_panels(self, df: pd.DataFrame, report_dir: Path):
-        """Figure 4: Faceted plot stratified by algorithm"""
+        """Per-algorithm panels of performance by cancer type."""
 
         algorithms = df['Algorithm'].unique()
 
@@ -884,12 +863,7 @@ class FeatureSetExperiment:
         self.logger.info(f"Figure 4 saved to: {outfile}")
 
     def _create_class_imbalance_plots(self, report_dir: Path):
-        """
-        Create scatter plots showing relationship between class imbalance and performance.
-
-        Args:
-            report_dir: Directory to save plots
-        """
+        """Create scatter plots showing relationship between class imbalance and performance."""
         self.logger.info("Generating class imbalance plots...")
 
         # Collect data

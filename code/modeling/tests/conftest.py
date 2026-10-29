@@ -1,11 +1,4 @@
-"""
-Shared pytest fixtures for oncokb_analyzer tests.
-
-Provides common fixtures for:
-- Synthetic toy data for unit tests (no database required)
-- Path setup for imports
-- Memory cleanup between tests
-"""
+"""Shared pytest fixtures: synthetic data (no database required) and per-test memory cleanup."""
 
 import gc
 import pytest
@@ -18,9 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
-# ============================================================================
 # Memory Management
-# ============================================================================
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
@@ -29,9 +20,7 @@ def cleanup_after_test():
     gc.collect()
 
 
-# ============================================================================
 # Synthetic Data Fixtures (No Database Required)
-# ============================================================================
 
 @pytest.fixture
 def toy_data_binary():
@@ -58,11 +47,7 @@ def toy_dataframe():
     n_samples = 500
 
     df = pd.DataFrame({
-        # Demographic features. ANCESTRY (was RACE) and ETHNICITY include
-        # 'Unknown' so the MissingnessIndicatorTransformer branch is exercised.
-        # SAMPLE_TYPE is kept here to emulate the post-load DataFrame (DB still
-        # has the column); it's no longer a modeling feature so the
-        # preprocessor will drop it.
+        # Demographic features.
         'SEX': np.random.choice(['Male', 'Female'], n_samples),
         'ANCESTRY': np.random.choice(['European', 'African', 'Asian', 'Other', 'Unknown'], n_samples),
         'ETHNICITY': np.random.choice(['Hispanic', 'Non-Hispanic', 'Unknown'], n_samples),

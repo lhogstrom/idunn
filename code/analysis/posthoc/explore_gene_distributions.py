@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
-"""
-Gene Distribution Exploration for Gene-Stratified Post-Hoc Analysis
+"""Count actionable patients per gene within each cancer type.
 
-For each cancer type (OncoTree code), count actionable patients per gene
-and identify the top-N genes for downstream stratified testing. Filtered to
-the canonical eligible OncoTree codes from TIER 2a when available.
-
-Output:
-    gene_distributions/
-        gene_frequency_by_cancer.csv    - All gene counts per cancer type
-        top<N>_genes_summary.csv        - Top N genes per cancer type
-        multi_gene_patient_stats.csv    - Patients with multiple actionable genes
-        exploration_report.txt          - Human-readable summary
+Identifies the top-N genes per cancer type for gene-stratified testing.
+Writes gene_frequency_by_cancer.csv, top<N>_genes_summary.csv,
+multi_gene_patient_stats.csv and exploration_report.txt.
 """
 
 import argparse
@@ -34,10 +26,7 @@ DEFAULT_MIN_SAMPLE_SIZE = 50
 
 
 def load_eligible_codes(groupings_file=None):
-    """Return the eligible OncoTree codes from TIER 2a's group-definitions CSV.
-
-    Falls back to None (= all codes in the DB) when the file isn't reachable.
-    """
+    """Return the eligible OncoTree codes from TIER 2a's group-definitions CSV."""
     if groupings_file is None:
         candidates = sorted(
             (REPO_ROOT / 'runs').glob(

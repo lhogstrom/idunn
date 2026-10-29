@@ -1,88 +1,10 @@
 #!/usr/bin/env Rscript
-#
-# Collapse `perPatientOncoKBFilteredForModeling` from SAMPLE unit to
-# PATIENT x CANCER-TYPE unit, in place, on a DB *copy*.
-#
-# ---------------------------------------------------------------------------
-# WHAT THIS IS FOR
-# ---------------------------------------------------------------------------
-# The modeling table is one row per sequenced SAMPLE (85,419 rows), not per
-# patient (76,796) -- see BACKLOG.md -> "Analytic unit is the sample, not the
-# patient" and CLAUDE.md Gotcha #17. This script produces arm P of the Path C
-# ladder by applying the recommended repair: a collapse on
-# (PATIENT_ID, ONCOTREE_CODE) at the END of the filtering chain, i.e. after
-# every quality filter has run.
-#
-# It is NOT wired into workflow/main.nf and must never be. It mutates a DB copy
-# the same way code/tools/patch_age_redaction.py does, so that the OncoKB
-# annotation and cohort membership of the source DB are provably untouched.
-# Re-running main.nf to get this would re-fire run_oncokb against a newer
-# OncoKB snapshot and confound every arm of the comparison.
-#
-# The body of `collapse_to_patient_unit()` is written to be transplantable
-# verbatim to filter_and_structure_genie_data_for_modeling.r, immediately
-# before its dbWriteTable() call, if/when the repair becomes permanent.
-#
-# ---------------------------------------------------------------------------
-# THE COLLAPSE RULE  -- deterministic random pick  (CHANGED 2026-08-26, D-g)
-# ---------------------------------------------------------------------------
-# Keep one representative sample per (PATIENT_ID, ONCOTREE_CODE), chosen by a
-# DETERMINISTIC RANDOM PICK keyed on the sample barcode:
-#
-#     sort key = md5(Tumor_Sample_Barcode), then Tumor_Sample_Barcode (asc)
-#
-# Tumor_Sample_Barcode is unique across the table, so the sort is a total order
-# and the pick is reproducible regardless of input row ordering.
-#
-# WHY NOT set.seed() + sample(): a seeded shuffle depends on incoming row order,
-# which depends on the rbind() in filter_and_structure_genie_data_for_modeling.r.
-# That is exactly the F7 fragility this rule exists to avoid. A content-derived
-# hash is stable across machines, row order, and library versions.
-#
-# WHY NOT the previous rule (highest OncoKB level, superseded 2026-08-15): it
-# selected on the OUTCOME. Preferring the sample that carries the actionable
-# variant inflates actionability among multi-sample patients by +3.8 pp at n=2
-# and +7.2 pp at n=3 versus a random pick, and multi-sampleness varies ~2x
-# across ancestry (Asian 10.49% vs Other 4.88%) -- so the inflation landed
-# unevenly across the paper's own contrast. Decision record: ROADMAP_CHANGELOG.md
-# 2026-08-15; BACKLOG.md -> "Patient-representative sample selection".
-#
-# CONSEQUENCE -- the outcome is NO LONGER the group max. Under the old rule a
-# (patient, cancer) pair with contradictory isOncoKbLevel1 across its samples
-# always resolved to ACTIONABLE. Under the random pick it resolves to whatever
-# the drawn sample carries, so cohort actionable counts fall slightly. That is
-# the intended estimand: "the actionability status of one sample drawn without
-# reference to its outcome", not "this patient has >=1 actionable variant".
-# 532 pairs are affected. The eligibility gate is therefore NO LONGER invariant
-# by construction -- see check 6 below.
-#
-# Conclusions do not move: mean |MAX-RANDOM| per-cancer age shift is 0.080 y
-# against effects of 4-17 y, with ODG the lone outlier at +1.06 y. This is an
-# estimand-robustness change, not a numbers change.
-#
-# ---------------------------------------------------------------------------
-# MEASURED PROPERTIES (ageUpper DB, 2026-08-13)
-# ---------------------------------------------------------------------------
-# !! Measured under the SUPERSEDED highest-OncoKB-level rule. Row counts and the
-# !! lossless-covariate finding still hold (they do not depend on which sample is
-# !! drawn), but the actionable counts and the age note below DO NOT. Re-measure
-# !! after running under the random pick.
-#
-#   85,419 rows -> 78,086 rows (7,333 dropped; 5,657 pairs have >1 sample)
-#   SEX / RACE / ETHNICITY / SUBJECT_CENTER never disagree within a pair (0/5,657),
-#     so the collapse is lossless for those covariates.
-#   AGE_AT_SEQ_REPORT: within-pair spread median 1.0y. Picking the actionable
-#     row shifts age by +0.185y MORE for actionable than non-actionable pairs
-#     (difference-in-differences) -- an upper bound on the age artifact this
-#     rule can introduce, negligible against the 4-17y effects under study.
-#   SAMPLE_TYPE_DETAILED (45.6%), number_of_genes (29.4%) and Hugo_Symbol
-#     (47.1%) DO vary within pairs; the representative row decides them.
-#
-# Usage:
-#   Rscript collapse_modeling_table_to_patient_unit.r \
-#     --db /path/to/...-ageUpper-patientunit.sqlite \
-#     [--report-dir DIR] [--force] [--dry-run]
-#
+# Collapses perPatientOncoKBFilteredForModeling from one row per sample to one row per
+# (PATIENT_ID, ONCOTREE_CODE) pair, in place on a COPY of the database. Not part of workflow/main.nf.
+# Rule: keep one sample per pair, chosen by md5(Tumor_Sample_Barcode). The pick is deterministic,
+# independent of input row order, and not selected on the outcome.
+# Fails closed: refuses a file not named *patientunit* unless --force; verification checks gate the write.
+# Usage: Rscript collapse_modeling_table_to_patient_unit.r --db PATH [--report-dir DIR] [--force] [--dry-run]
 # Exit codes: 0 ok, 1 usage/precondition failure, 2 verification failure.
 
 suppressPackageStartupMessages({
@@ -93,7 +15,7 @@ suppressPackageStartupMessages({
 
 TABLE <- "perPatientOncoKBFilteredForModeling"
 MIN_ACTIONABLE <- 250   # must match define_cancer_type_groupings.py
-EXCLUDED_RESCUE_CODES <- c("THYROID", "ENCG", "BLADDER")  # ditto
+EXCLUDED_RESCUE_CODES <- c("THYROID", "ENCG", "BLADDER")  # must match define_cancer_type_groupings.py
 
 # ---------------------------------------------------------------- arg parsing
 args <- commandArgs(trailingOnly = TRUE)
@@ -118,8 +40,7 @@ if (!file.exists(dbName)) {
   cat(sprintf("ERROR: DB not found: %s\n", dbName)); quit(status = 1)
 }
 
-# Fail closed: this script overwrites a table. Refuse to touch anything that is
-# not obviously a purpose-built copy unless the caller insists.
+# Fail closed: refuse anything that is not obviously a purpose-built copy unless forced.
 if (!grepl("patientunit", basename(dbName), fixed = TRUE) && !force) {
   cat(sprintf(paste0(
     "ERROR: refusing to modify '%s'.\n",
@@ -142,10 +63,7 @@ cat(sprintf("Report dir  : %s\n", reportDir))
 cat(sprintf("Mode        : %s\n\n", if (dryRun) "DRY RUN (no write)" else "WRITE"))
 
 # ------------------------------------------------------------------ the rule
-# md5 of the barcode string, matching Python's
-# hashlib.md5(s.encode()).hexdigest() byte for byte -- verified against
-# code/analysis/posthoc/diagnose_sample_selection_rule.py, which carries the
-# reference implementation of this rule.
+# md5 of the barcode string, matching Python hashlib.md5(s.encode()).hexdigest().
 md5_hex <- function(x) {
   if (requireNamespace("openssl", quietly = TRUE)) {
     as.character(openssl::md5(as.character(x)))
@@ -159,13 +77,8 @@ md5_hex <- function(x) {
   }
 }
 
-# Transplantable body: operates on a data.frame, returns the collapsed frame.
-#
-# NOTE ON ORDERING: method = "radix" is used deliberately. R's radix sort orders
-# character vectors in the C locale, guaranteed and version-independent, whereas
-# the default sort is locale-sensitive. The sort key is a lowercase hex string,
-# so in practice every locale agrees -- but the pick must be reproducible by
-# construction, not by luck, which is the whole point of using a content hash.
+# Operates on a data.frame and returns the collapsed frame.
+# method = "radix" sorts in the C locale, so the pick is reproducible across locales.
 collapse_to_patient_unit <- function(dataForModeling) {
   pickHash <- md5_hex(dataForModeling$Tumor_Sample_Barcode)
   ord <- order(dataForModeling$PATIENT_ID,
@@ -241,12 +154,8 @@ addcheck("patient_set_identical",
          sprintf("%d distinct patients before, %d after",
                  dplyr::n_distinct(before$PATIENT_ID), dplyr::n_distinct(after$PATIENT_ID)))
 
-# 4. THE PICK IS ORDER-INVARIANT. Replaces the retired `outcome_is_group_max`
-#    check, which asserted the rule superseded on 2026-08-15. Re-collapsing a
-#    row-shuffled copy must retain exactly the same barcodes -- this is the
-#    property a seeded shuffle would NOT have, and it is the direct test of the
-#    F7 fragility class (a pick that silently depends on incoming row order).
-set.seed(20260826)  # shuffles the INPUT only; the rule itself uses no RNG
+# 4. the pick is order-invariant: collapsing a row-shuffled copy retains the same barcodes
+set.seed(20260826)  # shuffles the input only; the rule itself uses no RNG
 shuffled <- before[sample.int(nrow(before)), , drop = FALSE]
 reCollapsed <- collapse_to_patient_unit(shuffled)
 addcheck("pick_is_order_invariant",
@@ -256,9 +165,7 @@ addcheck("pick_is_order_invariant",
                  length(setdiff(after$Tumor_Sample_Barcode, reCollapsed$Tumor_Sample_Barcode)),
                  nrow(after)))
 
-# 5. the representative belongs to ITS OWN group -- not merely to the table.
-#    Stronger than the previous membership check, which only asked whether the
-#    barcode existed somewhere upstream.
+# 5. each representative belongs to its own group
 srcKey <- before %>% dplyr::select(Tumor_Sample_Barcode, srcPat = PATIENT_ID,
                                    srcCode = ONCOTREE_CODE)
 memb <- after %>%
@@ -269,14 +176,8 @@ nBadMemb <- sum(is.na(memb$srcPat) | memb$srcPat != memb$PATIENT_ID |
 addcheck("representative_is_group_member", nBadMemb == 0,
          sprintf("%d retained rows are not members of the pair they represent", nBadMemb))
 
-# 6. ELIGIBILITY GATE -- the decisive one, and NO LONGER INVARIANT BY
-#    CONSTRUCTION. Under the superseded max-OncoKB rule the pair outcome was
-#    max(isOncoKbLevel1), so actionable counts were preserved exactly and this
-#    check could demand count equality. The random pick does not preserve them:
-#    per-code actionable counts fall slightly, and IHCH sits only ~8 above the
-#    threshold. So the assertion is now on the SET of eligible codes, with the
-#    counts reported rather than asserted. Counting matches
-#    define_cancer_type_groupings.py exactly: COUNT(DISTINCT PATIENT_ID).
+# 6. eligibility gate: the SET of codes with >= MIN_ACTIONABLE distinct patients must be unchanged
+#    (counts are reported, not asserted); counting matches define_cancer_type_groupings.py
 codeCounts <- function(df) {
   df %>%
     dplyr::filter(!ONCOTREE_CODE %in% EXCLUDED_RESCUE_CODES) %>%
@@ -310,10 +211,7 @@ for (i in seq_len(nrow(checkDf))) {
   cat(sprintf("  [%s] %-28s %s\n", checkDf$status[i], checkDf$check[i], checkDf$detail[i]))
 }
 
-# ---- per-cancer table, ALL codes (not only the eligible ones) -------------
-# Sprint D item D5 (the >=250 threshold boundary check) needs the margin for
-# every code, including the ones sitting just BELOW the line -- so this table
-# is deliberately unfiltered.
+# per-cancer table for ALL codes (not only eligible ones), to show the margin to the threshold
 eligCmp <- cb %>%
   dplyr::rename(total_before = total_patients, actionable_before = actionable_patients) %>%
   dplyr::full_join(ca %>% dplyr::rename(total_after = total_patients,
@@ -326,7 +224,7 @@ eligCmp <- cb %>%
     eligible_after     = actionable_after  >= MIN_ACTIONABLE) %>%
   dplyr::arrange(dplyr::desc(actionable_after))
 
-# Write artifacts BEFORE printing, so a display bug cannot cost the record.
+# Write artifacts before printing, so a display bug cannot cost the record.
 write.csv(checkDf, file.path(reportDir, "collapse_to_patient_unit_checks.csv"), row.names = FALSE)
 write.csv(eligCmp, file.path(reportDir, "collapse_to_patient_unit_eligibility.csv"), row.names = FALSE)
 write.csv(eligCmp %>% dplyr::select(ONCOTREE_CODE, total_after, actionable_after,
@@ -348,7 +246,7 @@ for (i in seq_len(nrow(eligCmp))) {
               if (isTRUE(eligCmp$eligible_after[i])) "" else "   (below threshold)"))
 }
 
-# ---- threshold boundary summary (Sprint D item D5) ------------------------
+# ---- threshold boundary summary ------------------------------------------
 elgA <- eligCmp %>% dplyr::filter(eligible_after)
 belA <- eligCmp %>% dplyr::filter(!eligible_after) %>% dplyr::arrange(dplyr::desc(actionable_after))
 cat("\n"); cat(strrep("-", 78), "\n")

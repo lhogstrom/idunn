@@ -1,143 +1,83 @@
-"""
-Hyperparameter Search Spaces for ML Algorithms
+"""Hyperparameter search spaces for RandomizedSearchCV / GridSearchCV."""
 
-Defines search spaces for hyperparameter optimization with RandomizedSearchCV
-and GridSearchCV. Based on best practices from scikit-learn documentation and
-cancer genomics ML literature.
-
-"""
-
-# ============================================================================
 # Random Forest Search Space
-# ============================================================================
 
 RF_PARAM_DISTRIBUTIONS = {
-    # Number of trees in the forest
-    # More trees = better performance but diminishing returns after ~200
-    # Trade-off: Computation time vs stability
-    # Updated: Removed 50 (too few), focus on 100+ for stability
+    # Number of trees
     'n_estimators': [100, 200, 500],
 
-    # Maximum depth of each tree
-    # None = grow until pure (may overfit)
-    # Updated: Added 3, 5 for stronger regularization; removed None to prevent overfitting
-    # Shallower trees reduce train-test AUC gap caused by institutional concentration
+    # Maximum tree depth (None = grow until pure)
     'max_depth': [3, 5, 7, 10, 15],
 
-    # Minimum samples required to split an internal node
-    # Higher values = more regularization (prevent overfitting)
-    # Updated: Increased range significantly to address overfitting (was 2-20)
+    # Minimum samples to split a node
     'min_samples_split': [10, 20, 50, 100],
 
-    # Minimum samples required to be at a leaf node
-    # Higher values = smoother decision boundaries
-    # Updated: Increased minimum from 1 to 5 to address overfitting (was 1-8)
+    # Minimum samples per leaf
     'min_samples_leaf': [5, 10, 20, 30],
 
-    # Number of features to consider when looking for best split
-    # 'sqrt' = sqrt(n_features) - standard for classification
-    # 'log2' = log2(n_features) - more aggressive feature subsampling
-    # Updated: Removed 0.5 (too many features can lead to overfitting)
+    # Features considered per split
     'max_features': ['sqrt', 'log2', 0.3],
 
-    # Weighting strategy for imbalanced classes
-    # 'balanced' = weights inversely proportional to class frequencies
-    # 'balanced_subsample' = same as balanced but computed per tree
-    #   (recommended for Random Forest to increase diversity)
+    # Class weighting for imbalance
     'class_weight': ['balanced', 'balanced_subsample']
 }
 
 
-# ============================================================================
 # Logistic Regression Search Space
-# ============================================================================
 
 LR_PARAM_DISTRIBUTIONS = {
-    # Inverse of regularization strength
-    # Small C = strong regularization (simpler model)
-    # Large C = weak regularization (more complex model)
-    # Range covers 6 orders of magnitude
+    # Inverse regularization strength
     'C': [0.001, 0.01, 0.1, 1.0, 10.0, 100.0],
 
-    # Type of regularization penalty
-    # Only using 'l2' and None to ensure compatibility with all solvers
-    # 'l2' = Ridge (shrinkage, all features)
-    # None = no penalty
+    # Penalty type (l2 or None, for solver compatibility)
     'penalty': ['l2', None],
 
-    # Optimization algorithm
-    # 'lbfgs' = good for large datasets, supports l2 and None
-    # 'saga' = supports all penalties, good for large datasets
-    # Note: Using only lbfgs and saga to avoid liblinear (deprecated for large datasets)
+    # Solver
     'solver': ['lbfgs', 'saga'],
 
-    # Class weighting for imbalanced datasets
-    # 'balanced' = weights inversely proportional to class frequencies
-    # None = all classes have weight 1
+    # Class weighting for imbalance
     'class_weight': ['balanced', None],
 
-    # Maximum number of iterations for convergence
-    # Increase if getting convergence warnings
+    # Maximum solver iterations
     'max_iter': [100, 200, 500, 1000]
 }
 
 
-# ============================================================================
 # XGBoost Search Space
-# ============================================================================
 
 XGBOOST_PARAM_DISTRIBUTIONS = {
-    # Number of boosting rounds (trees)
-    # More trees = better performance but risk overfitting
-    # Range similar to RF n_estimators
+    # Number of boosting rounds
     'n_estimators': [50, 100, 200, 500],
 
-    # Maximum depth of trees
-    # Controls model complexity
-    # Smaller values = more regularization
+    # Maximum tree depth
     'max_depth': [3, 5, 7, 10],
 
-    # Learning rate (eta)
-    # Lower values need more trees but generalize better
-    # Range covers typical values for classification
+    # Learning rate
     'learning_rate': [0.01, 0.05, 0.1, 0.3],
 
-    # Minimum sum of instance weight needed in a child
-    # Similar to min_samples_leaf in RF
-    # Higher values = more regularization
+    # Minimum instance weight in a child
     'min_child_weight': [1, 3, 5, 10],
 
-    # Subsample ratio of training instances
-    # Controls stochasticity and overfitting
-    # 0.8-1.0 typical for classification
+    # Row subsample ratio
     'subsample': [0.6, 0.8, 1.0],
 
-    # Subsample ratio of features when constructing each tree
-    # Similar to max_features in RF
-    # Lower values = more regularization
+    # Column subsample ratio per tree
     'colsample_bytree': [0.6, 0.8, 1.0],
 
-    # L2 regularization term on weights
-    # Helps prevent overfitting
+    # L1 regularization
     'reg_alpha': [0, 0.1, 1.0, 10.0],
 
-    # L1 regularization term on weights
-    # Can produce sparser models
+    # L2 regularization
     'reg_lambda': [0, 0.1, 1.0, 10.0],
 
-    # Balancing of positive and negative weights
-    # Automatically computed from class distribution
-    # 'balanced' computed as: sum(negative) / sum(positive)
-    'scale_pos_weight': [1.0, 3.0, 5.0]  # Will compute balanced ratio if needed
+    # Positive/negative class weight balance
+    'scale_pos_weight': [1.0, 3.0, 5.0]
 }
 
 
-# ============================================================================
 # Solver-Penalty Compatibility Rules
-# ============================================================================
 
-# Not all solver-penalty combinations are valid in scikit-learn
-# Use this dictionary to filter invalid combinations during search
+# Valid solver-penalty combinations in scikit-learn.
 
 SOLVER_PENALTY_COMPATIBILITY = {
     'liblinear': ['l1', 'l2'],
@@ -146,32 +86,10 @@ SOLVER_PENALTY_COMPATIBILITY = {
 }
 
 
-# ============================================================================
 # Helper Functions
-# ============================================================================
 
 def get_param_distributions(algorithm: str) -> dict:
-    """
-    Get hyperparameter distributions for a specific algorithm.
-
-    Parameters
-    ----------
-    algorithm : str
-        Algorithm name: 'random_forest', 'logistic', or 'xgboost'
-
-    Returns
-    -------
-    param_distributions : dict
-        Dictionary of hyperparameter distributions suitable for
-        RandomizedSearchCV or GridSearchCV
-
-    Examples
-    --------
-    >>> from oncokb_analyzer.param_spaces import get_param_distributions
-    >>> rf_params = get_param_distributions('random_forest')
-    >>> print(rf_params.keys())
-    dict_keys(['n_estimators', 'max_depth', 'min_samples_split', ...])
-    """
+    """Get hyperparameter distributions for a specific algorithm."""
     if algorithm == 'random_forest':
         return RF_PARAM_DISTRIBUTIONS
     elif algorithm == 'logistic':
@@ -186,29 +104,7 @@ def get_param_distributions(algorithm: str) -> dict:
 
 
 def validate_logistic_params(params: dict) -> bool:
-    """
-    Validate that Logistic Regression hyperparameters are compatible.
-
-    Checks that solver-penalty combination is valid according to
-    SOLVER_PENALTY_COMPATIBILITY rules.
-
-    Parameters
-    ----------
-    params : dict
-        Dictionary of hyperparameters with 'solver' and 'penalty' keys
-
-    Returns
-    -------
-    is_valid : bool
-        True if parameters are compatible, False otherwise
-
-    Examples
-    --------
-    >>> validate_logistic_params({'solver': 'lbfgs', 'penalty': 'l2'})
-    True
-    >>> validate_logistic_params({'solver': 'lbfgs', 'penalty': 'l1'})
-    False
-    """
+    """Validate that Logistic Regression hyperparameters are compatible."""
     if 'solver' not in params or 'penalty' not in params:
         # If either is missing, can't validate
         return True
@@ -224,37 +120,11 @@ def validate_logistic_params(params: dict) -> bool:
 
 
 def filter_invalid_logistic_params(param_list: list) -> list:
-    """
-    Filter out invalid solver-penalty combinations from parameter list.
-
-    Useful when manually generating parameter combinations for GridSearchCV.
-
-    Parameters
-    ----------
-    param_list : list of dict
-        List of parameter dictionaries
-
-    Returns
-    -------
-    filtered_list : list of dict
-        List with invalid combinations removed
-
-    Examples
-    --------
-    >>> params = [
-    ...     {'solver': 'lbfgs', 'penalty': 'l2', 'C': 1.0},
-    ...     {'solver': 'lbfgs', 'penalty': 'l1', 'C': 1.0},  # Invalid
-    ... ]
-    >>> filtered = filter_invalid_logistic_params(params)
-    >>> len(filtered)
-    1
-    """
+    """Filter out invalid solver-penalty combinations from parameter list."""
     return [p for p in param_list if validate_logistic_params(p)]
 
 
-# ============================================================================
 # Reduced Search Spaces (for quick tests)
-# ============================================================================
 
 # Smaller search spaces for rapid testing and debugging
 
@@ -289,24 +159,7 @@ XGBOOST_PARAM_DISTRIBUTIONS_QUICK = {
 
 
 def get_param_distributions_quick(algorithm: str) -> dict:
-    """
-    Get reduced hyperparameter search spaces for quick testing.
-
-    Useful for:
-    - Debugging nested CV implementation
-    - Quick pilot runs to estimate runtime
-    - Integration tests
-
-    Parameters
-    ----------
-    algorithm : str
-        Algorithm name: 'random_forest', 'logistic', or 'xgboost'
-
-    Returns
-    -------
-    param_distributions : dict
-        Reduced search space (fewer combinations)
-    """
+    """Get reduced hyperparameter search spaces for quick testing."""
     if algorithm == 'random_forest':
         return RF_PARAM_DISTRIBUTIONS_QUICK
     elif algorithm == 'logistic':
@@ -320,34 +173,10 @@ def get_param_distributions_quick(algorithm: str) -> dict:
         )
 
 
-# ============================================================================
 # Search Space Statistics
-# ============================================================================
 
 def count_grid_combinations(param_distributions: dict) -> int:
-    """
-    Count total number of hyperparameter combinations in grid.
-
-    This is the number of models that would be evaluated by GridSearchCV
-    (exhaustive search). For RandomizedSearchCV, you can sample a subset.
-
-    Parameters
-    ----------
-    param_distributions : dict
-        Hyperparameter search space
-
-    Returns
-    -------
-    n_combinations : int
-        Total number of unique parameter combinations
-
-    Examples
-    --------
-    >>> from oncokb_analyzer.param_spaces import RF_PARAM_DISTRIBUTIONS
-    >>> n_combos = count_grid_combinations(RF_PARAM_DISTRIBUTIONS)
-    >>> print(f"Random Forest grid has {n_combos} combinations")
-    Random Forest grid has 2048 combinations
-    """
+    """Count total number of hyperparameter combinations in grid."""
     n_combinations = 1
     for param_values in param_distributions.values():
         n_combinations *= len(param_values)

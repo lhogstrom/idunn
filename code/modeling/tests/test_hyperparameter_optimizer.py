@@ -1,20 +1,7 @@
-"""
-Unit Tests for Hyperparameter Optimizer
-
-Tests for nested cross-validation implementation, ensuring:
-1. No data leakage between train/test folds
-2. Correct universal vs cancer-specific comparison logic
-3. Hyperparameter stability calculations
-4. Consensus parameter computation
+"""Tests for nested cross-validation: no fold leakage, universal vs cancer-specific
+comparison, hyperparameter stability, and consensus parameters.
 
 Run with: pytest test_hyperparameter_optimizer.py -v
-
-Memory optimization notes:
-- Sample sizes reduced to prevent memory crashes when running full test suite
-- n_iter kept minimal (2) for unit tests - sufficient to verify logic
-- Use n_jobs=1 throughout to prevent parallel memory explosion
-- gc.collect() added after creating multiple optimizer objects
-
 """
 
 import gc
@@ -40,16 +27,10 @@ from oncokb_analyzer.param_spaces import (
 from oncokb_analyzer.preprocessing import DEMOGRAPHIC_FEATURES, CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
 
-# ============================================================================
 # Fixtures
-# ============================================================================
 
 def _create_realistic_dataframe(n_samples: int, random_state: int, class_weights: list = None) -> tuple:
-    """
-    Create a realistic DataFrame with proper column names matching the preprocessing pipeline.
-
-    Returns both the feature DataFrame (X) and labels (y).
-    """
+    """Create a realistic DataFrame with proper column names matching the preprocessing pipeline."""
     np.random.seed(random_state)
     if class_weights is None:
         class_weights = [0.7, 0.3]
@@ -61,9 +42,7 @@ def _create_realistic_dataframe(n_samples: int, random_state: int, class_weights
         # Add some NaN values for testing imputation
         'number_of_genes': np.random.randint(100, 600, n_samples).astype(float),
 
-        # Categorical features. ANCESTRY (was RACE) includes 'Unknown' so the
-        # MissingnessIndicatorTransformer branch is exercised; values use the
-        # post-R-pipeline ancestry labels (European/African/Asian/Other/Unknown).
+        # Categorical features.
         'SEX': np.random.choice(['Male', 'Female'], n_samples),
         'ANCESTRY': np.random.choice(['European', 'African', 'Asian', 'Other', 'Unknown'], n_samples),
         'ETHNICITY': np.random.choice(['Hispanic', 'Non-Hispanic', 'Unknown'], n_samples),
@@ -77,8 +56,7 @@ def _create_realistic_dataframe(n_samples: int, random_state: int, class_weights
     # Create target variable with specified class weights
     y = np.random.choice([0, 1], n_samples, p=class_weights)
 
-    # Add some signal to make classification non-trivial
-    # Older patients more likely to have positive outcome
+    # Add signal: older patients more likely positive.
     age_effect = (df['AGE_AT_SEQ_REPORT'] > 60).astype(int) * 0.2
     # Males slightly more likely
     sex_effect = (df['SEX'] == 'Male').astype(int) * 0.1
@@ -92,13 +70,7 @@ def _create_realistic_dataframe(n_samples: int, random_state: int, class_weights
 
 @pytest.fixture
 def toy_data_binary():
-    """Generate toy binary classification DataFrame for testing.
-
-    Note: Sample size reduced from 1000 to 200 to prevent memory crashes
-    when running full test suite with nested CV.
-
-    Returns DataFrame with proper column names matching the preprocessing pipeline.
-    """
+    """Generate toy binary classification DataFrame for testing."""
     return _create_realistic_dataframe(
         n_samples=200,  # Reduced from 1000 for memory safety
         random_state=42,
@@ -108,13 +80,7 @@ def toy_data_binary():
 
 @pytest.fixture
 def toy_data_balanced():
-    """Generate balanced binary classification DataFrame.
-
-    Note: Sample size reduced from 800 to 200 to prevent memory crashes
-    when running full test suite with nested CV.
-
-    Returns DataFrame with proper column names matching the preprocessing pipeline.
-    """
+    """Generate balanced binary classification DataFrame."""
     return _create_realistic_dataframe(
         n_samples=200,  # Reduced from 800 for memory safety
         random_state=123,
@@ -124,13 +90,7 @@ def toy_data_balanced():
 
 @pytest.fixture
 def toy_multi_cancer_data():
-    """Generate synthetic multi-cancer dataset for universal vs specific testing.
-
-    Note: Sample size reduced from 300 to 100 per cancer type to prevent memory crashes
-    when running full test suite with universal vs specific comparisons.
-
-    Returns dict of cancer_type -> (X DataFrame, y, None).
-    """
+    """Generate synthetic multi-cancer dataset for universal vs specific testing."""
     cancer_data = {}
 
     # Create 3 synthetic "cancer types" with different characteristics
@@ -146,9 +106,7 @@ def toy_multi_cancer_data():
     return cancer_data
 
 
-# ============================================================================
 # Tests for NestedCVOptimizer Core Functionality
-# ============================================================================
 
 def test_optimizer_initialization():
     """Test that optimizer initializes with correct parameters."""
@@ -214,12 +172,7 @@ def test_nested_cv_basic_execution(toy_data_binary):
 
 
 def test_nested_cv_no_data_leakage(toy_data_binary):
-    """
-    CRITICAL TEST: Ensure outer test folds never used in inner CV.
-
-    This is the most important property of nested CV - the test set from
-    each outer fold must never influence hyperparameter selection.
-    """
+    """Outer test folds must never be seen during the inner hyperparameter search."""
     X, y = toy_data_binary
 
     param_dists = {'n_estimators': [50, 100], 'max_depth': [10, 20]}
@@ -242,13 +195,11 @@ def test_nested_cv_no_data_leakage(toy_data_binary):
     # Verify: We get 5 outer test scores
     assert len(results['outer_cv_scores']) == 5
 
-    # Verify: Scores are between 0.0 and 1.0 (AUC bounds)
-    # Note: Individual fold scores can be < 0.5 with small noisy datasets
+    # Verify
     for score in results['outer_cv_scores']:
         assert 0.0 <= score <= 1.0, f"AUC score out of bounds: {score}"
 
-    # Verify: There's some variance (not all identical)
-    # If all scores were identical, might indicate a problem
+    # Verify
     assert results['std_score'] >= 0, "Standard deviation should be non-negative"
 
     # Verify: Mean score is reasonable
@@ -336,16 +287,11 @@ def test_nested_cv_logistic_regression(toy_data_binary):
     gc.collect()
 
 
-# ============================================================================
 # Tests for Universal vs Cancer-Specific Comparison
-# ============================================================================
 
 @pytest.mark.slow
 def test_compare_universal_vs_specific_structure(toy_multi_cancer_data):
-    """Test that universal vs specific comparison returns expected structure.
-
-    Marked as slow - runs multiple optimizations across cancer types.
-    """
+    """Test that universal vs specific comparison returns expected structure."""
     param_dists = get_param_distributions_quick('random_forest')
 
     optimizer = NestedCVOptimizer(
@@ -389,10 +335,7 @@ def test_compare_universal_vs_specific_structure(toy_multi_cancer_data):
 
 @pytest.mark.slow
 def test_compare_universal_vs_specific_cancer_counts(toy_multi_cancer_data):
-    """Test that results include all cancer types.
-
-    Marked as slow - runs multiple optimizations across cancer types.
-    """
+    """Test that results include all cancer types."""
     param_dists = get_param_distributions_quick('random_forest')
 
     optimizer = NestedCVOptimizer(
@@ -424,10 +367,7 @@ def test_compare_universal_vs_specific_cancer_counts(toy_multi_cancer_data):
 
 @pytest.mark.slow
 def test_compare_delta_auc_calculation(toy_multi_cancer_data):
-    """Test that delta AUC is calculated correctly.
-
-    Marked as slow - runs multiple optimizations across cancer types.
-    """
+    """Test that delta AUC is calculated correctly."""
     param_dists = get_param_distributions_quick('random_forest')
 
     optimizer = NestedCVOptimizer(
@@ -472,9 +412,7 @@ def test_compare_delta_auc_calculation(toy_multi_cancer_data):
     gc.collect()
 
 
-# ============================================================================
 # Tests for Helper Methods
-# ============================================================================
 
 def test_compute_consensus_params():
     """Test consensus parameter computation."""
@@ -528,9 +466,7 @@ def test_compute_param_stability():
         {'n_estimators': 50, 'max_depth': 10}
     ]
     stability = optimizer._compute_param_stability(params_list)
-    # n_estimators: 4/5 agree on 100 = 0.8
-    # max_depth: 4/5 agree on 10 = 0.8
-    # Average = 0.8
+    # n_estimators
     assert stability == 0.8
 
     # Test case 3: Low stability (all different)
@@ -542,9 +478,7 @@ def test_compute_param_stability():
         {'n_estimators': 50, 'max_depth': 20}
     ]
     stability = optimizer._compute_param_stability(params_list)
-    # n_estimators: 2/5 agree on 50 = 0.4
-    # max_depth: 2/5 agree on 10 or 20 = 0.4
-    # Average = 0.4
+    # n_estimators
     assert stability == 0.4
 
 
@@ -566,9 +500,7 @@ def test_pool_data(toy_multi_cancer_data):
     assert isinstance(y_pooled, np.ndarray)
 
 
-# ============================================================================
 # Tests for param_spaces Module
-# ============================================================================
 
 def test_get_param_distributions():
     """Test parameter distribution retrieval."""
@@ -612,18 +544,11 @@ def test_count_grid_combinations():
     assert count_grid_combinations(param_space) == 12
 
 
-# ============================================================================
 # Integration Tests
-# ============================================================================
 
 @pytest.mark.slow
 def test_full_nested_cv_random_forest(toy_data_binary):
-    """
-    Integration test: Full nested CV with Random Forest.
-
-    This test uses more iterations to better approximate real usage.
-    Marked as slow - skip with: pytest -m "not slow"
-    """
+    """End-to-end nested CV with Random Forest on toy data."""
     X, y = toy_data_binary
 
     param_dists = get_param_distributions('random_forest')
@@ -640,7 +565,6 @@ def test_full_nested_cv_random_forest(toy_data_binary):
     results = optimizer.optimize(X, y, algorithm='random_forest')
 
     # Verify reasonable performance on this toy dataset
-    # Note: With reduced sample size (200), threshold lowered from 0.6 to 0.5
     assert results['mean_score'] > 0.5, "AUC should be better than random on toy data"
 
     # Verify stability is reasonable (not too unstable)
@@ -656,9 +580,7 @@ def test_full_nested_cv_random_forest(toy_data_binary):
     gc.collect()
 
 
-# ============================================================================
 # Run Tests
-# ============================================================================
 
 if __name__ == '__main__':
     # Run with: python test_hyperparameter_optimizer.py

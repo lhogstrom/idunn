@@ -31,14 +31,7 @@ def _compute_midrank(x: np.ndarray) -> np.ndarray:
 
 
 def _fast_delong(predictions_sorted: np.ndarray, label_1_count: int):
-    """
-    Sun & Xu 2014 fast DeLong implementation.
-
-    predictions_sorted is a 1-D array where positives (label=1) come FIRST,
-    followed by negatives (label=0). label_1_count = number of positives.
-
-    Returns (auc, var(auc)).
-    """
+    """Sun & Xu (2014) fast DeLong; positives must come first. Returns (auc, var(auc))."""
     m = label_1_count
     n = len(predictions_sorted) - m
     positive_examples = predictions_sorted[:m]
@@ -60,21 +53,7 @@ def _fast_delong(predictions_sorted: np.ndarray, label_1_count: int):
 
 
 def delong_auc_ci(y_true, y_score, alpha: float = 0.05):
-    """
-    DeLong analytic CI for ROC-AUC.
-
-    Parameters
-    ----------
-    y_true : array-like of int (0 / 1)
-    y_score : array-like of float (predicted scores or probabilities)
-    alpha : float, two-sided coverage = 1 - alpha (default 0.05 → 95% CI)
-
-    Returns
-    -------
-    (auc, ci_low, ci_high)
-        Point estimate plus logit-symmetric CI clipped to [0, 1].
-        Returns (auc, nan, nan) if either class has fewer than 2 samples.
-    """
+    """DeLong analytic CI for ROC-AUC. Returns (auc, ci_low, ci_high); NaN bounds if a class has <2 samples."""
     y_true = np.asarray(y_true, dtype=int)
     y_score = np.asarray(y_score, dtype=float)
     if y_true.shape != y_score.shape:
@@ -86,15 +65,14 @@ def delong_auc_ci(y_true, y_score, alpha: float = 0.05):
     if n_pos < 2 or n_neg < 2:
         return float("nan"), float("nan"), float("nan")
 
-    # Sort: positives first, negatives last (preserve scores)
+    # positives first, negatives last
     order = np.concatenate([np.where(pos_mask)[0], np.where(~pos_mask)[0]])
     auc, auc_var = _fast_delong(y_score[order], n_pos)
 
     if auc_var <= 0 or not np.isfinite(auc_var):
         return float(auc), float("nan"), float("nan")
 
-    # Logit-transform to get a CI symmetric in logit space; this is what pROC
-    # does by default and avoids CI bounds outside [0, 1] near the extremes.
+    # logit-symmetric CI (as pROC) keeps bounds within [0, 1]
     eps = 1e-12
     auc_clip = min(max(auc, eps), 1 - eps)
     logit = np.log(auc_clip / (1 - auc_clip))

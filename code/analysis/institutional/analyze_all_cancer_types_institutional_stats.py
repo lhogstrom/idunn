@@ -1,14 +1,4 @@
-"""
-Comprehensive Institutional Distribution Analysis for All Eligible Cancer Types
-
-Analyzes all cancer types with ≥250 actionable events to understand:
-- Institutional concentration patterns
-- Actionability variance across institutions
-- Sample size and distribution characteristics
-
-This helps identify which cancer types may show institution-dependent patterns
-similar to the GIST anomaly discovered in GroupKFold CV experiments.
-"""
+"""Institutional distribution of samples and actionability for all eligible cancer types."""
 
 import sqlite3
 import pandas as pd
@@ -33,8 +23,8 @@ OUTPUT_DIR = None  # Set by main()
 MIN_ACTIONABLE_EVENTS = 250
 
 
-def query_eligible_cancer_types(db_path, min_events=250):
-    """Query all cancer types meeting minimum actionable event threshold"""
+def query_eligible_cancer_types(db_path, min_events=250, groupings_file=None):
+    """Query all cancer types meeting minimum actionable event threshold."""
     conn = sqlite3.connect(db_path)
 
     query = f"""
@@ -51,6 +41,19 @@ def query_eligible_cancer_types(db_path, min_events=250):
 
     eligible = pd.read_sql_query(query, conn)
     conn.close()
+
+    if groupings_file:
+        gpath = Path(groupings_file)
+        if not gpath.exists():
+            raise FileNotFoundError(f"--groupings-file does not exist: {gpath}")
+        canonical = set(pd.read_csv(gpath)['ONCOTREE_CODE'].astype(str))
+        dropped = sorted(set(eligible['ONCOTREE_CODE'].astype(str)) - canonical)
+        eligible = eligible[eligible['ONCOTREE_CODE'].astype(str).isin(canonical)]
+        print(f"Restricted to the run's cohort ({gpath}): {len(eligible)} cancer types")
+        if dropped:
+            print(f"  Excluded by the run: {', '.join(dropped)}")
+        if eligible.empty:
+            raise ValueError("groupings file matched no cancer types in the database.")
 
     return eligible
 
@@ -89,7 +92,6 @@ def analyze_institutional_distribution(df, cancer_type):
     actionable_by_inst = actionable_by_inst.sort_values('n_total', ascending=False)
 
     # Calculate concentration metrics
-    # Herfindahl index (0 = perfectly distributed, 1 = all at one institution)
     proportions = inst_counts / inst_counts.sum()
     herfindahl = (proportions ** 2).sum()
 
@@ -468,7 +470,7 @@ def create_additional_scatter_plots(all_stats_df, output_dir):
 
 
 def create_standalone_patient_institution_plot(all_stats_df, output_dir):
-    """Create standalone version of Patient Volume vs Institutional Diversity plot"""
+    """Standalone scatter of patient volume vs institutional diversity."""
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 10))
 
@@ -500,7 +502,6 @@ def create_standalone_patient_institution_plot(all_stats_df, output_dir):
     cbar.ax.tick_params(labelsize=10)
 
     # Add size legend
-    # Create dummy points for size legend
     size_labels = [1000, 5000, 10000]
     legend_elements = []
     for size_val in size_labels:
@@ -556,7 +557,6 @@ def create_standalone_patient_institution_plot_narrow(all_stats_df, output_dir):
     cbar.ax.tick_params(labelsize=10)
 
     # Add size legend
-    # Create dummy points for size legend
     size_labels = [1000, 5000, 10000]
     legend_elements = []
     for size_val in size_labels:
@@ -688,7 +688,7 @@ def generate_text_report(all_stats_df, output_dir):
     report.append("=" * 100)
     report.append("")
 
-    # High variance cancer types (like GIST)
+    # High-variance cancer types
     high_variance = sorted_df[sorted_df['actionable_rate_std_across_institutions'] > 0.15]
     report.append(f"CANCER TYPES WITH HIGH ACTIONABILITY VARIANCE (std > 0.15):")
     report.append(f"  Count: {len(high_variance)}")
@@ -755,6 +755,13 @@ def main():
     parser = argparse.ArgumentParser(description='Institutional distribution analysis')
     parser.add_argument('--output-dir', type=str, default=None,
                        help='Output directory for results')
+    parser.add_argument('--groupings-file', type=str, default=None,
+                       help="Path to a run's TIER 2a cancer_type_group_definitions.csv. "
+                            "Restricts the analysis to that run's cohort instead of "
+                            're-deriving eligibility from the database. Required to '
+                            'reflect --exclude-cancer-types.')
+    parser.add_argument('--table-only', action='store_true',
+                        help='Write the summary CSV and text report; skip all plots.')
     args = parser.parse_args()
 
     # Set output directory
@@ -773,7 +780,8 @@ def main():
 
     # Query eligible cancer types
     print(f"Querying cancer types with ≥{MIN_ACTIONABLE_EVENTS} actionable events...")
-    eligible = query_eligible_cancer_types(DB_PATH, MIN_ACTIONABLE_EVENTS)
+    eligible = query_eligible_cancer_types(DB_PATH, MIN_ACTIONABLE_EVENTS,
+                                           groupings_file=args.groupings_file)
     print(f"Found {len(eligible)} eligible cancer types")
     print()
 
@@ -802,23 +810,24 @@ def main():
     summary_df = create_summary_table(all_stats_df, OUTPUT_DIR)
 
     # Create visualizations
-    print("Creating heatmap...")
-    create_concentration_heatmap(all_stats_df, OUTPUT_DIR)
+    if not args.table_only:
+        print("Creating heatmap...")
+        create_concentration_heatmap(all_stats_df, OUTPUT_DIR)
 
-    print("Creating scatter plots...")
-    create_scatter_plots(all_stats_df, OUTPUT_DIR)
+        print("Creating scatter plots...")
+        create_scatter_plots(all_stats_df, OUTPUT_DIR)
 
-    print("Creating additional scatter plots...")
-    create_additional_scatter_plots(all_stats_df, OUTPUT_DIR)
+        print("Creating additional scatter plots...")
+        create_additional_scatter_plots(all_stats_df, OUTPUT_DIR)
 
-    print("Creating standalone patient vs institution plot...")
-    create_standalone_patient_institution_plot(all_stats_df, OUTPUT_DIR)
+        print("Creating standalone patient vs institution plot...")
+        create_standalone_patient_institution_plot(all_stats_df, OUTPUT_DIR)
 
-    print("Creating narrow patient vs institution plot...")
-    create_standalone_patient_institution_plot_narrow(all_stats_df, OUTPUT_DIR)
+        print("Creating narrow patient vs institution plot...")
+        create_standalone_patient_institution_plot_narrow(all_stats_df, OUTPUT_DIR)
 
-    print("Creating ranked bar charts...")
-    create_ranked_bar_charts(all_stats_df, OUTPUT_DIR)
+        print("Creating ranked bar charts...")
+        create_ranked_bar_charts(all_stats_df, OUTPUT_DIR)
 
     # Generate text report
     print("Generating comprehensive report...")

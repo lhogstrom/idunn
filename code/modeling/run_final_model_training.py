@@ -1,46 +1,15 @@
 #!/usr/bin/env python3
-"""
-TIER 5: Final Model Training & Test Set Evaluation
+"""TIER 5: final model training and held-out test-set evaluation.
 
-This script trains final production models using:
-- Random Forest or Logistic Regression with optimal hyperparameters from Phase 2b
-- "Both" feature set (demographic + technical)
-- Training data only (80% from TIER 2b split)
+Trains one model per eligible cancer type (random forest or logistic regression) on the
+training split only, then evaluates once on the held-out test split. Hyperparameters come
+from the TIER 3 search result or the module defaults.
 
-Then evaluates on the held-out test set (20%) - this is the FIRST and ONLY time
-the test set is used, ensuring unbiased final performance estimates.
-
-Scientific Rationale:
-- Test set must be held out from ALL model development activities
-- Hyperparameter optimization (TIER 3) used only training data
-- Feature set comparison (TIER 4) used only training data
-- This script performs final evaluation on pristine test data
-
-Outputs:
-- Trained models (joblib files) for each cancer type
-- Performance metrics (AUC, accuracy, precision, recall, F1)
-- AUC summary bar chart across all cancer types
-- Train vs Test AUC comparison plot (overfitting check)
-- ROC curves (per cancer type)
-- Calibration plots (per cancer type)
-- Confusion matrices (per cancer type)
-- Comprehensive summary report
+Outputs: models (joblib), metrics, per-sample test predictions, ROC / calibration /
+confusion plots, AUC summary plots, and a summary report.
 
 Usage:
-    # Standard run with default paths
-    python run_final_model_training.py
-
-    # Quick test with one cancer type
-    python run_final_model_training.py --quick-test
-
-    # Train logistic regression models
-    python run_final_model_training.py --algorithm logistic
-
-    # Custom paths
-    python run_final_model_training.py \
-        --train-test-split-file ../../analysis_output/train_test_split/train_test_split.csv \
-        --hyperparams-file ../../ml_experiments/phase2b_universal/run_20260117_121017/random_forest_universal_params.json
-
+    python run_final_model_training.py --algorithm logistic --quick-test
 """
 
 import sys
@@ -62,7 +31,6 @@ from sklearn.metrics import (
 )
 from sklearn.calibration import calibration_curve
 
-# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
 
@@ -71,7 +39,6 @@ from oncokb_analyzer.preprocessing import create_preprocessor, get_feature_list
 from db_config import get_default_db_path
 from feature_config import load_feature_config, copy_config_to_run_dir, get_config_path
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -79,34 +46,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# 21 Tier 1 eligible cancer types (≥250 actionable events)
+# Eligible cancer types (>=250 actionable samples)
 TIER1_CANCER_TYPES = [
     'LUAD', 'IDC', 'BRCA', 'MEL', 'GIST', 'COAD', 'THPA', 'ILC', 'PRAD', 'AML',
     'BLCA', 'SKCM', 'NSCLC', 'ODG', 'HGSOC', 'ASTR', 'MDLC', 'BRCNOS', 'BRCANOS',
     'COADREAD', 'IHCH'
 ]
 
-# Default optimal Random Forest hyperparameters from Phase 2b
-# Results path: ml_experiments/phase2b_universal/run_20260117_121017/
-# Updated with stronger regularization to address overfitting (train-test AUC gap ~0.13)
+# Default (hand-tuned) random forest hyperparameters; used only when no search result is supplied
 DEFAULT_RF_PARAMS = {
-    'n_estimators': 200,           # was 100: more trees for stability
-    'max_depth': 5,                # was 10: KEY CHANGE - shallower trees reduce overfitting
+    'n_estimators': 200,
+    'max_depth': 5,
     'max_features': 0.3,
-    'min_samples_leaf': 10,        # was 4: KEY CHANGE - require more samples per leaf
-    'min_samples_split': 20,       # was 2: KEY CHANGE - require more samples to split
+    'min_samples_leaf': 10,
+    'min_samples_split': 20,
     'class_weight': 'balanced_subsample',
     'random_state': 42,
     'n_jobs': -1,
-    'oob_score': True,             # Enable out-of-bag score for overfitting monitoring
-    'bootstrap': True              # Required for oob_score
+    'oob_score': True,
+    'bootstrap': True
 }
 
-# Default Logistic Regression hyperparameters
+# Default logistic regression hyperparameters
 DEFAULT_LR_PARAMS = {
-    'C': 1.0,                      # Regularization strength (inverse)
-    'penalty': 'l2',               # Ridge regularization
-    'solver': 'lbfgs',             # Fast convergence for L2 penalty
+    'C': 1.0,
+    'penalty': 'l2',
+    'solver': 'lbfgs',
     'class_weight': 'balanced',
     'max_iter': 5000,
     'random_state': 42
@@ -121,26 +86,9 @@ ALGORITHM_DISPLAY_NAMES = {
 def resolve_hyperparams(algorithm, hyperparams_file=None, hyperparams_dir=None):
     """Resolve TIER 5 hyperparameters, preferring a TIER 3 search result.
 
-    Returns (params, provenance). `params` is always a complete, estimator-ready
-    dict; `provenance` records where each key came from.
-
-    Three defects this function exists to close (all found 2026-08-26, see
-    `code_review_and_feedback/df_hyperparameter_provenance_2026-08-26.md`):
-
-    1. TIER 3's search never reached TIER 5 at all -- the orchestrator method that
-       located the search output was never called, so every published model used
-       the hand-tuned module constants below.
-    2. The old loader did `data.get('best_params_consensus', data)`, which
-       REPLACES the parameter dict. `best_params_consensus` holds only the six
-       searched keys, so `random_state` was dropped and the final models became
-       NON-REPRODUCIBLE; `n_jobs`, `oob_score` and `bootstrap` (and LR's
-       `max_iter`) went with it. We now MERGE the searched keys onto the
-       defaults, so infrastructure settings survive and only genuinely searched
-       hyperparameters are overridden.
-    3. A missing file produced a warning and a silent fall back to the constants.
-       An explicitly requested source that cannot be resolved is now a hard error
-       -- silently training a different model than asked for is the failure mode
-       that makes runs un-reproducible after the fact.
+    Returns (params, provenance). Searched keys are merged onto the defaults so that
+    infrastructure settings (random_state, n_jobs, ...) survive. An explicitly requested
+    source that cannot be resolved is a hard error rather than a silent fallback.
     """
     base = (DEFAULT_RF_PARAMS if algorithm == 'random_forest' else DEFAULT_LR_PARAMS).copy()
 
@@ -155,7 +103,7 @@ def resolve_hyperparams(algorithm, hyperparams_file=None, hyperparams_dir=None):
         d = Path(hyperparams_dir)
         cands = sorted(d.glob(f'run_*/{algorithm}_universal_params.json'))
         if not cands:
-            # also accept the params file sitting directly in the given directory
+            # Also accept the params file sitting directly in the given directory
             direct = d / f'{algorithm}_universal_params.json'
             cands = [direct] if direct.exists() else []
         if not cands:
@@ -179,15 +127,8 @@ def resolve_hyperparams(algorithm, hyperparams_file=None, hyperparams_dir=None):
     merged = base.copy()
     merged.update(searched)
 
-    # `max_iter` is in the LR search space ([100, 200, 500, 1000]) but it is a
-    # solver convergence BUDGET, not a capacity hyperparameter -- its own comment
-    # in param_spaces.py says "Increase if getting convergence warnings". The
-    # search can land on a low value simply because it co-occurred with a good C,
-    # and sklearn scores a non-converged fit as if it were legitimate. The module
-    # default is 5000 precisely because smaller budgets did not converge here.
-    # Taking the MAX keeps the search's modelling choices while guaranteeing
-    # convergence headroom; a lower budget can only introduce a numerical defect,
-    # never a better model.
+    # max_iter is a solver convergence budget, not a capacity hyperparameter: a lower value can only
+    # add a numerical defect. Take the max of the searched and default budgets.
     iter_floored = None
     if 'max_iter' in searched and 'max_iter' in base:
         if int(searched['max_iter']) < int(base['max_iter']):
@@ -209,12 +150,7 @@ def resolve_hyperparams(algorithm, hyperparams_file=None, hyperparams_dir=None):
 
 
 class FinalModelTrainer:
-    """
-    TIER 5: Final model training and test set evaluation.
-
-    Trains final models on training data and evaluates on held-out test set.
-    Supports Random Forest and Logistic Regression algorithms.
-    """
+    """TIER 5: train final models on the training split and evaluate on the held-out test split."""
 
     def __init__(
         self,
@@ -229,34 +165,7 @@ class FinalModelTrainer:
         institution_column: str = 'SUBJECT_CENTER',
         algorithm: str = 'random_forest'
     ):
-        """
-        Initialize final model trainer.
-
-        Parameters
-        ----------
-        db_path : str
-            Path to SQLite database
-        train_test_split_file : str
-            Path to train/test split CSV file from define_train_test_split.py
-        output_dir : str
-            Directory for output files
-        hyperparams : dict, optional
-            Model hyperparameters (uses algorithm-specific defaults if not provided)
-        feature_set : str
-            Feature set to use: 'demographic', 'technical', or 'both' (default: 'both')
-        cancer_types : list, optional
-            List of cancer types to process (defaults to all 21 tier 1 types)
-        institution_weight_alpha : float
-            Power parameter for institutional sample weighting (0.0 to 1.0).
-            - 0.0 = no weighting (uniform, default)
-            - 0.5 = moderate correction (sqrt of inverse frequency)
-            - 1.0 = full inverse frequency weighting
-            Higher values give more weight to underrepresented institutions.
-        institution_column : str
-            Column name for institution grouping (default: 'SUBJECT_CENTER')
-        algorithm : str
-            Algorithm to use: 'random_forest' or 'logistic' (default: 'random_forest')
-        """
+        """Configure paths, split file, hyperparameters, feature set and institution weighting."""
         if algorithm not in ('random_forest', 'logistic'):
             raise ValueError(f"Algorithm must be 'random_forest' or 'logistic', got: {algorithm}")
 
@@ -269,31 +178,26 @@ class FinalModelTrainer:
         self.institution_weight_alpha = institution_weight_alpha
         self.institution_column = institution_column
 
-        # Select default hyperparams based on algorithm
         if hyperparams is not None:
             self.hyperparams = hyperparams
         elif algorithm == 'random_forest':
             self.hyperparams = DEFAULT_RF_PARAMS.copy()
         else:
             self.hyperparams = DEFAULT_LR_PARAMS.copy()
-        # Where those values came from -- written out so a run dir answers
-        # "were these searched or hand-tuned?" without archaeology.
+        # Record where the hyperparameters came from (searched vs hand-tuned)
         self.hyperparams_provenance = hyperparams_provenance or {
             'source': 'module defaults (hand-tuned)', 'searched_keys': [],
             'default_keys': sorted(self.hyperparams)}
 
-        # Create timestamped output directory
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_dir = Path(output_dir) / f'run_{timestamp}'
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create subdirectories
         self.models_dir = self.output_dir / 'models'
         self.plots_dir = self.output_dir / 'plots'
         self.models_dir.mkdir(exist_ok=True)
         self.plots_dir.mkdir(exist_ok=True)
 
-        # Load train/test split
         self._load_train_test_split()
 
         logger.info(f"FinalModelTrainer initialized")
@@ -323,22 +227,7 @@ class FinalModelTrainer:
         logger.info(f"Loaded train/test split: {len(self.train_patient_ids):,} train, {len(self.test_patient_ids):,} test")
 
     def _compute_institution_weights(self, train_data: pd.DataFrame) -> np.ndarray:
-        """
-        Compute sample weights based on institution frequency using power weighting.
-
-        Weights are computed as: weight_i = (1 / count_i) ^ alpha
-        where count_i is the number of samples from that institution.
-
-        Parameters
-        ----------
-        train_data : pd.DataFrame
-            Training data with institution column
-
-        Returns
-        -------
-        weights : np.ndarray
-            Normalized sample weights (sum to N, mean of 1.0)
-        """
+        """Institution sample weights (1 / count) ** alpha, normalized to mean 1."""
         if self.institution_weight_alpha <= 0:
             return None
 
@@ -346,17 +235,14 @@ class FinalModelTrainer:
             logger.warning(f"Institution column '{self.institution_column}' not found. Skipping weighting.")
             return None
 
-        # Count samples per institution
         institution_counts = train_data[self.institution_column].value_counts()
 
-        # Compute inverse frequency weights with power scaling
         # weight = (1 / count) ^ alpha
         raw_weights = (1.0 / train_data[self.institution_column].map(institution_counts)) ** self.institution_weight_alpha
 
         # Normalize so weights sum to N (mean weight = 1.0)
         normalized_weights = raw_weights / raw_weights.sum() * len(raw_weights)
 
-        # Log weight statistics
         weight_by_inst = train_data.groupby(self.institution_column).apply(
             lambda x: normalized_weights.loc[x.index].mean()
         ).sort_values(ascending=False)
@@ -369,20 +255,12 @@ class FinalModelTrainer:
         return normalized_weights.values
 
     def train_all_cancer_types(self) -> dict:
-        """
-        Train final models for all cancer types and evaluate on test set.
-
-        Returns
-        -------
-        results : dict
-            Dictionary with results for each cancer type
-        """
+        """Train and evaluate a model for each cancer type; write outputs and the summary."""
         logger.info(f"\n{'#'*90}")
         logger.info(f"TIER 5: FINAL MODEL TRAINING & TEST SET EVALUATION")
         logger.info(f"Training {len(self.cancer_types)} cancer types with {self.algorithm_display}")
         logger.info(f"{'#'*90}\n")
 
-        # Load data
         loader = DataLoader(self.db_path)
 
         all_results = {}
@@ -399,7 +277,6 @@ class FinalModelTrainer:
                 )
                 all_results[cancer_type] = result
 
-                # Add to summary
                 summary_rows.append({
                     'cancer_type': cancer_type,
                     'n_train': result['n_train'],
@@ -427,13 +304,12 @@ class FinalModelTrainer:
                     'error': str(e)
                 })
 
-        # Save summary
         summary_df = pd.DataFrame(summary_rows)
         summary_file = self.output_dir / 'performance_summary.csv'
         summary_df.to_csv(summary_file, index=False)
         logger.info(f"\nSaved performance summary: {summary_file}")
 
-        # Save per-sample test predictions (powers DeLong CIs in downstream plots)
+        # Per-sample test predictions (used for DeLong CIs downstream)
         pred_rows = []
         for cancer_type, result in all_results.items():
             if result.get('status') != 'completed' or 'patient_ids' not in result:
@@ -453,23 +329,18 @@ class FinalModelTrainer:
             preds_df.to_csv(preds_file, index=False)
             logger.info(f"Saved test predictions: {preds_file} ({len(preds_df):,} rows)")
 
-        # Generate AUC summary plots
         self._plot_auc_summary(summary_df)
 
-        # Generate comprehensive report
         self._generate_report(all_results, summary_df)
 
-        # Save hyperparameters used
         hyperparams_file = self.output_dir / 'hyperparameters_used.json'
         with open(hyperparams_file, 'w') as f:
             json.dump(self.hyperparams, f, indent=2)
 
-        # Provenance sidecar (kept separate so hyperparameters_used.json stays a
-        # plain estimator-ready dict for any existing consumer).
+        # Provenance sidecar, kept separate so hyperparameters_used.json stays a plain estimator-ready dict
         with open(self.output_dir / 'hyperparameters_provenance.json', 'w') as f:
             json.dump(self.hyperparams_provenance, f, indent=2)
 
-        # Save configuration
         config = {
             'algorithm': self.algorithm,
             'db_path': self.db_path,
@@ -498,34 +369,18 @@ class FinalModelTrainer:
         if self.algorithm == 'random_forest':
             from sklearn.ensemble import RandomForestClassifier
             return RandomForestClassifier(**self.hyperparams)
-        else:  # logistic
+        else:
             from sklearn.linear_model import LogisticRegression
             return LogisticRegression(**self.hyperparams)
 
     def _train_single_cancer_type(self, cancer_type: str, loader: DataLoader) -> dict:
-        """
-        Train and evaluate model for a single cancer type.
-
-        Parameters
-        ----------
-        cancer_type : str
-            Cancer type to process
-        loader : DataLoader
-            Data loader instance
-
-        Returns
-        -------
-        result : dict
-            Training and evaluation results
-        """
-        # Load all data for this cancer type
+        """Train and evaluate the model for one cancer type."""
         full_data = loader.load_patient_data()
         cancer_data = full_data[full_data['ONCOTREE_CODE'] == cancer_type].copy()
 
         if len(cancer_data) == 0:
             raise ValueError(f"No data found for cancer type: {cancer_type}")
 
-        # Split into train/test based on patient IDs
         train_data = cancer_data[cancer_data['PATIENT_ID'].isin(self.train_patient_ids)].copy()
         test_data = cancer_data[cancer_data['PATIENT_ID'].isin(self.test_patient_ids)].copy()
 
@@ -536,23 +391,19 @@ class FinalModelTrainer:
         if len(test_data) < 10:
             raise ValueError(f"Insufficient test data: {len(test_data)} samples")
 
-        # Get feature columns
         feature_list = get_feature_list(self.feature_set)
         available_cols = [col for col in feature_list if col in train_data.columns]
 
         if not available_cols:
             raise ValueError(f"No feature columns found in data")
 
-        # Extract features and target
         X_train = train_data[available_cols].copy()
         y_train = train_data['isOncoKbLevel1'].copy()
         X_test = test_data[available_cols].copy()
         y_test = test_data['isOncoKbLevel1'].copy()
 
-        # Create preprocessing pipeline
         preprocessor = create_preprocessor(available_columns=available_cols)
 
-        # Fit preprocessor on training data and transform both
         X_train_processed = preprocessor.fit_transform(X_train)
         X_test_processed = preprocessor.transform(X_test)
 
@@ -560,17 +411,14 @@ class FinalModelTrainer:
         logger.info(f"  Train actionable: {y_train.sum()} ({y_train.mean():.1%})")
         logger.info(f"  Test actionable: {y_test.sum()} ({y_test.mean():.1%})")
 
-        # Compute institution-based sample weights if enabled
         sample_weights = self._compute_institution_weights(train_data)
 
-        # Create and train model
         model = self._create_model()
         if sample_weights is not None:
             model.fit(X_train_processed, y_train, sample_weight=sample_weights)
         else:
             model.fit(X_train_processed, y_train)
 
-        # Log algorithm-specific info
         if self.algorithm == 'logistic':
             n_iter = model.n_iter_[0] if hasattr(model, 'n_iter_') else None
             if n_iter is not None:
@@ -579,13 +427,11 @@ class FinalModelTrainer:
                 if n_iter >= max_iter:
                     logger.warning(f"  WARNING: LR may not have converged (n_iter={n_iter} >= max_iter={max_iter})")
 
-        # Predictions
         y_train_pred = model.predict(X_train_processed)
         y_train_proba = model.predict_proba(X_train_processed)[:, 1]
         y_test_pred = model.predict(X_test_processed)
         y_test_proba = model.predict_proba(X_test_processed)[:, 1]
 
-        # Calculate metrics
         train_auc = roc_auc_score(y_train, y_train_proba)
         test_auc = roc_auc_score(y_test, y_test_proba)
         test_accuracy = accuracy_score(y_test, y_test_pred)
@@ -594,12 +440,10 @@ class FinalModelTrainer:
         test_f1 = f1_score(y_test, y_test_pred, zero_division=0)
         brier_score = brier_score_loss(y_test, y_test_proba)
 
-        # Generate plots
         self._plot_roc_curve(y_test, y_test_proba, cancer_type, test_auc)
         self._plot_calibration_curve(y_test, y_test_proba, cancer_type)
         self._plot_confusion_matrix(y_test, y_test_pred, cancer_type)
 
-        # Save model
         model_file = self.models_dir / f'{cancer_type}_{self.algorithm}_model.joblib'
         joblib.dump({
             'model': model,
@@ -681,7 +525,6 @@ class FinalModelTrainer:
         im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
         ax.figure.colorbar(im, ax=ax)
 
-        # Labels
         classes = ['Not Actionable', 'Actionable']
         ax.set(xticks=np.arange(cm.shape[1]),
                yticks=np.arange(cm.shape[0]),
@@ -689,10 +532,8 @@ class FinalModelTrainer:
                ylabel='True Label',
                xlabel='Predicted Label')
 
-        # Rotate x labels
         plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 
-        # Add text annotations
         thresh = cm.max() / 2.
         for i in range(cm.shape[0]):
             for j in range(cm.shape[1]):
@@ -708,52 +549,38 @@ class FinalModelTrainer:
         plt.close()
 
     def _plot_auc_summary(self, summary_df: pd.DataFrame):
-        """
-        Generate summary bar chart showing test AUC across all cancer types.
-
-        Parameters
-        ----------
-        summary_df : pd.DataFrame
-            Summary dataframe with performance metrics per cancer type
-        """
-        # Filter to successful cancer types only
+        """Save the train vs. test AUC summary figure."""
         successful = summary_df[summary_df['status'] == 'completed'].copy()
 
         if len(successful) == 0:
             logger.warning("No successful cancer types to plot AUC summary")
             return
 
-        # Sort by test AUC (descending)
         successful = successful.sort_values('test_auc', ascending=True)
 
-        # Create figure with two subplots: bar chart and comparison
         fig, axes = plt.subplots(1, 2, figsize=(16, max(8, len(successful) * 0.4)))
 
-        # --- Left panel: Test AUC bar chart ---
         ax1 = axes[0]
         colors = []
         for auc in successful['test_auc']:
             if auc >= 0.7:
-                colors.append('#2ecc71')  # Green - good
+                colors.append('#2ecc71')
             elif auc >= 0.6:
-                colors.append('#3498db')  # Blue - moderate
+                colors.append('#3498db')
             elif auc >= 0.55:
-                colors.append('#f39c12')  # Orange - fair
+                colors.append('#f39c12')
             else:
-                colors.append('#e74c3c')  # Red - poor
+                colors.append('#e74c3c')
 
         y_pos = np.arange(len(successful))
         bars = ax1.barh(y_pos, successful['test_auc'], color=colors, edgecolor='black', linewidth=0.5)
 
-        # Add value labels
         for i, (auc, bar) in enumerate(zip(successful['test_auc'], bars)):
             ax1.text(auc + 0.01, bar.get_y() + bar.get_height()/2,
                     f'{auc:.3f}', va='center', ha='left', fontsize=9, fontweight='bold')
 
-        # Reference line at 0.5 (random baseline)
         ax1.axvline(x=0.5, color='red', linestyle='--', linewidth=1.5, label='Random (0.5)')
 
-        # Mean AUC line
         mean_auc = successful['test_auc'].mean()
         ax1.axvline(x=mean_auc, color='darkblue', linestyle='-', linewidth=2,
                    label=f'Mean ({mean_auc:.3f})')
@@ -766,10 +593,8 @@ class FinalModelTrainer:
         ax1.legend(loc='lower right', fontsize=9)
         ax1.grid(axis='x', alpha=0.3)
 
-        # --- Right panel: Train vs Test AUC comparison ---
         ax2 = axes[1]
 
-        # Sort by test AUC for consistency
         width = 0.35
         x_pos = np.arange(len(successful))
 
@@ -778,7 +603,6 @@ class FinalModelTrainer:
         bars_test = ax2.barh(x_pos + width/2, successful['test_auc'], width,
                              label='Test AUC', color='#e74c3c', alpha=0.7, edgecolor='black', linewidth=0.5)
 
-        # Reference line
         ax2.axvline(x=0.5, color='gray', linestyle='--', linewidth=1, alpha=0.7)
 
         ax2.set_yticks(x_pos)
@@ -789,7 +613,6 @@ class FinalModelTrainer:
         ax2.legend(loc='lower right', fontsize=10)
         ax2.grid(axis='x', alpha=0.3)
 
-        # Add overfitting indicator text
         mean_diff = (successful['train_auc'] - successful['test_auc']).mean()
         overfitting_text = f"Mean (Train - Test): {mean_diff:.3f}"
         if mean_diff > 0.05:
@@ -804,44 +627,38 @@ class FinalModelTrainer:
 
         plt.tight_layout()
 
-        # Save figure
         summary_plot_file = self.output_dir / 'auc_summary_across_cancer_types.pdf'
         plt.savefig(summary_plot_file, dpi=150, bbox_inches='tight')
         plt.close()
 
         logger.info(f"Saved AUC summary plot: {summary_plot_file}")
 
-        # Also create a simpler single-panel version for quick viewing
         self._plot_auc_summary_simple(successful)
 
     def _plot_auc_summary_simple(self, successful: pd.DataFrame):
         """Generate a simpler single-panel AUC summary bar chart."""
         fig, ax = plt.subplots(figsize=(10, max(6, len(successful) * 0.35)))
 
-        # Sort by test AUC
         successful = successful.sort_values('test_auc', ascending=True)
 
-        # Color based on performance
         colors = []
         for auc in successful['test_auc']:
             if auc >= 0.7:
-                colors.append('#27ae60')  # Dark green
+                colors.append('#27ae60')
             elif auc >= 0.6:
-                colors.append('#3498db')  # Blue
+                colors.append('#3498db')
             elif auc >= 0.55:
-                colors.append('#f39c12')  # Orange
+                colors.append('#f39c12')
             else:
-                colors.append('#c0392b')  # Dark red
+                colors.append('#c0392b')
 
         y_pos = np.arange(len(successful))
         bars = ax.barh(y_pos, successful['test_auc'], color=colors, edgecolor='black', linewidth=0.5, height=0.7)
 
-        # Add value labels
         for i, (auc, bar) in enumerate(zip(successful['test_auc'], bars)):
             ax.text(auc + 0.008, bar.get_y() + bar.get_height()/2,
                    f'{auc:.3f}', va='center', ha='left', fontsize=9)
 
-        # Reference lines
         ax.axvline(x=0.5, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='Random baseline (0.5)')
         mean_auc = successful['test_auc'].mean()
         ax.axvline(x=mean_auc, color='navy', linestyle='-', linewidth=2, label=f'Mean AUC ({mean_auc:.3f})')
@@ -854,7 +671,6 @@ class FinalModelTrainer:
         ax.legend(loc='lower right', fontsize=10)
         ax.grid(axis='x', alpha=0.3, linestyle='-', linewidth=0.5)
 
-        # Add summary stats text box
         stats_text = (
             f"N = {len(successful)} cancer types\n"
             f"Mean AUC: {mean_auc:.3f}\n"
@@ -870,7 +686,6 @@ class FinalModelTrainer:
         simple_plot_file = self.output_dir / 'auc_summary_barplot.pdf'
         plt.savefig(simple_plot_file, dpi=150, bbox_inches='tight')
 
-        # Also save as PNG for quick viewing
         png_file = self.output_dir / 'auc_summary_barplot.png'
         plt.savefig(png_file, dpi=150, bbox_inches='tight')
         plt.close()
@@ -921,7 +736,6 @@ class FinalModelTrainer:
             report_lines.append("-" * 90)
             report_lines.append("")
 
-            # Summary statistics
             report_lines.append("AGGREGATE STATISTICS:")
             report_lines.append(f"  Mean Test AUC: {successful['test_auc'].mean():.4f} +/- {successful['test_auc'].std():.4f}")
             report_lines.append(f"  Median Test AUC: {successful['test_auc'].median():.4f}")
@@ -932,7 +746,6 @@ class FinalModelTrainer:
             report_lines.append(f"  Mean F1 Score: {successful['test_f1'].mean():.4f}")
             report_lines.append("")
 
-            # Train vs Test comparison (overfitting check)
             train_test_diff = (successful['train_auc'] - successful['test_auc']).mean()
             report_lines.append("OVERFITTING CHECK:")
             report_lines.append(f"  Mean (Train AUC - Test AUC): {train_test_diff:.4f}")
@@ -994,12 +807,10 @@ class FinalModelTrainer:
 
         report_text = "\n".join(report_lines)
 
-        # Save report
         report_file = self.output_dir / 'final_evaluation_report.txt'
         with open(report_file, 'w') as f:
             f.write(report_text)
 
-        # Print to console
         print("\n" + report_text)
 
         logger.info(f"Saved report: {report_file}")
@@ -1069,7 +880,7 @@ Examples:
             "Where final-model hyperparameters come from. 'search' (default) uses the TIER 3 "
             "result given by --hyperparams-file/--hyperparams-dir. 'defaults' uses the hand-tuned "
             "module constants -- which are NOT search-derived and were selected with reference to "
-            "held-out performance (see df_hyperparameter_provenance_2026-08-26.md); choosing it is "
+            "held-out performance; choosing it is "
             "a disclosable decision, which is why it must be explicit."
         )
     )
@@ -1127,7 +938,6 @@ Examples:
 
     args = parser.parse_args()
 
-    # Load feature configuration
     if args.feature_config:
         logger.info(f"Loading custom feature config: {args.feature_config}")
         load_feature_config(args.feature_config)
@@ -1135,13 +945,12 @@ Examples:
         load_feature_config()
     logger.info(f"Feature config loaded from: {get_config_path()}")
 
-    # Handle quick test mode
     if args.quick_test:
         args.cancer_types = ['LUAD']
         logger.info("Quick test mode: processing only LUAD")
 
-    # Resolve hyperparameters: TIER 3 search result if available, else the
-    # hand-tuned module constants -- but only ever as a DELIBERATE choice.
+    # Resolve hyperparameters: TIER 3 search result if available, else the hand-tuned
+    # module constants, but only as a deliberate choice
     if args.hyperparams_source == 'defaults':
         hyperparams, hp_provenance = resolve_hyperparams(args.algorithm)
         logger.warning("Using hand-tuned module constants by explicit request "
@@ -1159,18 +968,15 @@ Examples:
             if hp_provenance.get('overridden'):
                 logger.info(f"  overrides defaults: {hp_provenance['overridden']}")
 
-    # Check database exists
     if not Path(args.db_path).exists():
         logger.error(f"Database not found: {args.db_path}")
         sys.exit(1)
 
-    # Check split file exists
     if not Path(args.train_test_split_file).exists():
         logger.error(f"Train/test split file not found: {args.train_test_split_file}")
         logger.error("Run define_train_test_split.py first to create the split file")
         sys.exit(1)
 
-    # Initialize and run
     trainer = FinalModelTrainer(
         db_path=args.db_path,
         train_test_split_file=args.train_test_split_file,
@@ -1184,13 +990,11 @@ Examples:
         algorithm=args.algorithm
     )
 
-    # Copy feature config to output directory for reproducibility
     copied_config = copy_config_to_run_dir(str(trainer.output_dir), args.feature_config)
     logger.info(f"Feature config copied to: {copied_config}")
 
     results = trainer.train_all_cancer_types()
 
-    # Summary
     successful = sum(1 for r in results.values() if r.get('status') == 'completed')
     logger.info(f"\nTIER 5 Complete: {successful}/{len(results)} cancer types processed successfully")
     logger.info(f"Results saved to: {trainer.output_dir}")

@@ -1,25 +1,21 @@
-"""
-Simple Utilities and Exceptions for OncoKB Analyzer
-
-Basic exception classes for error handling.
-"""
+"""Exception classes for OncoKB Analyzer."""
 
 
 class OncoKBAnalyzerError(Exception):
-    """Base exception for OncoKB Analyzer"""
+    """Base exception for OncoKB Analyzer."""
     pass
 
 
 class DataLoadError(OncoKBAnalyzerError):
-    """Exception raised when data loading fails"""
+    """Exception raised when data loading fails."""
     pass
 
 
 class ConfigurationError(OncoKBAnalyzerError):
-    """Exception raised for configuration validation errors"""
+    """Exception raised for configuration validation errors."""
     pass
 
 
 class ModelingError(OncoKBAnalyzerError):
-    """Exception raised during model training or evaluation"""
+    """Exception raised during model training or evaluation."""
     pass

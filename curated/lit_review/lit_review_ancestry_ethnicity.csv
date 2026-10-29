@@ -1,0 +1,8 @@
+ONCOTREE_CODE,Hugo_Symbol,feature_category,feature,direction,Lit status,PMID or Lit review studies
+LUAD,EGFR,race,ANCESTRY,association,confirmed,"27738317, 24419411"
+COAD,BRAF,race,ANCESTRY,association,confirmed,"37688643, 18628431, 20200438"
+BRCA,PIK3CA,race,ANCESTRY,association,confirmed,36446041
+LUAD,KRAS,race,ANCESTRY,association,confirmed,"33497555, 38902927"
+IDC,PIK3CA,race,ANCESTRY,association,confirmed,36446041
+BLCA,FGFR3,race,ANCESTRY,association,confirmed,"27029078, 41373802"
+BRCA,PIK3CA,ethnicity,ETHNICITY,association,confirmed,"37145128, 36446041"

@@ -1,13 +1,4 @@
-"""
-Feature Name Mapper for SHAP Interaction Analysis
-
-Converts sklearn's transformed feature names (e.g., 'num__x0', 'cat__x1_Male')
-to human-readable names for better interpretability in visualizations and outputs.
-
-Feature definitions are loaded from the centralized config at code/config/features.yaml
-via code/tools/feature_config.py.
-
-"""
+"""Map sklearn-transformed feature names to readable display names."""
 
 import re
 import sys
@@ -25,23 +16,9 @@ from feature_config import (
 
 
 class FeatureNameMapper:
-    """
-    Maps transformed feature names back to human-readable versions.
-
-    Handles sklearn's ColumnTransformer naming conventions:
-    - Numeric features: 'num__x0', 'num__x1', ... → AGE_AT_SEQ_REPORT, etc.
-    - Categorical features: 'cat__x0_value', 'cat__x1_Male', ... → SEX_Male, RACE_Asian, etc.
-
-    Example:
-        >>> mapper = FeatureNameMapper(original_features)
-        >>> mapper.map_feature_name('num__x0')
-        'Age at Sequencing'
-        >>> mapper.map_feature_name('cat__x1_Male')
-        'Sex: Male'
-    """
+    """Maps transformed feature names back to human-readable versions."""
 
     # Human-readable display names loaded from centralized config (code/config/features.yaml)
-    # Merge config values with any additional mappings needed for SHAP
     DISPLAY_NAMES = {
         **get_all_display_names(),
         # Additional technical features that may not be in main config
@@ -56,14 +33,7 @@ class FeatureNameMapper:
     def __init__(self, original_feature_names: List[str],
                  numeric_features: Optional[List[str]] = None,
                  categorical_features: Optional[List[str]] = None):
-        """
-        Initialize the mapper with original feature names.
-
-        Args:
-            original_feature_names: List of original column names before transformation
-            numeric_features: List of numeric feature names (in order)
-            categorical_features: List of categorical feature names (in order)
-        """
+        """Initialize the mapper with original feature names."""
         self.original_features = original_feature_names
 
         # Auto-detect numeric vs categorical if not provided
@@ -80,15 +50,7 @@ class FeatureNameMapper:
     KNOWN_NUMERIC_FEATURES = set(get_numeric_features())
 
     def _auto_detect_feature_types(self):
-        """
-        Auto-detect which features are numeric vs categorical based on known features.
-
-        IMPORTANT: Order matters! Features must be in the same order as they appear
-        in the original feature list to match sklearn's ColumnTransformer indexing.
-
-        Uses exact matching against KNOWN_NUMERIC_FEATURES to avoid false positives
-        (e.g., 'coverage' containing 'AGE' substring).
-        """
+        """Auto-detect which features are numeric vs categorical based on known features."""
         numeric = []
         categorical = []
 
@@ -102,15 +64,8 @@ class FeatureNameMapper:
         return numeric, categorical
 
     def _create_mapping_indices(self):
-        """Create index mappings for quick lookup.
-
-        IMPORTANT: sklearn's ColumnTransformer uses ORIGINAL column indices,
-        not sequential indices. So num__x5 means the 5th column in original
-        feature list, not the 5th numeric feature.
-        """
+        """Create index mappings for quick lookup."""
         # Map original index → feature name for numeric features
-        # e.g., if AGE_AT_SEQ_REPORT is at position 5 in original_features,
-        # then num__x5 → AGE_AT_SEQ_REPORT
         self.num_index_to_feature = {}
         self.cat_index_to_feature = {}
 
@@ -123,21 +78,7 @@ class FeatureNameMapper:
     def map_feature_name(self, transformed_name: str,
                          include_value: bool = True,
                          short_form: bool = False) -> str:
-        """
-        Map transformed feature name to human-readable version.
-
-        IMPORTANT: sklearn's ColumnTransformer does NOT preserve feature order in its indices!
-        The cat__xN index does NOT correspond to the Nth categorical feature.
-        Instead, we need to infer the original feature from the VALUE itself.
-
-        Args:
-            transformed_name: Sklearn transformed name (e.g., 'num__x0', 'cat__x1_Male')
-            include_value: For categorical features, include the value (e.g., 'Sex: Male' vs 'Sex')
-            short_form: Use abbreviated version (e.g., 'Age' vs 'Age at Sequencing')
-
-        Returns:
-            Human-readable feature name
-        """
+        """Map transformed feature name to human-readable version."""
         # Handle numeric features: num__x0, num__x1, etc.
         num_match = re.match(r'num__x(\d+)', transformed_name)
         if num_match:
@@ -150,7 +91,6 @@ class FeatureNameMapper:
                 return display_name
 
         # Handle categorical features: cat__x0_Male, cat__x1_Asian, etc.
-        # Instead of using the index, infer the feature from the value
         cat_match = re.match(r'cat__x\d+_(.*)', transformed_name)
         if cat_match:
             value = cat_match.group(1)
@@ -173,11 +113,7 @@ class FeatureNameMapper:
         return transformed_name
 
     def _infer_feature_from_value(self, value: str) -> str:
-        """
-        Infer the original feature name from the categorical value.
-
-        This is necessary because sklearn's ColumnTransformer indices don't match feature order.
-        """
+        """Infer the original feature name from the categorical value."""
         # SAMPLE_TYPE_DETAILED values (check first - most specific)
         if any(term in value for term in ['tumor', 'Metastasis site', 'recurrence', 'Lymph node',
                                            'hematologic malignancy', 'Not applicable or',
@@ -188,8 +124,7 @@ class FeatureNameMapper:
         if value in ['Male', 'Female']:
             return 'SEX'
 
-        # ANCESTRY values (DB column is RACE; renamed to ANCESTRY at the Python
-        # boundary in data_loader.py, Feature Review Fix b 2026-05-21).
+        # ANCESTRY values (the database column is RACE)
         if value in ['European', 'Asian', 'African', 'Native American', 'Pacific Islander']:
             return 'ANCESTRY'
 
@@ -212,7 +147,6 @@ class FeatureNameMapper:
             return 'SUBJECT_CENTER'
 
         # SEQ_ASSAY_ID - Sequencing assay identifiers
-        # These typically contain institution codes + panel info
         if any(pattern in value for pattern in ['IMPACT', '-GP', 'GENE', 'PANEL', 'TSO', 'F1',
                                                   'ONCOHEME', 'ONCOPANEL', 'CANCERPLEX',
                                                   'FOUNDATION', 'TEMPUS', 'GUARDANT']):
@@ -253,11 +187,6 @@ class FeatureNameMapper:
             return 'tumor_purity_bin'
 
         # Handle ambiguous "Unknown" and "Other" by context.
-        # Updated 2026-05-22 (pre-lock review #13): SAMPLE_TYPE was dropped
-        # from modeling features (Feature Review Fix a) and ANCESTRY's Unknown
-        # is now mode-imputed away into a named indicator (Fix b). SEX has
-        # never had 'Unknown'. So 'Unknown' reaching this fallback now almost
-        # certainly came from ETHNICITY in a legacy pre-rename SHAP file.
         if value == 'Unknown':
             return 'ETHNICITY'
 
@@ -271,33 +200,13 @@ class FeatureNameMapper:
     def map_all_feature_names(self, transformed_names: List[str],
                                include_value: bool = True,
                                short_form: bool = False) -> List[str]:
-        """
-        Map all transformed feature names to human-readable versions.
-
-        Args:
-            transformed_names: List of sklearn transformed names
-            include_value: For categorical features, include the value
-            short_form: Use abbreviated versions
-
-        Returns:
-            List of human-readable feature names
-        """
+        """Map all transformed feature names to human-readable versions."""
         return [self.map_feature_name(name, include_value, short_form)
                 for name in transformed_names]
 
     def create_interaction_label(self, feature_i: str, feature_j: str,
                                    separator: str = ' × ') -> str:
-        """
-        Create a human-readable label for an interaction pair.
-
-        Args:
-            feature_i: First feature (transformed name)
-            feature_j: Second feature (transformed name)
-            separator: String to separate feature names
-
-        Returns:
-            Human-readable interaction label (e.g., 'Age at Sequencing × Sex: Male')
-        """
+        """Create a human-readable label for an interaction pair."""
         name_i = self.map_feature_name(feature_i, include_value=True, short_form=False)
         name_j = self.map_feature_name(feature_j, include_value=True, short_form=False)
 
@@ -305,19 +214,7 @@ class FeatureNameMapper:
 
     def simplify_interaction_label(self, feature_i: str, feature_j: str,
                                      separator: str = ' × ') -> str:
-        """
-        Create a simplified interaction label (removes category values for cleaner display).
-
-        Useful for heatmap axis labels where space is limited.
-
-        Args:
-            feature_i: First feature (transformed name)
-            feature_j: Second feature (transformed name)
-            separator: String to separate feature names
-
-        Returns:
-            Simplified interaction label (e.g., 'Age × Sex')
-        """
+        """Create a simplified interaction label (removes category values for cleaner display)."""
         # Get base feature names without values
         name_i = self.map_feature_name(feature_i, include_value=False, short_form=True)
         name_j = self.map_feature_name(feature_j, include_value=False, short_form=True)
@@ -325,32 +222,7 @@ class FeatureNameMapper:
         return f"{name_i}{separator}{name_j}"
 
     def get_feature_group(self, transformed_name: str) -> str:
-        """
-        Get the feature group (base feature name) for a transformed feature.
-
-        Useful for grouping one-hot encoded features.
-
-        Args:
-            transformed_name: Sklearn transformed name
-
-        Returns:
-            Base feature name (e.g., 'cat__x1_Male' → 'SEX',
-            'cat__SUBJECT_CENTER_MSK' → 'SUBJECT_CENTER')
-
-        Handles BOTH sklearn transformed-name formats:
-        - Positional (legacy): ``cat__x1_Male`` / ``num__x5`` — resolved by the
-          original column index via the ColumnTransformer ``xN`` convention.
-        - Verbose (current): ``cat__SUBJECT_CENTER_MSK`` / ``num__AGE_AT_SEQ_REPORT``
-          — emitted once the preprocessor began seeing a DataFrame with real
-          column names (2026-05-22 "keep X as a DataFrame end-to-end" change).
-          The positional regex can't parse these, so without the verbose branch
-          below every one-hot column fell through unchanged and the caller's
-          group-by became a silent no-op (each level its own "group"). Resolved
-          by stripping the transformer prefix and matching the LONGEST original
-          feature that prefixes the remainder — longest-match disambiguates
-          ``ANCESTRY`` (cat one-hots) from ``ANCESTRY_missing`` (its own numeric
-          indicator feature).
-        """
+        """Get the feature group (base feature name) for a transformed feature."""
         # Positional names: cat__x1_Male, num__x5 — map via original column index.
         num_match = re.match(r'num__x(\d+)$', transformed_name)
         if num_match:
@@ -362,8 +234,7 @@ class FeatureNameMapper:
             index = int(cat_match.group(1))
             return self.cat_index_to_feature.get(index, transformed_name)
 
-        # Verbose names: strip the transformer prefix and match the longest
-        # original feature name that the remainder begins with.
+        # Named features: strip the transformer prefix and match the longest known feature name.
         for prefix in ('num__', 'cat__'):
             if transformed_name.startswith(prefix):
                 remainder = transformed_name[len(prefix):]
@@ -379,16 +250,7 @@ class FeatureNameMapper:
         return transformed_name
 
     def get_feature_type(self, feature_name: str) -> str:
-        """
-        Classify a feature as 'demographic' or 'technical'.
-
-        Args:
-            feature_name: Original feature name (e.g., 'SEX', 'SUBJECT_CENTER')
-                         or transformed name (e.g., 'cat__x1_Male')
-
-        Returns:
-            'demographic' or 'technical'
-        """
+        """Classify a feature as 'demographic' or 'technical'."""
         # If it's a transformed name, get the base feature first
         if feature_name.startswith('num__') or feature_name.startswith('cat__'):
             # For categorical, infer from value
@@ -406,7 +268,6 @@ class FeatureNameMapper:
         return classify_feature_type(feature_name)
 
 
-# Standalone function for feature type classification
 # Load base features from centralized config, then add display name variants
 _demographic_base = set(get_feature_list('demographic'))
 _technical_base = set(get_feature_list('technical'))
@@ -429,15 +290,7 @@ TECHNICAL_FEATURES = _technical_base | {
 
 
 def classify_feature_type(feature_name: str) -> str:
-    """
-    Classify a feature as 'demographic' or 'technical'.
-
-    Args:
-        feature_name: Feature name (original or display name)
-
-    Returns:
-        'demographic' or 'technical'
-    """
+    """Classify a feature as 'demographic' or 'technical'."""
     # Check if it's a known demographic feature
     if feature_name in DEMOGRAPHIC_FEATURES:
         return 'demographic'
@@ -465,15 +318,7 @@ def classify_feature_type(feature_name: str) -> str:
 
 
 def create_mapper_from_data_loader(feature_cols: List[str]) -> FeatureNameMapper:
-    """
-    Convenience function to create a FeatureNameMapper from data loader feature columns.
-
-    Args:
-        feature_cols: List of original feature column names from DataLoader
-
-    Returns:
-        Configured FeatureNameMapper instance
-    """
+    """Convenience function to create a FeatureNameMapper from data loader feature columns."""
     # Known numeric features loaded from centralized config (code/config/features.yaml)
     known_numeric = set(get_numeric_features())
 

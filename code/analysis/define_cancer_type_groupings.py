@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
-"""
-Define Cancer Type Groupings for ML Modeling
-
-Identifies the canonical OncoTree codes (~21) with at least
-MIN_ACTIONABLE actionable patients in the filtered modeling table. These
-codes define the cancer-type universe used by TIER 4-7 of the pipeline.
-
-OncoTree rollups (Tier 2/Tier 3 anatomical aggregations) were evaluated
-and excluded for the publication-branch analysis -- see the
-`rollup_comparison` branch and `rollup_comparison_report.md` for the
-decision. THYROID/ENCG/BLADDER are explicitly excluded here as historical
-"rescue rollup" parents; they only met threshold after aggregating
-descendant codes that are out of scope on this branch.
-
-Outputs (written under --output-dir):
-- cancer_type_group_definitions.csv: one row per eligible OncoTree code
-  (ONCOTREE_CODE, ot_name, total_patients, actionable_patients,
-  actionability_rate).
-- patient_to_group_mapping.csv: one row per patient assigned to an
-  eligible code (PATIENT_ID, ONCOTREE_CODE, is_actionable).
-"""
+"""Select cancer types with at least 250 actionable patients and write their group definitions."""
 
 import argparse
 import sqlite3
@@ -34,20 +14,12 @@ from db_config import get_default_db_path  # noqa: E402
 DB_PATH = get_default_db_path()
 MIN_ACTIONABLE = 250
 
-# Historical rescue-rollup parents that only met the threshold after
-# aggregating descendant codes. The descendant-aggregation pathway was
-# removed when Tier 2/3 rollups were stripped from the publication branch.
+# Rollup parent codes that are excluded from the eligible set.
 EXCLUDED_RESCUE_CODES = ('THYROID', 'ENCG', 'BLADDER')
 
 
 def query_eligible_codes(db_path):
-    """Return OncoTree codes with >=MIN_ACTIONABLE actionable patients.
-
-    Both `total_patients` and `actionable_patients` use COUNT(DISTINCT
-    PATIENT_ID) so the actionability rate is properly bounded by 1.0
-    (without this, codes like ODG where a single patient contributes
-    multiple actionable rows could report rates >100%).
-    """
+    """Return OncoTree codes with >=MIN_ACTIONABLE actionable patients."""
     conn = sqlite3.connect(db_path)
     placeholders = ','.join('?' for _ in EXCLUDED_RESCUE_CODES)
     query = f"""

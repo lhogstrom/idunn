@@ -1,35 +1,14 @@
 #!/usr/bin/env python3
-"""
-compare_lock_runs.py — Concordance checker for the canonical publication lock.
+"""Concordance checker for two run directories that should be identical.
 
-Diffs two run directories that are SUPPOSED to be identical (e.g. a local `idunn`
-run vs. the same run reproduced on HPC) for a single pathway (rf or lr). Emits a
-per-check PASS/FAIL/SKIP report and exits non-zero if any non-skipped check fails.
-
-The acceptance criteria come from ROADMAP.md ("Reproducibility / concordance
-protocol"):
-
-  - Train/test split:        IDENTICAL patient-id -> split mapping (hard equality).
-  - TIER 3 hyperparameters:  IDENTICAL best_params_consensus (deterministic given
-                             seed + folds + sample-fraction=1.0).
-  - TIER 5 per-cancer AUC:   |test_auc_a - test_auc_b| < AUC_TOL  (default 0.005).
-  - TIER 6 RF SHAP ranks:    Spearman of top-N feature ranks > SHAP_SPEARMAN_MIN
-                             (default 0.95), per cancer type (rf pathway only).
-  - TIER 6 LR coefficients:  |log_odds_a - log_odds_b| <= LR_COEF_TOL (lr pathway
-                             only; LR is convex/deterministic).
-  - TIER 7 hit set:          IDENTICAL set of FDR<0.05 gene-stratified hits, or the
-                             symmetric difference is listed.
+Compares one pathway (rf or lr) of two runs (e.g. local vs. HPC) and reports
+PASS/FAIL/SKIP per check; exits non-zero if any non-skipped check fails.
+Checks: train/test split, TIER 3 consensus hyperparameters, TIER 5 per-cancer
+test AUC, TIER 6 RF SHAP rank correlation or LR coefficients, TIER 7 hit set.
+Checks whose inputs are missing in either run are skipped.
 
 Usage:
-    python code/tools/compare_lock_runs.py \
-        --run-a runs/run_LOCAL_rf --run-b runs/run_HPC_rf --pathway rf
-
-    python code/tools/compare_lock_runs.py \
-        --run-a runs/run_LOCAL_lr --run-b runs/run_HPC_lr --pathway lr [--json report.json]
-
-A run compared against itself returns all-PASS, which is the smoke test for this
-script. Checks whose inputs are missing in either run (e.g. RF SHAP under --quick)
-are reported as SKIP and do not fail the overall result.
+    python code/tools/compare_lock_runs.py --run-a runs/<run_a> --run-b runs/<run_b> --pathway rf
 """
 
 import argparse
@@ -41,7 +20,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-# ---- Acceptance tolerances (ROADMAP.md) -----------------------------------
+# ---- Acceptance tolerances ----
 AUC_TOL = 0.005           # TIER 5 per-cancer test-AUC absolute tolerance
 SHAP_SPEARMAN_MIN = 0.95  # TIER 6 RF SHAP top-N rank Spearman floor
 SHAP_TOP_N = 20           # number of top features per cancer to correlate
@@ -57,18 +36,12 @@ class CheckResult:
         self.detail = detail
 
 
-# ---- file location helpers ------------------------------------------------
+# ---- file location helpers ----
 
 def _find_one(run_dir, pattern, label):
-    """Return the single file matching `pattern` (glob) under run_dir.
+    """Return the single file matching `pattern` (a glob or list of globs tried in order).
 
-    `pattern` may be a single glob or a list of globs tried in order (first that
-    matches wins) — used where a file may live either directly in a tier dir or in
-    a timestamped run_* subdir (e.g. RF SHAP: the orchestrator writes with
-    --no-timestamp-subdir, manual runs don't — see Gotcha #7).
-
-    Returns (path, None) on success or (None, reason) if zero/ambiguous matches.
-    Newest match wins when several exist (timestamped run_* subdirs), with a note.
+    Returns (path, None), or (None, reason) if there is no match. Newest wins on several.
     """
     patterns = [pattern] if isinstance(pattern, str) else list(pattern)
     matches = []
@@ -79,12 +52,12 @@ def _find_one(run_dir, pattern, label):
     if not matches:
         return None, f"{label}: no file matching {patterns}"
     if len(matches) > 1:
-        # Multiple timestamped subdirs — pick the lexicographically newest and note it.
+        # several timestamped subdirs: use the newest
         return matches[-1], f"{label}: {len(matches)} matches, used newest ({os.path.relpath(matches[-1], run_dir)})"
     return matches[0], None
 
 
-# ---- individual checks ----------------------------------------------------
+# ---- individual checks ----
 
 def check_split(run_a, run_b):
     rel = "tier2_data_setup/train_test_split/train_test_split.csv"
@@ -97,7 +70,7 @@ def check_split(run_a, run_b):
     if a.equals(b):
         return CheckResult("train/test split", PASS,
                            f"{len(a)} patients, identical id->split mapping")
-    # Diagnose the divergence.
+    # diagnose the divergence
     set_a, set_b = set(a["PATIENT_ID"]), set(b["PATIENT_ID"])
     only_a, only_b = set_a - set_b, set_b - set_a
     merged = a.merge(b, on="PATIENT_ID", suffixes=("_a", "_b"))
@@ -150,16 +123,14 @@ def check_shap_ranks(run_a, run_b):
     if pa is None or pb is None:
         return CheckResult("TIER 6 RF SHAP ranks", SKIP,
                            "; ".join(e for e in (err_a, err_b) if e) or "RF SHAP absent (quick mode?)")
-    # Key on feature_name_raw (e.g. cat__x3_Unknown) — the display feature_name is
-    # NOT unique within a cancer type (e.g. "Sex: Unknown" appears for two one-hot
-    # columns), which would make a feature_name index ambiguous.
+    # Key on feature_name_raw: display names are not unique within a cancer type.
     a = pd.read_csv(pa)[["cancer_type", "feature_name_raw", "rank"]]
     b = pd.read_csv(pb)[["cancer_type", "feature_name_raw", "rank"]]
     per_cancer = []
     for ct in sorted(set(a["cancer_type"]) & set(b["cancer_type"])):
         sa = a[a["cancer_type"] == ct].groupby("feature_name_raw")["rank"].min()
         sb = b[b["cancer_type"] == ct].groupby("feature_name_raw")["rank"].min()
-        # Features in the top-N of either run, present in both.
+        # features in the top-N of either run, present in both
         topfeats = set(sa[sa <= SHAP_TOP_N].index) | set(sb[sb <= SHAP_TOP_N].index)
         common = [f for f in topfeats if f in sa.index and f in sb.index]
         if len(common) < 5:
@@ -184,8 +155,7 @@ def check_lr_coefficients(run_a, run_b):
     if not (os.path.exists(pa) and os.path.exists(pb)):
         return CheckResult("TIER 6 LR coefficients", SKIP,
                            f"missing: {[p for p in (pa, pb) if not os.path.exists(p)]}")
-    # Key on feature_name_raw (unique per cancer type); the display feature_name can
-    # repeat within a cancer type and would produce a many-to-many merge.
+    # Key on feature_name_raw: display names repeat within a cancer type.
     cols = ["cancer_type", "feature_name_raw", "log_odds"]
     a = pd.read_csv(pa)[cols]
     b = pd.read_csv(pb)[cols]
@@ -225,7 +195,7 @@ def check_tier7_hits(run_a, run_b):
     return CheckResult("TIER 7 hit set", FAIL, detail)
 
 
-# ---- driver ---------------------------------------------------------------
+# ---- driver ----
 
 def run_checks(run_a, run_b, pathway):
     checks = [check_split(run_a, run_b),

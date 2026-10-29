@@ -1,3 +1,7 @@
+# Summarizes OncoKB annotations by cancer type, sample type and sequencing assay (level counts,
+# actionability rates, fraction of null fields) and writes tables and PDFs.
+# Invoked by workflow/main.nf: Rscript <script> <baseDir> <dbName>
+
 library(dplyr)
 library(tidyr)
 library(DBI)
@@ -7,12 +11,10 @@ library(reshape2)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-# Check if the correct number of arguments are provided
 if (length(args) != 2) {
   stop("Two arguments must be supplied", call. = FALSE)
 }
 
-# Assign Arguments to Variables
 baseDir <- args[1] # should be the relative path to "balder/code" where this file is located
 dbName <- args[2]
 
@@ -21,15 +23,12 @@ source(utilFile1)
 utilFile2 <- paste0(baseDir,"/../code/R/utils.R")
 source(utilFile1)
 
-### connect to result DB and get variants
 outDir <- paste0(baseDir,"/../../output/actionability_db_curration_20250522/oncokb_summary_and_modeling")
 geneOutDir <- paste0(outDir,"/gene_panel_coverage_plots")
 modelFeatureOutDir <- paste0(outDir,"/underlying_feature_model_plots")
 harmonizedDb <- DBI::dbConnect(RSQLite::SQLite(), dbName)
 
-##########################
-### load data products ###
-##########################
+# Load data products
 
 ot_code_full <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM OncoTreeCodeHierarchy')
 sampleInfoCompiled <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM harmonizedSampleInfo') 
@@ -42,32 +41,26 @@ svCompiled[is.na(svCompiled$SEQ_ASSAY_ID),"SEQ_ASSAY_ID_mod"] <- svCompiled[is.n
 aa.genome.representative <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariants') 
 aa.genome.representative.oncokb <- RSQLite::dbGetQuery(harmonizedDb, 'SELECT * FROM representativeClinicalAnnotatedPatientVariantsWithOncoKB') 
 
-#################################
-### summary of oncokb results ###
-#################################
+# Summary of OncoKB results
 
-### find oncokb matched variants
 onckbAnnotated <- svCompiled %>%
   dplyr::filter(ONCOKB_IS_SENS_DX_PX_OR_RESISTANCE == T)
 
 table(onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID)
 table(aa.genome.representative$balderVariantID %in% onckbAnnotated$balderVariantID)
 
-## which variants are onckb annotated but not annotated via MIA/CiVIC? 
 iOnckbOnlyGrp <- onckbAnnotated$balderVariantID %in% aa.genome.representative$balderVariantID
 okBID <- onckbAnnotated[!iOnckbOnlyGrp,"balderVariantID"]
 oncokbOnly <-svCompiled[svCompiled$balderVariantID %in% okBID,]  
 
-###########################
-### oncokb level counts ###
-###########################
+# OncoKB level counts
 
 inF <- paste0(baseDir,"/../../data/AACR_Project_GENIE/Release_15p0_public/assay_information.txt")
 assayInfo <- read.csv(inF,sep="\t") %>%
   dplyr::mutate(isHemePanel=grepl("HEME",SEQ_ASSAY_ID) | grepl("MYELOID",SEQ_ASSAY_ID))
 RSQLite::dbWriteTable(harmonizedDb, "assayInfoGENIE", assayInfo, overwrite =T)
 
-# SEQ_ASSAY_ID and SEQ_PIPELINE_ID
+# number of panels per assay/pipeline pair
 seq_grp <- assayInfo %>%
   dplyr::group_by(SEQ_ASSAY_ID,SEQ_PIPELINE_ID) %>%
   dplyr::summarise(number_of_panels=n())
@@ -87,31 +80,11 @@ svAssaySummary <- svCompiled %>%
 svAssaySummary[is.na(svAssaySummary$has.oncokb.level1),"has.oncokb.level1"] <- F
 
 
+# OncoKB level counts by cancer type
 
-# nullSeq <- is.na(svAssaySummary$SEQ_ASSAY_ID)
-# outF <-  paste0(outDir,"/variant_count_by_assay_type.pdf")
-# ggplot(svAssaySummary[!nullSeq,])+
-#   #geom_point(alpha=.2)+
-#   geom_density_2d(aes(x=number_of_genes,y=n.variants,color=library_selection))+
-#   theme_bw()+
-#   #facet_grid(SAMPLE_TYPE~.,scale="free_y",)+
-#   xlab("Number of genes measured")+
-#   ylab("number of variants")+
-#   ggtitle(paste0("Per patient variant count by assay type"))+
-#   scale_fill_brewer(palette="Set1",drop=FALSE)+
-#   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-#   theme(plot.title = element_text(hjust = 0.5))
-# ggsave(outF,height = 8,width = 7)
-
-###########################
-### oncokb level counts ###
-###########################
-
-### create an incidence table by cancer type
+# incidence table by cancer type
 cType.sample.counts <- svCompiled %>%
-  #dplyr::group_by(ONCOTREE_CODE) %>%
   group_by(!!sym("ONCOTREE_CODE")) %>%
-  #group_by(as.symbol("ONCOTREE_CODE")) %>%
   dplyr::summarise(n_patients_total=dplyr::n_distinct(Tumor_Sample_Barcode),
                    CANCER_TYPE=paste0(unique(CANCER_TYPE),collapse=";")) %>%
   dplyr::arrange(desc(n_patients_total))
@@ -137,7 +110,6 @@ outF <-  paste0(outDir,"/cancer_type_oncokb_evidence_level.pdf")
 ggplot(otCTypeSummary[iHighest,],aes(x=ONCOTREE_CODE,y=perc,fill=ONCOKB_HIGHEST_LEVEL_SUMMARY))+
   geom_bar(stat = "identity", position = "stack",alpha=.6) +
   theme_bw()+
-  #facet_grid(SAMPLE_TYPE~.,scale="free_y",)+
   xlab("Oncotree Code")+
   ylab("perc of patients")+
   ggtitle(paste0("Oncokb evidence level by cancer type"))+
@@ -152,9 +124,7 @@ otTissueOncokBSummary <- oncokbOnly %>%
                    n.patients.restricted.matched=dplyr::n_distinct(Tumor_Sample_Barcode)) %>%
   dplyr::arrange(desc(n.patients.restricted.matched))
 
-#############################################
-### oncokb level counts  - primary vs met ###
-#############################################
+# OncoKB level counts, primary vs. metastasis
 
 iPrimOrMet <- (oncokbOnly$SAMPLE_TYPE=="Primary") | (oncokbOnly$SAMPLE_TYPE=="Metastasis")
 primMetOncokBSummary <- oncokbOnly[iPrimOrMet,] %>%
@@ -177,16 +147,12 @@ ggplot(primMetOncokBSummary[iHighest & iLevel,],aes(x=ONCOTREE_CODE,y=n.patients
   xlab("Oncotree Code")+
   ylab("perc of patients")+
   ggtitle(paste0("Oncokb evidence level by cancer type"))+
-  #scale_fill_brewer(palette="Set1",drop=FALSE)+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8,width = 7)
 
-#######################################
-### oncokb level counts  - assay ID ###
-#######################################
+# OncoKB level counts by sequencing assay
 
-# Which data sources see the largest differences in actionability rates? Is this because of cohort differences or technology differences? Which specific mutations explain the key differences?
 
 assayCntRank <- svCompiled %>%
   dplyr::group_by(SEQ_ASSAY_ID_mod) %>%
@@ -210,34 +176,30 @@ assayCTypeCntRank[assayCTypeCntRank$isHemeCancer,"sampleHemeStatus"] <- "heme ca
 
 outF <-  paste0(outDir,"/institution_seq_platoform_heme_status.pdf")
 ggplot(assayCTypeCntRank,aes(x=SEQ_ASSAY_ID_mod,y=n,fill=isHemePanel))+
-  #geom_point()+
   geom_bar(stat = "identity", position = "stack",alpha=.6) +
   facet_grid(sampleHemeStatus ~ .)+
   theme_bw()+
   xlab("panel")+
   ylab("number of subjects")+
-  #ylim(0,60)+
   ggtitle(paste0("sample counts by panel type and heme status"))+
   scale_fill_brewer(palette="Set1",drop=FALSE)+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 10, width = 15)
 
-# select assays with >N patients
 assaySelect <- assayCntRank[assayCntRank$n>5000,"SEQ_ASSAY_ID_mod"][[1]]
 
 seqTypeCntAssay <- svCompiled[svCompiled$SEQ_ASSAY_ID_mod %in% assaySelect,] %>%
-  dplyr::group_by(ONCOTREE_CODE,SEQ_ASSAY_ID_mod) %>% # SAMPLE_TYPE
+  dplyr::group_by(ONCOTREE_CODE,SEQ_ASSAY_ID_mod) %>%
   dplyr::summarise(n_patients_total=dplyr::n_distinct(Tumor_Sample_Barcode),
                    CANCER_TYPE=paste0(unique(CANCER_TYPE),collapse=";")) %>%
   dplyr::arrange(desc(n_patients_total))
 
-# compile clinical info by sequencing type
 seqTypeClinicalInfo <- svCompiled[svCompiled$SEQ_ASSAY_ID_mod %in% assaySelect,] %>%
   dplyr::group_by(Tumor_Sample_Barcode) %>% 
-  dplyr::filter(dplyr::row_number() == 1) %>% # select a single representative entry per subject
+  dplyr::filter(dplyr::row_number() == 1) %>%  # one representative entry per subject
   dplyr::ungroup() %>%
-  dplyr::group_by(ONCOTREE_CODE,SEQ_ASSAY_ID_mod) %>% # SAMPLE_TYPE
+  dplyr::group_by(ONCOTREE_CODE,SEQ_ASSAY_ID_mod) %>%
   dplyr::summarise(n_patients_total=dplyr::n_distinct(Tumor_Sample_Barcode),
                    CANCER_TYPE=paste0(unique(CANCER_TYPE),collapse=";"),
                    n_Metastatic=sum(SAMPLE_TYPE == "Metastasis"),
@@ -301,7 +263,6 @@ ggplot(seqOtCTypeSummary[iHighest & (iLevel1),],aes(x=ONCOTREE_CODE,y=perc,fill=
   ylab("perc of patients")+
   ylim(0,60)+
   ggtitle(paste0("Oncokb evidence level by cancer type"))+
-  #scale_fill_brewer(palette="Set1",drop=FALSE)+
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 14, width = 8)
@@ -310,10 +271,8 @@ highest_c_counts <- unique(otCTypeSummary$ONCOTREE_CODE)[1:40]
 iHighest <- seqOtCTypeSummary$ONCOTREE_CODE %in% as.character(highest_c_counts)
 outF <-  paste0(outDir,"/cancer_type_Seq_Type_oncokb_level1_jitter.pdf")
 ggplot(seqOtCTypeSummary[iHighest & (iLevel1),],aes(x=ONCOTREE_CODE,y=perc,color=ONCOKB_HIGHEST_LEVEL_SUMMARY))+
-  #geom_bar(stat = "identity", position = "stack",alpha=.6) +
   geom_jitter(width=.1,alpha=.8)+
   theme_bw()+
-  #facet_grid(level_1~.,scale="free_y",)+
   xlab("Oncotree Code")+
   ylab("perc of patients")+
   ylim(0,85)+
@@ -323,12 +282,9 @@ ggplot(seqOtCTypeSummary[iHighest & (iLevel1),],aes(x=ONCOTREE_CODE,y=perc,color
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 6, width = 8)
 
-### repeat plot ordered by most variability in level 1 incidence 
-#iLevel1 <- grepl("1",seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY)
 iLevel1 <- seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY == "LEVEL_1"
 selectDf <- seqOtCTypeSummary[iHighest & (iLevel1),]
 
-#variability ordering
 var_order <- selectDf %>%
   dplyr::group_by(ONCOTREE_CODE) %>%
   dplyr::summarise(
@@ -343,7 +299,6 @@ ggplot(selectDf,aes(x=ONCOTREE_CODE,y=perc))+
   geom_boxplot(alpha=.2)+
   geom_jitter(width=.1,alpha=.6,color="dark green")+
   theme_bw()+
-  #facet_grid(level_1~.,scale="free_y",)+
   xlab("Oncotree Code")+
   ylab("perc of patients")+
   ylim(0,85)+
@@ -355,7 +310,6 @@ ggsave(outF,height = 4.5, width = 7)
 
 outF <-  paste0(outDir,"/cancer_type_Seq_Type_oncokb_jitter_by_level.pdf")
 ggplot(seqOtCTypeSummary[iHighest & (iLevel1 | iLevel2),],aes(x=ONCOTREE_CODE,y=perc,color=ONCOKB_HIGHEST_LEVEL_SUMMARY))+
-  #geom_bar(stat = "identity", position = "stack",alpha=.6) +
   geom_jitter(width=.1,alpha=.8)+
   theme_bw()+
   facet_grid(level_1~.,scale="free_y",)+
@@ -368,9 +322,7 @@ ggplot(seqOtCTypeSummary[iHighest & (iLevel1 | iLevel2),],aes(x=ONCOTREE_CODE,y=
   theme(plot.title = element_text(hjust = 0.5))
 ggsave(outF,height = 8, width = 18)
 
-#############################################
-### level1 and level 2 hits by assay type ###
-#############################################
+# Level 1 and Level 2 hits by assay type
 
 iLevel1 <- grepl("1",seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY)
 iLevel2 <- grepl("2",seqOtCTypeSummary$ONCOKB_HIGHEST_LEVEL_SUMMARY)
@@ -382,15 +334,12 @@ level12_hits_per_subj <- oncokbOnly[iLevel1 | iLevel2,] %>%
   dplyr::summarise(nPerSub=n()) %>%
   dplyr::left_join(assayInfo,by=c("SEQ_ASSAY_ID_mod"="SEQ_ASSAY_ID" )) 
 
-##################################
-### proportion of null entries ###
-##################################
+# Proportion of null entries
 
 # what proportion of each column is null
 perSubjVar <- svCompiled[svCompiled$SEQ_ASSAY_ID_mod %in% assaySelect,] %>%
   dplyr::group_by(Tumor_Sample_Barcode) %>% 
-  dplyr::filter(dplyr::row_number() == 1) # select a single representative entry per subject
-#  dplyr::ungroup() %>%
+  dplyr::filter(dplyr::row_number() == 1)  # one representative entry per subject
 
 nullCnts <- data.frame()  
 i<-1
@@ -415,24 +364,13 @@ write.table(nullCntsWide,outF,row.names=F,quote=F,sep=",")
 
 na_proportions_raw <- perSubjVar %>%
   dplyr::group_by(SEQ_ASSAY_ID_mod) %>% 
-  summarise(across(tidyselect::everything(), ~ mean(is.na(.)))) #%>%
-  #summarise(dplyr::across(clinical_cols, ~ mean(is.na(.)))) %>%
-  #pivot_longer(cols = everything(), names_to = "column", values_to = "proportion")
+  summarise(across(tidyselect::everything(), ~ mean(is.na(.))))
 outF <- paste0(outDir,"/null_entry_counts_v2.csv")
 write.table(na_proportions_raw,outF,row.names=F,quote=F,sep=",")
 
 
-
-# na_proportions_summary <- seqOtCTypeSummary %>%
-#   dplyr::group_by(SEQ_ASSAY_ID_mod) %>% 
-#   #summarise(across(tidyselect::everything(), ~ mean(is.na(.)))) %>%
-#   summarise(dplyr::across(clinical_cols, ~ mean(is.na(.)))) %>%
-#   pivot_longer(cols = everything(), names_to = "column", values_to = "proportion")
-# 
-
-
 nullClinInfo <-  perSubjVar %>%
-  dplyr::group_by(SEQ_ASSAY_ID_mod) %>% # SAMPLE_TYPE
+  dplyr::group_by(SEQ_ASSAY_ID_mod) %>%
   dplyr::summarise(n_patients_total=dplyr::n_distinct(Tumor_Sample_Barcode),
                    CANCER_TYPE=paste0(unique(CANCER_TYPE),collapse=";"),
                    n_Metastatic=sum(SAMPLE_TYPE == "Metastasis"),

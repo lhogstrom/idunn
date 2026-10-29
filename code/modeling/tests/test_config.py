@@ -1,5 +1,4 @@
-"""
-Unit tests for config.py
+"""Unit tests for config.py
 
 Tests configuration initialization, validation, and YAML loading.
 """

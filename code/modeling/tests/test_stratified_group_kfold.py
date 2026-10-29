@@ -1,8 +1,6 @@
-"""
-Tests for StratifiedGroupKFold with fold size constraints (R4).
+"""Tests for StratifiedGroupKFold fold-size constraints.
 
-Tests both the existing warning behavior (default) and the new
-enforce_constraints=True mode that raises ValueError on violations.
+Covers the default warning behavior and enforce_constraints=True, which raises ValueError.
 """
 
 import numpy as np
@@ -49,7 +47,7 @@ class TestBasicSplitting:
 
 
 class TestDefaultWarningBehavior:
-    """Default mode: constraints produce warnings, not errors."""
+    """Default mode: violations only warn."""
 
     def test_small_folds_warn_only(self):
         """With enforce_constraints=False (default), small folds only warn."""
@@ -68,7 +66,7 @@ class TestDefaultWarningBehavior:
 
 
 class TestEnforceConstraints:
-    """enforce_constraints=True mode: violations raise ValueError."""
+    """enforce_constraints=True: violations raise."""
 
     def test_min_fold_size_enforced(self):
         """Folds below min_fold_size should raise ValueError."""
@@ -135,7 +133,7 @@ class TestEnforceConstraints:
 
 
 class TestNewParameterDefaults:
-    """Verify new parameters don't change existing behavior."""
+    """Constraint parameters do not change default behavior."""
 
     def test_default_enforce_is_false(self):
         cv = StratifiedGroupKFold()
@@ -146,7 +144,7 @@ class TestNewParameterDefaults:
         assert cv.min_fold_fraction == 0.0
 
     def test_backward_compatible_init(self):
-        """Old-style init without new params should still work."""
+        """Construction without constraint parameters still works."""
         cv = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42,
                                    min_fold_size=500, max_fold_ratio=2.5)
         assert cv.enforce_constraints is False

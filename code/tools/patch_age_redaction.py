@@ -1,44 +1,16 @@
 #!/usr/bin/env python3
-"""
-Path B (A1) — restore GENIE's redacted ages into a copy of the harmonized DB.
+"""Restore GENIE's redacted ages into a copy of the harmonized DB.
 
-GENIE de-identifies age as the *strings* `<18` / `>89`.
-`code/pipeline/r_pipeline_scripts/cancer_genomics_studies_db_curration.r:250`
-coerces with `as.numeric()`, silently turning both into NULL; numeric missing is
-then median-imputed downstream, so every >89-year-old is recoded to ~cohort
-median. That is corruption, not just loss.
+GENIE de-identifies age as the strings "<18" / ">89", which a numeric coercion
+turns into NULL. This script rewrites AGE_AT_SEQ_REPORT on a copy of the DB from
+the raw GENIE clinical file, touching only redacted samples (cohort membership
+and the outcome are unchanged).
 
-This script fixes it WITHOUT re-running the Nextflow pipeline. `AGE_AT_SEQ_REPORT`
-is a pure passthrough -- it enters at the `as.numeric()` call above and is
-thereafter only carried forward by joins. Neither
-`generate_perPatientOncoKBLevelSorted.r` (sorts on isHighCoverageByPanelDesign +
-OncoKB levels) nor `filter_and_structure_genie_data_for_modeling.r` (filters on
-SourceStudy / level-1 / sensitivity / coverage / panel / cancer-type) touches
-age. So the fix provably cannot change cohort membership or the outcome variable.
+Variants: upper (>89 -> 90, <18 -> 17); conservative (>89 -> 90, <18 -> NULL).
 
-Re-running `workflow/main.nf` would re-fire `run_oncokb` and re-derive
-`isOncoKbLevel1` against a newer OncoKB curation snapshot, confounding the Path B
-decision gate. Don't.
-
-Two recode variants (decision D-e, 2026-07-31 -- run BOTH as paired sensitivities):
-
-  upper         >89 -> 90,  <18 -> 17     Upper bound on the pediatric tail.
-  conservative  >89 -> 90,  <18 -> NULL   Leaves the pediatric bucket missing.
-
-`>89 -> 90` is a mild one-directional underestimate (true values are 90+). `<18`
-is NOT symmetric: the bucket spans ages 0-17 and the affected patients are
-genuinely pediatric (ASTR: 71 of its 76 recoverable NULLs are `<18`), so
-recoding them all to 17 substitutes one bias for another in the exact cancer type
-whose age effect the gate watches. Running both bounds ASTR-IDH1 from each side.
-
-Usage
------
-    python code/tools/patch_age_redaction.py \
-        --clinical-sample data_clinical_sample.txt \
-        --variant upper \
-        --out-db ../../output/.../balder-harmonized-...-ageUpper.sqlite
-
-    # dry run -- verifies against the source DB, writes nothing
+Usage:
+    python code/tools/patch_age_redaction.py --clinical-sample data_clinical_sample.txt \
+        --variant upper --out-db <patched>.sqlite
     python code/tools/patch_age_redaction.py --clinical-sample ... --dry-run
 """
 
@@ -53,19 +25,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from db_config import get_default_db_path
 
-# GENIE's redaction tokens, and what each variant substitutes.
-# None means "leave as NULL" (which is what the source DB already holds).
+# GENIE redaction tokens and the value each variant substitutes (None = leave NULL).
 VARIANTS = {
     'upper':        {'>89': 90.0, '<18': 17.0},
     'conservative': {'>89': 90.0, '<18': None},
 }
 
-# Every table carrying AGE_AT_SEQ_REPORT. Verified 2026-07-31: these 9 are the
-# complete patch surface -- no standalone `AGE` column survives into the
-# harmonized DB (the R script's `AGE` is not in harmSampleCols).
+# Every table carrying AGE_AT_SEQ_REPORT.
 MANUSCRIPT_TABLES = [
-    'perPatientOncoKBFilteredForModeling',   # TIER 2-7, Table 1, TIER 7 gene-stratified
-    'perPatientOncoKBLevelSorted',           # Fig 5B --cancer-level, STROBE
+    'perPatientOncoKBFilteredForModeling',
+    'perPatientOncoKBLevelSorted',
 ]
 OTHER_TABLES = [
     'harmonizedSampleInfo',
@@ -77,7 +46,7 @@ OTHER_TABLES = [
     'representativeClinicalAnnotatedPatientVariantsWithOncoKB',
 ]
 
-CLINICAL_SAMPLE_HEADER_ROWS = 4  # GENIE ships 4 '#' comment lines before the header
+CLINICAL_SAMPLE_HEADER_ROWS = 4  # GENIE ships 4 "#" comment lines before the header
 
 
 def load_raw_ages(path):
@@ -102,14 +71,9 @@ def key_column(conn, table):
 
 
 def preflight(conn, raw_ages, tables):
-    """Confirm the release matches the DB before touching anything.
+    """Fail closed unless the release matches the DB.
 
-    Two checks, both fail-closed:
-      1. Release concordance -- every numeric age already in the DB must equal
-         the raw file's value. A single disagreement means this is a different
-         GENIE release than the one that built the DB, and the patch is invalid.
-      2. Key coverage -- every barcode in the manuscript tables must resolve in
-         the raw file, or the patch would silently skip patients.
+    Every numeric age in the DB must equal the raw file, and every barcode must resolve.
     """
     print("== pre-flight ==")
     ok = True
@@ -123,8 +87,7 @@ def preflight(conn, raw_ages, tables):
         for bc, age in rows:
             raw = raw_ages.get(bc)
             if raw is None:
-                # Non-GENIE sources (PANCAN, Hartwig) legitimately aren't in the
-                # GENIE release; they carry numeric ages and are never patched.
+                # non-GENIE sources legitimately are not in the GENIE release
                 absent += 1
                 continue
             if age is not None and _is_number(raw):
@@ -152,24 +115,13 @@ def _is_number(s):
 
 
 def build_recode_map(raw_ages, variant):
-    """barcode -> new age, for redacted samples only.
-
-    Deliberately minimal: only samples whose RAW value is a redaction token are
-    touched. Rows that already hold a correct numeric age are never written, so
-    the patch cannot introduce collateral drift.
-    """
+    """barcode -> new age, for samples whose raw value is a redaction token only."""
     subs = VARIANTS[variant]
     return {bc: subs[raw] for bc, raw in raw_ages.items() if raw in subs}
 
 
 def apply_patch(conn, recode, tables):
-    """Set-based: one UPDATE per table, joined against a TEMP recode table.
-
-    Must not be a per-barcode loop. None of the 9 tables carries a single index
-    (verified 2026-07-31), so `WHERE key = ?` is a full scan; 11.5k barcodes x 9
-    tables would be ~100k scans, several of them over 2.7M rows. The TEMP table
-    is created in SQLite's temp schema, so it never lands in the patched file.
-    """
+    """One set-based UPDATE per table joined to a TEMP recode table (tables are unindexed, so per-barcode loops would be slow)."""
     print("== applying patch ==")
     conn.execute("CREATE TEMP TABLE _age_recode (key TEXT PRIMARY KEY, new_age REAL)")
     conn.executemany(
@@ -198,12 +150,7 @@ def apply_patch(conn, recode, tables):
 
 
 def verify(conn, source_db, tables):
-    """Post-patch invariants, checked against the untouched source DB.
-
-    The whole interpretability of the Path B decision gate rests on this: if
-    cohort membership or the outcome variable moved, the gate would be measuring
-    the patch instead of the age fix.
-    """
+    """Post-patch invariants vs. the source DB: cohort membership and outcome must not move."""
     print("== verification (patched vs source) ==")
     conn.execute("ATTACH DATABASE ? AS src", (str(source_db),))
     ok = True
@@ -225,12 +172,8 @@ def verify(conn, source_db, tables):
             if o_new != o_old:
                 problems.append(f"isOncoKbLevel1 {o_old} -> {o_new}")
 
-        # Row-for-row comparison on rowid, NOT on the barcode. Only
-        # perPatientOncoKBFilteredForModeling is one-row-per-barcode; the variant
-        # tables carry many rows per sample, so a barcode join fans out into a
-        # cartesian product and reports (e.g.) 9.4M "recovered" rows in a 2.7M-row
-        # table. rowid is stable here because shutil.copyfile reproduces the file
-        # byte-for-byte and UPDATE never reassigns it.
+        # Compare on rowid, not barcode: variant tables have many rows per sample, so a
+        # barcode join would fan out. rowid is stable (byte-for-byte copy, UPDATE keeps it).
         clobbered, = conn.execute(f'''
             SELECT COUNT(*) FROM main."{table}" a
             JOIN src."{table}" b ON a.rowid = b.rowid
@@ -262,12 +205,7 @@ def verify(conn, source_db, tables):
 
 
 def write_provenance(conn, args, recode, n_updates):
-    """Standalone table -- deliberately does NOT alter any patched table's schema.
-
-    Adding a column to the patched tables would risk the mixed-column-type and
-    SELECT * classes of surprise (CLAUDE.md gotcha #12); a separate table is
-    invisible to every existing consumer.
-    """
+    """Standalone provenance table; leaves the patched tables' schemas untouched."""
     conn.execute("DROP TABLE IF EXISTS age_patch_provenance")
     conn.execute("""
         CREATE TABLE age_patch_provenance (
@@ -278,9 +216,7 @@ def write_provenance(conn, args, recode, n_updates):
     counts = {'>89': 0, '<18': 0}
     for raw in (args._raw_ages[bc] for bc in recode):
         counts[raw] = counts.get(raw, 0) + 1
-    # `recode` holds every redacted sample in the release; under 'conservative'
-    # the <18 entries map to None and are never written. Report both, or the
-    # provenance overstates what this DB actually contains.
+    # recode covers every redacted sample; under "conservative" the <18 entries are never written
     n_written = sum(1 for v in recode.values() if v is not None)
     rows = [
         ('patched_utc', datetime.now(timezone.utc).isoformat(timespec='seconds')),

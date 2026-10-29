@@ -1,13 +1,12 @@
-"""
-Cancer Type Summary Statistics Table
+"""Cancer type summary statistics (Table 1 and supplementary tables).
 
-Generate comprehensive summary statistics for all 21 cancer types in the modeling dataset.
-Creates a publication-ready table with demographics, actionability, and institutional metrics.
+Per-cancer-type counts, actionability rates, and demographic breakdowns for the
+eligible cancer types.
 
 Usage:
     python cancer_type_summary_stats.py [--output-dir PATH]
     python cancer_type_summary_stats.py --format-table1 [--latex] [--markdown]
-    python cancer_type_summary_stats.py --format-table1 --base-run-dir RUNS/run_YYYYMMDD
+    python cancer_type_summary_stats.py --format-table1 --base-run-dir PATH_TO_RUN
 """
 
 import sqlite3
@@ -15,6 +14,8 @@ import pandas as pd
 import numpy as np
 import json
 import argparse
+import glob
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,15 +35,7 @@ OUTPUT_DIR = None  # Set by main()
 
 
 def load_patient_data(db_path):
-    """
-    Load patient data from perPatientOncoKBFilteredForModeling table
-
-    Args:
-        db_path: Path to SQLite database
-
-    Returns:
-        pandas DataFrame with patient data
-    """
+    """Load the modeling table (one row per sample, despite the perPatient prefix)."""
     print(f"Connecting to database: {db_path}")
     conn = sqlite3.connect(db_path)
 
@@ -58,22 +51,26 @@ def load_patient_data(db_path):
     return df
 
 
-def get_cancer_types(df, min_actionable=250):
-    """
-    Get list of cancer types meeting minimum actionable event threshold
-
-    Args:
-        df: Patient data DataFrame
-        min_actionable: Minimum number of actionable events required
-
-    Returns:
-        List of cancer type codes
-    """
+def get_cancer_types(df, min_actionable=250, canonical_codes=None):
+    """Get list of cancer types meeting minimum actionable event threshold"""
     # Count actionable events per cancer type
     actionable_counts = df[df['isOncoKbLevel1'] == 1].groupby('ONCOTREE_CODE').size()
 
     # Filter to those meeting threshold
     eligible_types = actionable_counts[actionable_counts >= min_actionable].index.tolist()
+
+    if canonical_codes is not None:
+        canonical = set(map(str, canonical_codes))
+        dropped = sorted(set(eligible_types) - canonical)
+        eligible_types = [c for c in eligible_types if str(c) in canonical]
+        missing = sorted(canonical - set(map(str, eligible_types)))
+        print(f"\nRestricted to the run's cohort: {len(eligible_types)} cancer types")
+        if dropped:
+            print(f"  Excluded by the run: {', '.join(dropped)}")
+        if missing:
+            print(f"  WARNING: in the groupings file but below the "
+                  f"{min_actionable}-actionable screen here: {', '.join(missing)}")
+        return sorted(eligible_types)
 
     print(f"\nFound {len(eligible_types)} cancer types with ≥{min_actionable} actionable events")
 
@@ -219,16 +216,7 @@ def calculate_sample_type_stats(cancer_df):
 
 
 def generate_summary_table(df, cancer_types):
-    """
-    Generate comprehensive summary statistics table
-
-    Args:
-        df: Patient data DataFrame
-        cancer_types: List of cancer type codes to analyze
-
-    Returns:
-        DataFrame with summary statistics
-    """
+    """Generate comprehensive summary statistics table"""
     print("\n" + "="*80)
     print("GENERATING SUMMARY STATISTICS TABLE")
     print("="*80)
@@ -279,17 +267,7 @@ def generate_summary_table(df, cancer_types):
 
 
 def generate_detailed_json(df, cancer_types, summary_df):
-    """
-    Generate detailed supplementary information in JSON format
-
-    Args:
-        df: Patient data DataFrame
-        cancer_types: List of cancer type codes
-        summary_df: Summary statistics DataFrame
-
-    Returns:
-        Dictionary with detailed statistics
-    """
+    """Generate detailed supplementary information in JSON format"""
     print("\nGenerating detailed supplementary data...")
 
     detailed_data = {}
@@ -347,13 +325,7 @@ def generate_detailed_json(df, cancer_types, summary_df):
 
 
 def save_outputs(summary_df, detailed_data):
-    """
-    Save all output files
-
-    Args:
-        summary_df: Summary statistics DataFrame
-        detailed_data: Detailed statistics dictionary
-    """
+    """Save all output files"""
     print("\n" + "="*80)
     print("SAVING OUTPUTS")
     print("="*80)
@@ -370,7 +342,9 @@ def save_outputs(summary_df, detailed_data):
         f.write("=" * 100 + "\n\n")
         f.write(f"Generated from: {DB_PATH}\n")
         f.write(f"Number of cancer types: {len(summary_df)}\n")
-        f.write(f"Total patients: {summary_df['N_Patients'].sum():,}\n")
+        f.write(f"Total patient x cancer-type records: {summary_df['N_Patients'].sum():,}\n")
+        if UNIT_FOOTNOTE:
+            f.write(f"  ({UNIT_FOOTNOTE})\n")
         f.write(f"Total actionable: {summary_df['N_Actionable'].sum():,}\n\n")
         f.write("=" * 100 + "\n\n")
 
@@ -385,7 +359,7 @@ def save_outputs(summary_df, detailed_data):
         f.write("\nColumn Definitions:\n")
         f.write("-" * 50 + "\n")
         f.write("Cancer_Type: OncoTree code\n")
-        f.write("N_Patients: Total patient count\n")
+        f.write("N_Patients: Patient x cancer-type record count (= patients within a cancer type; see note above for Overall)\n")
         f.write("N_Actionable: Patients with OncoKB Level 1 variants\n")
         f.write("Actionable_Rate: Proportion with actionable variants\n")
         f.write("Sex_*: Male/Female/Missing counts\n")
@@ -408,12 +382,7 @@ def save_outputs(summary_df, detailed_data):
 
 
 def validate_results(summary_df):
-    """
-    Validate results against expected values
-
-    Args:
-        summary_df: Summary statistics DataFrame
-    """
+    """Validate results against expected values"""
     print("\n" + "="*80)
     print("VALIDATION CHECKS")
     print("="*80)
@@ -490,6 +459,36 @@ def generate_overall_row(df):
     return row
 
 
+# Set by main(); appended to every rendered table.
+UNIT_FOOTNOTE = None
+
+
+def build_unit_footnote(df):
+    """Build the analytic-unit footnote from the loaded cohort."""
+    n_rows = len(df)
+    if 'PATIENT_ID' not in df.columns:
+        return None
+    n_pat = int(df['PATIENT_ID'].nunique())
+    if n_rows == n_pat:
+        return (f"N is the number of patients ({n_pat:,}); each patient appears once.")
+    n_multi = int((df.groupby('PATIENT_ID')['ONCOTREE_CODE'].nunique() > 1).sum())
+    return (
+        f"N counts patient x cancer-type records, not distinct patients. Within a "
+        f"cancer type the two coincide, so each cancer-type row is a patient count; "
+        f"the Overall row is not. The cohort holds {n_rows:,} records from "
+        f"{n_pat:,} distinct patients, because {n_multi:,} patients were sequenced "
+        f"under more than one OncoTree code and are counted once per code."
+    )
+
+
+def _append_footnote(lines):
+    """Append the analytic-unit footnote to a rendered markdown table."""
+    if UNIT_FOOTNOTE:
+        lines.append('')
+        lines.append(f"*{UNIT_FOOTNOTE}*")
+    return lines
+
+
 def format_n_pct(n, total):
     """Format as 'N (XX.X%)' for Table 1 presentation."""
     if total == 0:
@@ -498,11 +497,7 @@ def format_n_pct(n, total):
 
 
 def format_table1(summary_df):
-    """
-    Convert raw summary stats to publication 'N (%)' formatted Table 1.
-
-    Returns a new DataFrame with formatted string columns.
-    """
+    """Convert raw summary stats to publication 'N (%)' formatted Table 1."""
     formatted_rows = []
 
     for _, row in summary_df.iterrows():
@@ -583,19 +578,26 @@ def export_latex(formatted_df, output_path):
     print(f"  LaTeX table: {output_path}")
 
 
-def render_markdown_to_pdf(md_path, pdf_path, fontsize='9pt'):
-    """
-    Render a Markdown file to PDF using pandoc.
+def _find_xelatex():
+    """Locate xelatex (PATH first, then a TeX Live install), or None."""
+    exe = shutil.which('xelatex')
+    if exe:
+        return exe
+    for cand in sorted(glob.glob('/usr/local/texlive/*/bin/*/xelatex')):
+        if os.access(cand, os.X_OK):
+            return cand
+    return None
 
-    Returns True on success, False if pandoc is unavailable or fails.
-    """
+
+def render_markdown_to_pdf(md_path, pdf_path, fontsize='9pt'):
+    """Render a Markdown file to PDF using pandoc."""
     if shutil.which('pandoc') is None:
         print(f"  WARNING: pandoc not found on PATH; skipping PDF render")
         print(f"  Install: conda install -c conda-forge pandoc (or brew install pandoc)")
         return False
 
-    # Use a landscape-wide geometry so wide tables fit
-    cmd = [
+    # Landscape geometry so wide tables fit.
+    base = [
         'pandoc',
         str(md_path),
         '-o', str(pdf_path),
@@ -603,31 +605,54 @@ def render_markdown_to_pdf(md_path, pdf_path, fontsize='9pt'):
         '-V', 'geometry:margin=0.5in',
         '-V', f'fontsize={fontsize}',
     ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+
+    # Attempts, best first: xelatex+Arial -> default engine -> bare pandoc.
+    attempts = []
+    xelatex = _find_xelatex()
+    if xelatex is not None:
+        attempts.append((
+            base + [f'--pdf-engine={xelatex}', '-V', 'mainfont=Arial'],
+            'Arial via xelatex',
+        ))
+    attempts.append((base, 'default engine'))
+    attempts.append((['pandoc', str(md_path), '-o', str(pdf_path)], 'bare pandoc'))
+
+    last_err = ''
+    for cmd, label in attempts:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except Exception as e:
+            last_err = f"invocation raised {e}"
+            continue
         if result.returncode == 0:
-            print(f"  Rendered PDF: {pdf_path}")
+            print(f"  Rendered PDF ({label}): {pdf_path}")
             return True
-        else:
-            print(f"  WARNING: pandoc failed: {result.stderr.strip()}")
-            # Retry without LaTeX geometry options (in case no LaTeX engine is installed)
-            cmd_fallback = ['pandoc', str(md_path), '-o', str(pdf_path)]
-            result2 = subprocess.run(cmd_fallback, capture_output=True, text=True)
-            if result2.returncode == 0:
-                print(f"  Rendered PDF (fallback): {pdf_path}")
-                return True
-            print(f"  WARNING: pandoc fallback also failed: {result2.stderr.strip()}")
-            return False
-    except Exception as e:
-        print(f"  WARNING: pandoc invocation raised {e}")
-        return False
+        last_err = result.stderr.strip()
+        print(f"  WARNING: pandoc {label} failed: {last_err}")
+
+    print(f"  WARNING: all pandoc attempts failed; last error: {last_err}")
+    return False
+
+
+def _load_canonical_codes(base_run_dir=None):
+    """Return the run's cohort as a list of ONCOTREE_CODEs, or None."""
+    if base_run_dir is None:
+        return None
+    defs_path = (
+        Path(base_run_dir)
+        / "tier2_data_setup"
+        / "cancer_type_groupings"
+        / "cancer_type_group_definitions.csv"
+    )
+    if not defs_path.exists():
+        raise FileNotFoundError(
+            f"--base-run-dir was given but it has no TIER 2a cohort definition: "
+            f"{defs_path}")
+    return pd.read_csv(defs_path)['ONCOTREE_CODE'].astype(str).tolist()
 
 
 def _load_oncotree_name_mapping(base_run_dir=None):
-    """
-    Build a {ONCOTREE_CODE: ot_name} mapping from cancer_type_group_definitions.csv.
-    Returns empty dict if file not found.
-    """
+    """Build a {ONCOTREE_CODE: ot_name} mapping from cancer_type_group_definitions.csv."""
     if base_run_dir is None:
         return {}
     defs_path = (
@@ -644,14 +669,7 @@ def _load_oncotree_name_mapping(base_run_dir=None):
 
 
 def format_table1_narrow(summary_df, oncotree_name_map):
-    """
-    Narrow Table 1 variant:
-      - Replaces European/African/Asian columns with single "Non-European, N (%)"
-      - Keeps Hispanic column
-      - Adds OncoTree_Code and OncoTree_Name columns
-      - Keeps all other columns (N, Actionable, Age mean/SD,
-        Female, Institutions)
-    """
+    """Narrow Table 1 variant: OncoTree names, non-European aggregate, age mean (SD)."""
     formatted_rows = []
 
     for _, row in summary_df.iterrows():
@@ -746,8 +764,7 @@ def export_markdown_narrow(formatted_df, output_path):
         'N_Institutions': 'Institutions',
     }
 
-    # Pandoc sizes columns proportionally to separator dash width.
-    # Give OncoTree_Name a wider separator so it renders wider in PDF.
+    # Pandoc sizes columns in proportion to the separator dash widths.
     sep_widths = {
         'OncoTree_Name': '-' * 7,
     }
@@ -760,7 +777,7 @@ def export_markdown_narrow(formatted_df, output_path):
         vals = [str(row[col]) for col in col_map.keys()]
         lines.append('| ' + ' | '.join(vals) + ' |')
 
-    Path(output_path).write_text('\n'.join(lines) + '\n')
+    Path(output_path).write_text('\n'.join(_append_footnote(lines)) + '\n')
     print(f"  Markdown table (narrow): {output_path}")
 
 
@@ -783,11 +800,11 @@ def _export_supplement_markdown(formatted_df, col_map, output_path, label='suppl
         vals = [str(row[col]) for col in col_map.keys()]
         lines.append('| ' + ' | '.join(vals) + ' |')
 
-    Path(output_path).write_text('\n'.join(lines) + '\n')
+    Path(output_path).write_text('\n'.join(_append_footnote(lines)) + '\n')
     print(f"  Markdown table ({label}): {output_path}")
 
 
-# --- Supplement Table S1: Ancestry ---
+# --- Supplement table: ancestry ---
 
 def format_supplement_ancestry(summary_df, oncotree_name_map):
     """Format supplement table with full ancestry/race breakdown."""
@@ -827,7 +844,7 @@ def export_markdown_ancestry(formatted_df, output_path):
     _export_supplement_markdown(formatted_df, ANCESTRY_COL_MAP, output_path, 'ancestry')
 
 
-# --- Supplement Table S2: Ethnicity ---
+# --- Supplement table: ethnicity ---
 
 def format_supplement_ethnicity(summary_df, oncotree_name_map):
     """Format supplement table with ethnicity breakdown."""
@@ -859,7 +876,7 @@ def export_markdown_ethnicity(formatted_df, output_path):
     _export_supplement_markdown(formatted_df, ETHNICITY_COL_MAP, output_path, 'ethnicity')
 
 
-# --- Supplement Table S3: Sample Type ---
+# --- Supplement table: sample type ---
 
 def format_supplement_sample_type(summary_df, oncotree_name_map):
     """Format supplement table with sample type summary breakdown."""
@@ -918,7 +935,7 @@ def export_markdown(formatted_df, output_path):
         vals = [str(row[col]) for col in col_map.keys()]
         lines.append('| ' + ' | '.join(vals) + ' |')
 
-    Path(output_path).write_text('\n'.join(lines) + '\n')
+    Path(output_path).write_text('\n'.join(_append_footnote(lines)) + '\n')
     print(f"  Markdown table: {output_path}")
 
 
@@ -962,8 +979,22 @@ def main():
     # Load patient data
     df = load_patient_data(DB_PATH)
 
-    # Get cancer types meeting threshold
-    cancer_types = get_cancer_types(df, min_actionable=250)
+    # Resolve the cohort before computing anything from the frame.
+    cancer_types = get_cancer_types(
+        df, min_actionable=250,
+        canonical_codes=_load_canonical_codes(args.base_run_dir))
+
+    # Restrict the frame itself so the Overall row matches the per-cancer rows.
+    n_before = len(df)
+    df = df[df['ONCOTREE_CODE'].astype(str).isin(set(map(str, cancer_types)))].copy()
+    if len(df) != n_before:
+        print(f"Cohort restriction: {n_before:,} -> {len(df):,} records "
+              f"({n_before - len(df):,} dropped with the excluded cancer type(s))")
+
+    global UNIT_FOOTNOTE
+    UNIT_FOOTNOTE = build_unit_footnote(df)
+    if UNIT_FOOTNOTE:
+        print(f"\nAnalytic unit: {UNIT_FOOTNOTE}")
 
     # Generate summary table
     summary_df = generate_summary_table(df, cancer_types)
@@ -1037,7 +1068,7 @@ def main():
             narrow_pdf = OUTPUT_DIR / "table1_patient_characteristics_narrow.pdf"
             render_markdown_to_pdf(narrow_md, narrow_pdf)
 
-        # --- Supplement Table S1: Ancestry breakdown ---
+        # --- Supplement table: ancestry ---
         print("\nGenerating supplement S1 (ancestry breakdown)...")
         anc_df = format_supplement_ancestry(summary_df, oncotree_name_map)
         anc_df.to_csv(OUTPUT_DIR / "supplement_ancestry.csv", index=False)
@@ -1046,7 +1077,7 @@ def main():
             export_markdown_ancestry(anc_df, anc_md)
             render_markdown_to_pdf(anc_md, OUTPUT_DIR / "supplement_ancestry.pdf")
 
-        # --- Supplement Table S2: Ethnicity breakdown ---
+        # --- Supplement table: ethnicity ---
         print("\nGenerating supplement S2 (ethnicity breakdown)...")
         eth_df = format_supplement_ethnicity(summary_df, oncotree_name_map)
         eth_df.to_csv(OUTPUT_DIR / "supplement_ethnicity.csv", index=False)
@@ -1055,7 +1086,7 @@ def main():
             export_markdown_ethnicity(eth_df, eth_md)
             render_markdown_to_pdf(eth_md, OUTPUT_DIR / "supplement_ethnicity.pdf")
 
-        # --- Supplement Table S3: Sample type breakdown ---
+        # --- Supplement table: sample type ---
         print("\nGenerating supplement S3 (sample type breakdown)...")
         st_df = format_supplement_sample_type(summary_df, oncotree_name_map)
         st_df.to_csv(OUTPUT_DIR / "supplement_sample_type.csv", index=False)

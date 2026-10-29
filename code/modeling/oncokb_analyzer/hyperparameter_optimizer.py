@@ -1,10 +1,4 @@
-"""
-Hyperparameter Optimizer with Nested Cross-Validation
-
-This module implements nested cross-validation for unbiased hyperparameter optimization.
-Supports both universal (pooled) and cancer-type-specific optimization strategies.
-
-"""
+"""Nested cross-validation for hyperparameter optimization (universal or per-cancer-type)."""
 
 import numpy as np
 import pandas as pd
@@ -40,56 +34,7 @@ from .preprocessing import create_preprocessor
 
 
 class NestedCVOptimizer:
-    """
-    Performs nested cross-validation for hyperparameter optimization.
-
-    Nested CV prevents data leakage by using:
-    - Outer CV: Provides unbiased performance estimate
-    - Inner CV: Selects best hyperparameters (only on training data)
-
-    Parameters
-    ----------
-    param_distributions : dict
-        Hyperparameter search space for the algorithm.
-        Example: {'n_estimators': [50, 100, 200], 'max_depth': [10, 20, 30]}
-
-    search_method : str, default='random'
-        Search strategy: 'random' (RandomizedSearchCV) or 'grid' (GridSearchCV)
-
-    n_iter : int, default=50
-        Number of iterations for random search (ignored for grid search)
-
-    scoring : str, default='roc_auc'
-        Metric for optimization (must be sklearn scoring string)
-
-    n_jobs : int, default=-1
-        Number of parallel jobs (-1 uses all CPU cores)
-
-    random_state : int, default=42
-        Random seed for reproducibility
-
-    verbose : int, default=1
-        Verbosity level (0=silent, 1=progress, 2=detailed)
-
-    cv_strategy : str, default='group'
-        Cross-validation strategy: 'standard' (StratifiedKFold), 'group' (GroupKFold),
-        or 'stratified_group' (StratifiedGroupKFold for balanced institution-aware folds)
-
-    Examples
-    --------
-    >>> from oncokb_analyzer.hyperparameter_optimizer import NestedCVOptimizer
-    >>> from oncokb_analyzer.param_spaces import RF_PARAM_DISTRIBUTIONS
-    >>>
-    >>> optimizer = NestedCVOptimizer(
-    ...     param_distributions=RF_PARAM_DISTRIBUTIONS,
-    ...     search_method='random',
-    ...     n_iter=50
-    ... )
-    >>>
-    >>> results = optimizer.optimize(X, y, algorithm='random_forest')
-    >>> print(f"Unbiased AUC: {results['mean_score']:.4f}")
-    >>> print(f"Best params: {results['best_params_consensus']}")
-    """
+    """Performs nested cross-validation for hyperparameter optimization."""
 
     def __init__(
         self,
@@ -127,65 +72,11 @@ class NestedCVOptimizer:
         algorithm: str = 'random_forest',
         sample_weight: Optional[np.ndarray] = None
     ) -> Dict:
-        """
-        Perform nested cross-validation for hyperparameter optimization.
-
-        Parameters
-        ----------
-        X : np.ndarray, shape (n_samples, n_features)
-            Feature matrix
-
-        y : np.ndarray, shape (n_samples,)
-            Target labels (binary classification)
-
-        groups : np.ndarray, shape (n_samples,), optional
-            Group labels for GroupKFold (e.g., institution IDs)
-            If provided, uses GroupKFold instead of StratifiedKFold
-
-        outer_cv : cross-validation generator, optional
-            Outer CV strategy for performance estimation
-            Default: StratifiedKFold(n_splits=5) or GroupKFold(n_splits=5)
-
-        inner_cv : cross-validation generator, optional
-            Inner CV strategy for hyperparameter selection
-            Default: StratifiedKFold(n_splits=4) or GroupKFold(n_splits=4)
-
-        algorithm : str, default='random_forest'
-            Algorithm to optimize: 'random_forest' or 'logistic'
-
-        sample_weight : np.ndarray, shape (n_samples,), optional
-            Sample weights for training (e.g., institution frequency weighting).
-            Passed to classifier via fit_params during inner CV and final model fitting.
-
-        Returns
-        -------
-        results : dict
-            Dictionary containing:
-            - 'best_params_by_fold': List of best params per outer fold
-            - 'outer_cv_scores': List of AUC scores per outer fold
-            - 'mean_score': Mean AUC across outer folds (unbiased estimate)
-            - 'std_score': Std dev of AUC across outer folds
-            - 'best_params_consensus': Most common params across folds
-            - 'param_stability': Stability metric (0-1, higher=more stable)
-
-        Notes
-        -----
-        The test set from each outer fold is NEVER used for hyperparameter selection.
-        This ensures the performance estimate is unbiased.
-        """
-        # Keep X as a DataFrame when column names are present. The new
-        # MissingnessIndicatorTransformer (Feature Review Fix b, 2026-05-21)
-        # requires a DataFrame so it can address ANCESTRY/ETHNICITY by name;
-        # sklearn's CV utilities support DataFrames natively.
+        """Perform nested cross-validation for hyperparameter optimization."""
+        # Keep X as a DataFrame when column names are present.
         column_names = X.columns.tolist() if hasattr(X, 'columns') else None
         if column_names is None:
-            # Legacy callers that pass arrays: re-wrap as a DataFrame with
-            # synthetic integer column names. column_names=None flows to
-            # _get_estimator → create_preprocessor(available_columns=None),
-            # which skips the missingness step entirely (preprocessing.py was
-            # updated 2026-05-22 to make this branch genuinely a no-op rather
-            # than crashing on absent ANCESTRY/ETHNICITY columns — pre-lock
-            # review #8).
+            # Callers may pass a plain array.
             X = pd.DataFrame(X)
         elif not hasattr(X, 'iloc'):
             X = pd.DataFrame(X, columns=column_names)
@@ -259,8 +150,7 @@ class NestedCVOptimizer:
             if self.verbose >= 1:
                 print(f"\n--- Outer Fold {fold_idx + 1}/{outer_cv.n_splits} ---")
 
-            # Split data. X is a DataFrame (Feature Review Fix b, 2026-05-21),
-            # so use .iloc for positional indexing.
+            # Split data.
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
             groups_train = groups[train_idx] if use_groups else None
@@ -376,47 +266,7 @@ class NestedCVOptimizer:
         cancer_data_dict: Dict[str, Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]],
         algorithm: str = 'random_forest'
     ) -> Dict:
-        """
-        Compare universal vs cancer-type-specific hyperparameter optimization.
-
-        This is the key analysis for Phase 2a: determining whether universal
-        hyperparameters are sufficient or if cancer-specific optimization
-        provides meaningful performance gains.
-
-        Parameters
-        ----------
-        cancer_data_dict : dict
-            Dictionary mapping cancer type to (X, y, groups) tuples.
-            Example: {'LUAD': (X_luad, y_luad, groups_luad), 'BRCA': ...}
-
-        algorithm : str, default='random_forest'
-            Algorithm to optimize: 'random_forest' or 'logistic'
-
-        Returns
-        -------
-        results : dict
-            Dictionary containing:
-            - 'universal_params': Best universal hyperparameters
-            - 'universal_pooled_auc': AUC on pooled dataset
-            - 'universal_auc_by_cancer': {cancer: auc, ...} with universal params
-            - 'specific_params_by_cancer': {cancer: best_params, ...}
-            - 'specific_auc_by_cancer': {cancer: auc, ...} with specific params
-            - 'delta_auc_by_cancer': {cancer: delta, ...} (specific - universal)
-            - 'mean_delta_auc': Average improvement from cancer-specific
-            - 'decision': 'universal' | 'cancer_specific' | 'hybrid'
-            - 'decision_rationale': Explanation of decision
-
-        Examples
-        --------
-        >>> cancer_data = {
-        ...     'LUAD': (X_luad, y_luad, None),
-        ...     'BRCA': (X_brca, y_brca, None),
-        ...     'COAD': (X_coad, y_coad, None),
-        ... }
-        >>> results = optimizer.compare_universal_vs_specific(cancer_data)
-        >>> print(results['decision'])  # 'universal', 'cancer_specific', or 'hybrid'
-        >>> print(f"Mean Δ AUC: {results['mean_delta_auc']:.4f}")
-        """
+        """Compare universal vs cancer-type-specific hyperparameter optimization."""
         if self.verbose >= 1:
             print("\n" + "="*80)
             print("UNIVERSAL vs CANCER-SPECIFIC OPTIMIZATION COMPARISON")
@@ -424,9 +274,7 @@ class NestedCVOptimizer:
             print(f"Cancer types: {list(cancer_data_dict.keys())}")
             print(f"Total cancers: {len(cancer_data_dict)}")
 
-        # ====================================================================
-        # STEP 1: UNIVERSAL OPTIMIZATION (pooled data)
-        # ====================================================================
+        # STEP 1
         if self.verbose >= 1:
             print("\n" + "="*80)
             print("STEP 1: UNIVERSAL OPTIMIZATION (pooled data)")
@@ -441,10 +289,7 @@ class NestedCVOptimizer:
         if self.verbose >= 1:
             print(f"Pooled dataset: {len(X_pooled)} samples, {np.sum(y_pooled)} positive ({100*np.mean(y_pooled):.1f}%)")
 
-        # Pass column_names to optimize (X_pooled is numpy array from _pool_data)
-        # We need to wrap it as a DataFrame-like object or pass column_names separately
-        # Since optimize() now extracts column names, we need to ensure it gets them
-        # The easiest way is to convert X_pooled back to DataFrame temporarily
+        # Wrap the pooled numpy array in a DataFrame with column names.
         import pandas as pd
         if column_names is not None:
             X_pooled_df = pd.DataFrame(X_pooled, columns=column_names)
@@ -459,9 +304,7 @@ class NestedCVOptimizer:
             print(f"\nUniversal hyperparameters: {universal_params}")
             print(f"Pooled dataset CV AUC: {universal_pooled_auc:.4f} ± {universal_results['std_score']:.4f}")
 
-        # ====================================================================
-        # STEP 2: Evaluate universal params on each cancer separately
-        # ====================================================================
+        # STEP 2
         if self.verbose >= 1:
             print("\n" + "="*80)
             print("STEP 2: Evaluating universal params on individual cancers")
@@ -472,9 +315,7 @@ class NestedCVOptimizer:
             if self.verbose >= 1:
                 print(f"\n{cancer}:")
 
-            # Keep X as a DataFrame for MissingnessIndicatorTransformer (Feature
-            # Review Fix b, 2026-05-21). sklearn's CV utilities support
-            # DataFrames natively.
+            # Keep X as a DataFrame for MissingnessIndicatorTransformer.
             column_names = X.columns.tolist() if hasattr(X, 'columns') else None
             if column_names is None:
                 X_df = pd.DataFrame(X)
@@ -498,9 +339,7 @@ class NestedCVOptimizer:
             if self.verbose >= 1:
                 print(f"  Universal params AUC: {auc:.4f} ± {np.std(scores):.4f}")
 
-        # ====================================================================
-        # STEP 3: CANCER-SPECIFIC OPTIMIZATION
-        # ====================================================================
+        # STEP 3
         if self.verbose >= 1:
             print("\n" + "="*80)
             print("STEP 3: CANCER-SPECIFIC OPTIMIZATION")
@@ -523,9 +362,7 @@ class NestedCVOptimizer:
                 print(f"Cancer-specific params: {results['best_params_consensus']}")
                 print(f"Cancer-specific AUC: {results['mean_score']:.4f} ± {results['std_score']:.4f}")
 
-        # ====================================================================
-        # STEP 4: COMPARISON & DECISION
-        # ====================================================================
+        # STEP 4
         if self.verbose >= 1:
             print("\n" + "="*80)
             print("STEP 4: COMPARISON & DECISION")
@@ -552,7 +389,7 @@ class NestedCVOptimizer:
             print(f"Max Δ AUC:  {max_delta:+.4f} ({max_cancer})")
             print(f"Min Δ AUC:  {min(delta_auc_by_cancer.values()):+.4f} ({min(delta_auc_by_cancer, key=delta_auc_by_cancer.get)})")
 
-        # Decision logic (from report Section 4.6)
+        # Decision rule on mean AUC gain of cancer-specific over universal parameters
         if mean_delta < 0.01:
             decision = 'universal'
             rationale = (
@@ -592,31 +429,10 @@ class NestedCVOptimizer:
             'decision_rationale': rationale
         }
 
-    # ========================================================================
     # Helper Methods
-    # ========================================================================
 
     def _get_estimator(self, algorithm: str, X=None, column_names=None):
-        """
-        Get estimator pipeline for algorithm.
-
-        Returns a full pipeline: preprocessing → classifier.
-        This ensures categorical features are properly encoded.
-
-        Parameters
-        ----------
-        algorithm : str
-            'random_forest' or 'logistic'
-        X : array-like, optional
-            Feature matrix (not used, kept for backwards compatibility)
-        column_names : list of str, optional
-            Column names for feature matrix (used to create preprocessing pipeline)
-
-        Returns
-        -------
-        pipeline : Pipeline
-            Full preprocessing + model pipeline
-        """
+        """Get estimator pipeline for algorithm."""
         # Get base estimator
         if algorithm == 'random_forest':
             base_estimator = RandomForestClassifier(
@@ -658,13 +474,7 @@ class NestedCVOptimizer:
         return pipeline
 
     def _compute_consensus_params(self, params_list: List[Dict]) -> Dict:
-        """
-        Find most common hyperparameters across folds.
-
-        For each hyperparameter, returns the mode (most frequently selected value).
-        This provides a single "consensus" set of hyperparameters that represents
-        the most stable choice across all outer CV folds.
-        """
+        """Find most common hyperparameters across folds."""
         if not params_list:
             return {}
 
@@ -680,16 +490,7 @@ class NestedCVOptimizer:
         return consensus
 
     def _compute_param_stability(self, params_list: List[Dict]) -> float:
-        """
-        Measure hyperparameter stability across folds.
-
-        Returns a score between 0 and 1, where:
-        - 1.0 = All folds selected identical hyperparameters (perfect stability)
-        - 0.2 = Each fold selected different hyperparameters (unstable)
-
-        Calculated as the average fraction of folds that selected the most
-        common value for each hyperparameter.
-        """
+        """Measure hyperparameter stability across folds."""
         if not params_list or len(params_list) < 2:
             return 1.0
 
@@ -709,14 +510,7 @@ class NestedCVOptimizer:
         self,
         cancer_data_dict: Dict[str, Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Pool data from multiple cancer types.
-
-        Concatenates feature matrices and target vectors from all cancer types
-        into single arrays for universal optimization.
-
-        Note: Group information is discarded in pooled optimization.
-        """
+        """Pool data from multiple cancer types."""
         X_list = []
         y_list = []
 

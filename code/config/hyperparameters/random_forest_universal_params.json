@@ -1,0 +1,51 @@
+{
+  "_README": "STEP-2-VALIDATED parameters (E2b, decided 2026-08-27). This file is NOT raw TIER 3 search output. It is the 2026-08-26 nested-CV consensus with max_depth stepped 15 -> 7 by a pre-specified per-cancer validation -- TIER 3's designed-but-never-wired Step 2. BOTH steps used TRAINING DATA ONLY; there was no test-set contact at any point, which is the distinction from the hand-tuned constants this replaces (finding D-f). Methods must describe TWO selection steps, not one.",
+  "best_params_consensus": {
+    "n_estimators": 100,
+    "min_samples_split": 100,
+    "min_samples_leaf": 5,
+    "max_features": 0.3,
+    "max_depth": 7,
+    "class_weight": "balanced_subsample"
+  },
+  "mean_score": null,
+  "param_stability": null,
+  "_mean_score_is_null_because": "mean_score/param_stability describe a pooled nested-CV run. This configuration was not scored that way -- only max_depth differs from the config that was, and its selection metric is per-cancer OOB AUC. Populating those fields would put a number in TIER 5's provenance block that does not describe this config. See step2_validation below.",
+  "algorithm": "random_forest",
+  "n_samples": 62450,
+  "n_cancer_types": 21,
+  "step1_pooled_nested_cv": {
+    "source": "runs/run_20260826_researchHP/tier3_hyperparameter_optimization/run_20260826_153930/random_forest_universal_params.json",
+    "selected_max_depth": 15,
+    "mean_score": 0.5836111805191793,
+    "std_score": 0.0154911479220759,
+    "param_stability": 0.6333333333333333,
+    "design": "5 outer x 4 inner grouped nested CV, 500 of 1,440 grid combinations, alpha=0.5",
+    "caveat": "optimised POOLED (62,450 rows); TIER 5 fits PER-CANCER (415-14,720 rows)"
+  },
+  "step2_per_cancer_validation": {
+    "tool": "code/analysis/posthoc/diagnose_rf_depth_capacity.py --candidates --extend",
+    "results": "runs/run_20260826_researchHP/e2b_candidate_sweep_extended.csv",
+    "design": "21 codes x 3 seeds, out-of-bag AUC, alpha=0.5 institution weights, TRAINING DATA ONLY",
+    "prespecified": "5-candidate set and selection rule fixed in code before any candidate was scored; the d5/d3 extension is recorded separately and labelled post-hoc",
+    "rule": "highest mean per-cancer OOB AUC; sensitivity excludes ODG (18 minority cases) and MDLC (seed SD 0.0138); tiebreak on smaller train-OOB gap",
+    "selected": "C5 = searched config with max_depth=7 (an INTERIOR optimum; d5 and d3 are worse)",
+    "mean_oob_auc": 0.6274,
+    "mean_oob_auc_excl_unstable": 0.6254,
+    "mean_train_oob_gap": 0.0786,
+    "vs_step1_d15": {
+      "mean_oob": 0.6256,
+      "gap": 0.1026
+    },
+    "vs_shipped_constants_NOT_adoptable": {
+      "mean_oob_excl_unstable": 0.6251,
+      "gap": 0.0797
+    },
+    "honest_effect_size": "AUC differences across d5/d7/d10 and the shipped constants are ~0.002, INSIDE the ~0.003 seed SD -- C5 ties the incumbent, it does not beat it. The real and consistent difference is the overfitting gap: 0.0786 vs 0.1026 for d15."
+  },
+  "decision": {
+    "date": "2026-08-27",
+    "by": "user",
+    "lr_pathway": "unchanged -- LR runs with --hyperparams-source defaults (section 7: the searched LR C is invalid)"
+  }
+}

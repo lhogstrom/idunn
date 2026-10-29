@@ -1,42 +1,17 @@
 #!/usr/bin/env python3
-"""
-Gene-Stratified Association Tests for Post-Hoc Analysis
+"""Gene-stratified association tests.
 
-This script runs demographic association tests stratified by both cancer type
-AND actionable gene, enabling more granular analysis than cancer-level testing.
-
-IMPORTANT: Tests are only run for features that appear in the top N SHAP rankings
-for each cancer type, following the same approach as analyze_shap_feature_associations.py.
-
-For each cancer type and its top 2 genes:
-1. Load patients where specific gene is actionable
-2. Check SHAP rankings to determine which features to test
-3. Run association tests (only for top-ranked features, skipping if n < 50):
-   - Age: Mann-Whitney U test, Cohen's d effect size (if AGE in top N)
-   - Sex: Fisher's exact / Chi-square test, Odds Ratio (if SEX in top N)
-   - Race/Ethnicity: Chi-square test, Cramer's V (if RACE/ETHNICITY in top N)
-   - Sample Type Detailed: Chi-square test, Cramer's V (if SAMPLE_TYPE_DETAILED in top N)
-   - Technical: Chi-square (categorical) / Mann-Whitney U (numeric) (if in top N)
-4. Apply FDR correction per feature category
-5. Output results with gene identifier
-
-Key design decisions:
-- Multi-gene patients: Included in EACH actionable gene (counted multiple times)
-- Gene inclusion: Top 2 genes per cancer type
-- Min sample size: n >= 50 to run statistical test
-- FDR correction: Per feature category (age, sex, race, technical separately)
-- SHAP filtering: Only test features that rank in top N for that cancer type
+For each cancer type and its top 2 actionable genes, tests features that pass
+the importance gate (top N by SHAP or LR significance) against whether the
+gene is actionable, skipping strata with n < 50:
+age (Mann-Whitney U, Cohen's d), sex (Fisher/chi-square, odds ratio),
+ancestry/ethnicity and sample type (chi-square, Cramer's V), and technical
+features. Multi-gene patients count toward each of their genes. FDR is applied
+per feature category.
 
 Usage:
-    # With exploration output from Phase 1
     python analyze_gene_stratified_associations.py --input-dir /path/to/exploration_output
-
-    # Standalone (will run exploration automatically)
-    python analyze_gene_stratified_associations.py
-
-    # Custom output directory
     python analyze_gene_stratified_associations.py --output-dir /path/to/output
-
 """
 
 import sqlite3
@@ -46,7 +21,6 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
-# Add tools to path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'tools'))
 from db_config import get_default_db_path
@@ -59,46 +33,21 @@ from shap_utils import (
     REPO_ROOT,
     DEFAULT_TOP_N_FEATURES
 )
-# Multi-tier utilities are no longer needed on the publication branch;
-# cancer-type groupings collapse to plain OncoTree codes after the OT-rollup
-# strip. The viz that consumes external rollup-aware runs still uses
-# multi_tier_utils, but this script reads the new TIER 2a output directly.
 
 from scipy import stats
 from scipy.stats import chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
-# Configuration
 DB_PATH = get_default_db_path()
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "analysis_output" / "posthoc_statistics" / "gene_stratified"
 
-# Patient data table - use only this table (has Hugo_Symbol and isOncoKbLevel1)
 PATIENT_TABLE = "perPatientOncoKBFilteredForModeling"
 
-# Default parameters
 DEFAULT_MIN_N = 50
 DEFAULT_TOP_N = 2
 
-# --- Missingness sentinel handling (BACKLOG.md item E2k) ---------------------
-# GENIE encodes an unrecorded ancestry/ethnicity as the literal string
-# "Unknown", NOT as a SQL NULL, so `.notna()` does not filter it and pd.crosstab
-# promotes it to a level of the contingency table. Four contributing centers are
-# 100% Unknown on both fields, so that level partly encodes WHICH INSTITUTION
-# enrolled the patient rather than the patient's ancestry -- the same
-# institutional-fingerprint problem the modeling pipeline solves with
-# MissingnessIndicatorTransformer. Excluding the sentinel here makes the
-# post-hoc estimand ("among patients whose field was recorded") match the one
-# the models are fitted under, instead of the two layers silently answering
-# different questions.
-#
-# Both the sentinel string and the column list are IMPORTED from the modeling
-# package rather than re-declared, so the post-hoc layer cannot drift away from
-# the preprocessing layer it is meant to match. MISSINGNESS_INDICATOR_COLS is
-# exactly what create_preprocessor() hands MissingnessIndicatorTransformer.
-#
-# SAMPLE_TYPE_DETAILED carries its own Unknown-like buckets but has NOT been
-# measured, so it is deliberately left alone rather than silently swept in;
-# see BACKLOG.md E2k "Scope not yet measured".
+# Unrecorded ancestry/ethnicity ("Unknown") is excluded from the tests, matching the model's missingness handling.
+# The sentinel and column list are imported from the modeling package so the two cannot drift.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'modeling'))
 from oncokb_analyzer.missingness_indicator import DEFAULT_MISSING_SENTINEL as MISSING_SENTINEL
 from oncokb_analyzer.preprocessing import MISSINGNESS_INDICATOR_COLS
@@ -107,18 +56,13 @@ SENTINEL_GATED_FEATURES = frozenset(MISSINGNESS_INDICATOR_COLS)
 
 
 def load_top_genes_summary(input_dir: Path, top_n: int = 2) -> pd.DataFrame:
-    """
-    Load top genes summary from Phase 1 exploration output.
-
-    If not found, runs the exploration to generate it.
-    """
+    """Load the top-genes summary written by explore_gene_distributions.py."""
     summary_file = input_dir / f"top{top_n}_genes_summary.csv"
 
     if summary_file.exists():
         print(f"Loading top genes from: {summary_file}")
         return pd.read_csv(summary_file)
 
-    # Try alternative naming
     summary_file_alt = input_dir / "top2_genes_summary.csv"
     if summary_file_alt.exists():
         print(f"Loading top genes from: {summary_file_alt}")
@@ -127,7 +71,6 @@ def load_top_genes_summary(input_dir: Path, top_n: int = 2) -> pd.DataFrame:
     print(f"Top genes summary not found at {input_dir}")
     print("Running gene distribution exploration...")
 
-    # Import and run exploration
     from explore_gene_distributions import (
         get_gene_frequencies, identify_top_n_genes, check_sample_size
     )
@@ -144,19 +87,7 @@ def load_gene_patient_data(
     oncotree_code: str,
     gene: str,
 ) -> pd.DataFrame:
-    """
-    Load patients with specific actionable gene, including demographics.
-
-    Uses only perPatientOncoKBFilteredForModeling table (has Hugo_Symbol column).
-
-    Args:
-        db_path: Path to SQLite database
-        oncotree_code: Plain OncoTree code (e.g., "LUAD")
-        gene: Hugo_Symbol to filter on
-
-    Returns:
-        DataFrame with patient demographics for gene-specific actionable patients
-    """
+    """Load patients with specific actionable gene, including demographics."""
     conn = sqlite3.connect(db_path)
 
     oncotree_codes = [oncotree_code]
@@ -184,14 +115,10 @@ def load_gene_patient_data(
 
     conn.close()
 
-    # Dedup by PATIENT_ID to mirror load_all_cancer_patients (one row per patient).
-    # Without this, patients with multiple sequenced samples get counted multiple
-    # times in the gene-actionable numerator while the non-actionable denominator
-    # is collapsed to one row per patient — an asymmetric count that inflates Ns.
+    # Dedup by PATIENT_ID so numerator and denominator both use one row per patient
     df = df.drop_duplicates(subset=['PATIENT_ID'], keep='first')
 
-    # DB column is RACE; rename to ANCESTRY at the Python boundary (Feature
-    # Review Fix b, 2026-05-21). Matches data_loader.py's rename.
+    # DB column RACE is renamed to ANCESTRY
     df = df.rename(columns={'RACE': 'ANCESTRY'})
 
     return df
@@ -201,13 +128,7 @@ def load_all_cancer_patients(
     db_path: str,
     oncotree_code: str,
 ) -> pd.DataFrame:
-    """
-    Load all patients for a cancer type (for comparison group).
-
-    Args:
-        db_path: Path to SQLite database
-        oncotree_code: Plain OncoTree code (e.g., "LUAD")
-    """
+    """Load all patients for a cancer type (for comparison group)."""
     conn = sqlite3.connect(db_path)
 
     oncotree_codes = [oncotree_code]
@@ -233,12 +154,9 @@ def load_all_cancer_patients(
 
     conn.close()
 
-    # Deduplicate by PATIENT_ID, keeping non-actionable status for comparison
-    # (a patient should only appear once in the comparison group)
     df = df.drop_duplicates(subset=['PATIENT_ID'], keep='first')
 
-    # DB column is RACE; rename to ANCESTRY at the Python boundary (Feature
-    # Review Fix b, 2026-05-21). Matches data_loader.py's rename.
+    # DB column RACE is renamed to ANCESTRY
     df = df.rename(columns={'RACE': 'ANCESTRY'})
 
     return df
@@ -248,15 +166,9 @@ def run_gene_stratified_age_test(
     gene_patients: pd.DataFrame,
     all_cancer_patients: pd.DataFrame
 ) -> dict:
-    """
-    Compare age of gene-specific actionable patients vs non-actionable patients.
-
-    Uses Mann-Whitney U test (non-parametric) and calculates Cohen's d effect size.
-    """
-    # Actionable group: patients with this specific gene
+    """Compare age of gene-specific actionable patients vs non-actionable patients."""
     actionable_ages = gene_patients['AGE_AT_SEQ_REPORT'].dropna()
 
-    # Non-actionable group: patients of same cancer type without ANY actionable event
     non_actionable = all_cancer_patients[all_cancer_patients['isOncoKbLevel1'] == 0]
     non_actionable_ages = non_actionable['AGE_AT_SEQ_REPORT'].dropna()
 
@@ -285,7 +197,6 @@ def run_gene_stratified_age_test(
         result['warning'] = f'Insufficient data (n_act={n_actionable}, n_non={n_non_actionable})'
         return result
 
-    # Calculate statistics
     result['actionable_mean_age'] = actionable_ages.mean()
     result['actionable_median_age'] = actionable_ages.median()
     result['actionable_std_age'] = actionable_ages.std()
@@ -296,7 +207,6 @@ def run_gene_stratified_age_test(
     result['mean_age_difference'] = result['actionable_mean_age'] - result['non_actionable_mean_age']
     result['median_age_difference'] = result['actionable_median_age'] - result['non_actionable_median_age']
 
-    # Cohen's d effect size
     pooled_std = np.sqrt(
         ((n_actionable - 1) * result['actionable_std_age']**2 +
          (n_non_actionable - 1) * result['non_actionable_std_age']**2) /
@@ -307,14 +217,12 @@ def run_gene_stratified_age_test(
     else:
         result['cohens_d'] = np.nan
 
-    # Mann-Whitney U test
     try:
         u_stat, p_value = stats.mannwhitneyu(
             actionable_ages, non_actionable_ages, alternative='two-sided'
         )
         result['mann_whitney_u'] = u_stat
         result['mann_whitney_p'] = p_value
-        # Rank-biserial correlation (natural effect size for Mann-Whitney U)
         result['rank_biserial_r'] = 1 - (2 * u_stat) / (n_actionable * n_non_actionable)
     except Exception as e:
         result['warning'] = f'Mann-Whitney test failed: {e}'
@@ -326,15 +234,9 @@ def run_gene_stratified_sex_test(
     gene_patients: pd.DataFrame,
     all_cancer_patients: pd.DataFrame
 ) -> dict:
-    """
-    Test sex association for gene-specific actionable patients.
-
-    Compares proportion of females among gene-actionable vs non-actionable patients.
-    """
-    # Gene-actionable patients
+    """Test sex association for gene-specific actionable patients."""
     gene_data = gene_patients[gene_patients['SEX'].isin(['Female', 'Male'])].copy()
 
-    # Non-actionable patients (same cancer type)
     non_actionable = all_cancer_patients[
         (all_cancer_patients['isOncoKbLevel1'] == 0) &
         (all_cancer_patients['SEX'].isin(['Female', 'Male']))
@@ -361,7 +263,6 @@ def run_gene_stratified_sex_test(
         result['warning'] = f'Insufficient data'
         return result
 
-    # Count by sex
     gene_female = (gene_data['SEX'] == 'Female').sum()
     gene_male = (gene_data['SEX'] == 'Male').sum()
     non_act_female = (non_actionable['SEX'] == 'Female').sum()
@@ -377,18 +278,13 @@ def run_gene_stratified_sex_test(
     if non_act_female + non_act_male > 0:
         result['non_actionable_female_rate'] = non_act_female / (non_act_female + non_act_male)
 
-    # Create 2x2 contingency table
-    # Rows: gene-actionable vs non-actionable
-    # Cols: female vs male
     table = [
         [gene_female, gene_male],
         [non_act_female, non_act_male]
     ]
 
-    # Odds ratio (with Haldane correction for zero cells)
     cells = [gene_female, gene_male, non_act_female, non_act_male]
     if any(c == 0 for c in cells):
-        # Haldane correction: add 0.5 to all cells for OR and CI calculation
         ci_gf, ci_gm, ci_nf, ci_nm = [c + 0.5 for c in cells]
         result['odds_ratio'] = (ci_gf * ci_nm) / (ci_gm * ci_nf)
         result['warning'] = 'Zero cell corrected (Haldane +0.5)'
@@ -396,13 +292,11 @@ def run_gene_stratified_sex_test(
         ci_gf, ci_gm, ci_nf, ci_nm = cells
         result['odds_ratio'] = (gene_female * non_act_male) / (gene_male * non_act_female)
 
-    # Confidence interval for OR (Woolf's method on corrected cells)
     log_or = np.log(result['odds_ratio'])
     se_log_or = np.sqrt(1/ci_gf + 1/ci_gm + 1/ci_nf + 1/ci_nm)
     result['or_ci_lower'] = np.exp(log_or - 1.96 * se_log_or)
     result['or_ci_upper'] = np.exp(log_or + 1.96 * se_log_or)
 
-    # Compute expected frequencies for Fisher/chi-square decision
     grand_total = sum(cells)
     row1_total = gene_female + gene_male
     row2_total = non_act_female + non_act_male
@@ -418,7 +312,6 @@ def run_gene_stratified_sex_test(
     min_expected = min(expected_cells)
 
     if min_expected < 5:
-        # Fisher's exact test for small expected frequencies
         try:
             _, p_value = fisher_exact(table)
             result['p_value'] = p_value
@@ -426,7 +319,6 @@ def run_gene_stratified_sex_test(
         except Exception as e:
             result['warning'] = f'Fisher test failed: {e}'
     else:
-        # Chi-square test
         try:
             chi2, p_value, _, _ = chi2_contingency(table)
             result['p_value'] = p_value
@@ -443,22 +335,8 @@ def run_gene_stratified_categorical_test(
     feature: str,
     exclude_unknown: bool = True
 ) -> dict:
-    """
-    Chi-square test for categorical feature association.
-
-    Compares distribution of feature among gene-actionable vs non-actionable patients.
-
-    Args:
-        exclude_unknown: When True (default), rows whose value is the GENIE
-            missingness sentinel are dropped for the features in
-            SENTINEL_GATED_FEATURES, so the test estimates an association
-            among patients whose field was actually RECORDED. See the
-            SENTINEL_GATED_FEATURES comment for why this is the default.
-    """
-    # Clean data. NOTE: `.notna()` alone does NOT remove unrecorded values --
-    # GENIE stores them as the literal string in MISSING_SENTINEL, not as SQL
-    # NULL, so without the explicit exclusion below the sentinel becomes its
-    # own column of the contingency table (BACKLOG.md item E2k).
+    """Chi-square test for categorical feature association."""
+    # GENIE stores unrecorded values as a literal sentinel, not NULL, so exclude it explicitly
     gene_mask = gene_patients[feature].notna()
     non_mask = (
         (all_cancer_patients['isOncoKbLevel1'] == 0) &
@@ -493,7 +371,6 @@ def run_gene_stratified_categorical_test(
         result['warning'] = f'Insufficient data'
         return result
 
-    # Add group label
     gene_data['group'] = 'gene_actionable'
     non_actionable['group'] = 'non_actionable'
 
@@ -502,14 +379,12 @@ def run_gene_stratified_categorical_test(
         non_actionable[['group', feature]]
     ])
 
-    # Create contingency table
     contingency = pd.crosstab(combined['group'], combined[feature])
 
     if contingency.shape[0] < 2 or contingency.shape[1] < 2:
         result['warning'] = 'Insufficient categories'
         return result
 
-    # Chi-square test
     try:
         chi2, p_value, dof, expected = chi2_contingency(contingency)
 
@@ -517,7 +392,6 @@ def run_gene_stratified_categorical_test(
         result['p_value'] = p_value
         result['dof'] = dof
 
-        # Check expected frequency assumption
         min_expected_freq = expected.min()
         pct_below_5 = (expected < 5).sum() / expected.size * 100
         result['min_expected_freq'] = min_expected_freq
@@ -526,7 +400,6 @@ def run_gene_stratified_categorical_test(
         elif min_expected_freq < 5:
             result['warning'] = f'Chi-square may be unreliable: {pct_below_5:.0f}% expected freqs < 5 (min={min_expected_freq:.1f})'
 
-        # Cramer's V effect size
         n = contingency.sum().sum()
         min_dim = min(contingency.shape[0] - 1, contingency.shape[1] - 1)
         if min_dim > 0:
@@ -543,9 +416,7 @@ def run_gene_stratified_numeric_test(
     all_cancer_patients: pd.DataFrame,
     feature: str
 ) -> dict:
-    """
-    Mann-Whitney U test for numeric feature association.
-    """
+    """Mann-Whitney U test for numeric feature association."""
     gene_data = gene_patients[gene_patients[feature].notna()][feature]
     non_actionable = all_cancer_patients[
         (all_cancer_patients['isOncoKbLevel1'] == 0) &
@@ -575,7 +446,6 @@ def run_gene_stratified_numeric_test(
         result['mann_whitney_u'] = u_stat
         result['p_value'] = p_value
 
-        # Effect size: rank-biserial correlation
         n1, n2 = len(gene_data), len(non_actionable)
         result['effect_size_r'] = abs(1 - (2 * u_stat) / (n1 * n2))
 
@@ -619,23 +489,7 @@ def analyze_gene_stratified_associations(
     top_n_shap: int = DEFAULT_TOP_N_FEATURES,
     exclude_unknown: bool = True,
 ) -> dict:
-    """
-    Run gene-stratified association tests, filtered by SHAP rankings.
-
-    Only tests features that appear in top N SHAP rankings for each cancer type.
-
-    Args:
-        top_genes_df: DataFrame with top genes per cancer type
-        db_path: Path to SQLite database
-        shap_df: DataFrame with SHAP rankings (optional, will auto-load if None)
-        min_n: Minimum sample size for testing
-        top_n_shap: Number of top SHAP features to consider
-        exclude_unknown: Drop the GENIE missingness sentinel from the ancestry
-            and ethnicity tests (default True; see SENTINEL_GATED_FEATURES)
-
-    Returns:
-        dict of DataFrames for each test category.
-    """
+    """Run gene-stratified association tests, filtered by SHAP rankings."""
     results = {
         'age': [],
         'sex': [],
@@ -645,7 +499,6 @@ def analyze_gene_stratified_associations(
         'technical': []
     }
 
-    # Filter to genes meeting sample size requirement
     valid_genes = top_genes_df[top_genes_df['meets_min_n']].copy()
 
     if len(valid_genes) == 0:
@@ -679,8 +532,6 @@ def analyze_gene_stratified_associations(
 
         shap_lookup_code = oncotree_code
 
-        # Check SHAP rankings to determine which features to test
-        # Age test (if AGE in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'AGE', top_n_shap):
             print(f"  Testing age (in top {top_n_shap} SHAP)...")
             age_result = run_gene_stratified_age_test(gene_patients, all_patients)
@@ -688,7 +539,6 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping age (not in top {top_n_shap} SHAP)")
 
-        # Sex test (if SEX in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'SEX', top_n_shap):
             print(f"  Testing sex (in top {top_n_shap} SHAP)...")
             sex_result = run_gene_stratified_sex_test(gene_patients, all_patients)
@@ -696,8 +546,6 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping sex (not in top {top_n_shap} SHAP)")
 
-        # Ancestry test (if ANCESTRY in top N). DB column was RACE; the loader
-        # functions above rename it to ANCESTRY at the Python boundary.
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'ANCESTRY', top_n_shap):
             print(f"  Testing ancestry (in top {top_n_shap} SHAP)...")
             race_result = run_gene_stratified_categorical_test(
@@ -707,7 +555,6 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping ancestry (not in top {top_n_shap} SHAP)")
 
-        # Ethnicity test (if ETHNICITY in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'ETHNICITY', top_n_shap):
             print(f"  Testing ethnicity (in top {top_n_shap} SHAP)...")
             eth_result = run_gene_stratified_categorical_test(
@@ -717,9 +564,6 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping ethnicity (not in top {top_n_shap} SHAP)")
 
-        # Sample-type-detailed test (if SAMPLE_TYPE_DETAILED in top N).
-        # Plain SAMPLE_TYPE was dropped from the modeling feature set 2026-05-21
-        # (Feature Review Fix a) — only the DETAILED variant is now ranked.
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'SAMPLE_TYPE_DETAILED', top_n_shap):
             print(f"  Testing sample type detailed (in top {top_n_shap} SHAP)...")
             sample_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'SAMPLE_TYPE_DETAILED')
@@ -728,42 +572,28 @@ def analyze_gene_stratified_associations(
         else:
             print(f"  Skipping sample type detailed (not in top {top_n_shap} SHAP)")
 
-        # Technical features (if TECHNICAL in top N)
         if shap_df is None or feature_in_top_n_for_cancer(shap_df, shap_lookup_code, 'TECHNICAL', top_n_shap):
             print(f"  Testing technical features (in top {top_n_shap} SHAP)...")
 
-            # Number of genes (numeric)
             nog_result = run_gene_stratified_numeric_test(gene_patients, all_patients, 'number_of_genes')
             nog_result['feature'] = 'number_of_genes'
             results['technical'].append({**base_info, **nog_result})
 
-            # Calling strategy (categorical)
             cs_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'calling_strategy')
             cs_result['feature'] = 'calling_strategy'
             results['technical'].append({**base_info, **cs_result})
 
-            # Subject center (categorical)
             sc_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'SUBJECT_CENTER')
             sc_result['feature'] = 'SUBJECT_CENTER'
             results['technical'].append({**base_info, **sc_result})
 
-            # Preservation technique (categorical). Added 2026-09-11: the column
-            # was SELECTed by both loaders above and then never tested, so this
-            # block ran three tests for a four-feature gate. The cancer-level
-            # script (analyze_shap_feature_associations.py:677) had always
-            # dispatched it, so the two TIER 7 scripts disagreed about which
-            # features exist — same divergence class as Gotcha #8, one layer down.
-            # ⚠️ This GROWS the technical BH family by one test per gated
-            # stratum, so every technical q-value moves. Do not add a feature
-            # here without re-running both pathways and reconciling paragraph 9
-            # of build_results_stats.py.
+            # Preservation technique (categorical); adding a feature here changes the technical BH family
             pt_result = run_gene_stratified_categorical_test(gene_patients, all_patients, 'preservation_technique')
             pt_result['feature'] = 'preservation_technique'
             results['technical'].append({**base_info, **pt_result})
         else:
             print(f"  Skipping technical features (not in top {top_n_shap} SHAP)")
 
-    # Convert to DataFrames and apply FDR correction
     result_dfs = {}
 
     for category, result_list in results.items():
@@ -773,7 +603,6 @@ def analyze_gene_stratified_associations(
 
         df = pd.DataFrame(result_list)
 
-        # Determine p-value column based on category
         if category == 'age':
             p_col = 'mann_whitney_p'
         else:
@@ -795,14 +624,7 @@ def generate_association_report(
     shap_filter_active: bool = True,
     shap_file_path: str = None
 ):
-    """Generate human-readable summary report.
-
-    Args:
-        shap_filter_active: True if the top-N SHAP gate was applied at
-            runtime; False if --no-shap-filter was set (all features tested).
-        shap_file_path: Path of the SHAP/LR rankings file used as the gate
-            source (only meaningful when shap_filter_active=True).
-    """
+    """Generate human-readable summary report."""
 
     if shap_filter_active:
         cap_desc = (
@@ -871,12 +693,10 @@ def generate_association_report(
                             f.write(f"  p-value: {row['p_value']:.4e}\n")
                             f.write(f"  FDR: {row['p_fdr']:.4e}\n")
 
-        # Summary table
         f.write("\n" + "=" * 80 + "\n")
         f.write("SUMMARY BY GENE-CANCER COMBINATION\n")
         f.write("=" * 80 + "\n\n")
 
-        # Aggregate significant associations
         all_sig = []
         for category, df in results.items():
             if len(df) > 0 and 'significant_fdr' in df.columns:
@@ -935,7 +755,7 @@ Examples:
                             'ancestry/ethnicity chi-square tests. Default is to EXCLUDE it, so '
                             'the tests estimate associations among patients whose field was '
                             'recorded, matching how the models treat missingness. Pass this only '
-                            'to reproduce runs from before 2026-09-18 (BACKLOG.md item E2k).')
+                            'to reproduce runs from before 2026-09-18.')
     parser.add_argument('--min-n', type=int, default=DEFAULT_MIN_N,
                        help=f'Minimum sample size (default: {DEFAULT_MIN_N})')
     parser.add_argument('--top-n', type=int, default=DEFAULT_TOP_N,
@@ -948,11 +768,7 @@ Examples:
                             f're-impose a cap there.')
     parser.add_argument('--no-shap-filter', action='store_true',
                        help='Test all features regardless of SHAP ranking')
-    # Arm C, adopted 2026-08-31 (E2o). RF rankings are one row per ONE-HOT DUMMY, so a
-    # rank cut penalises multi-level categoricals purely for their encoding. Grouping
-    # collapses them to one row per feature -- the same unit the LR gate already uses.
-    # ON by default; --no-group-rf-levels restores the pre-2026-08-31 column-level gate
-    # for reproducing historical runs. No-op on LR rankings (grouped upstream).
+    # RF SHAP is summed across a feature's one-hot columns before ranking, so the gate ranks features (as the LR gate does).
     parser.add_argument('--no-group-rf-levels', dest='group_rf_levels',
                        action='store_false', default=True,
                        help='Rank RF one-hot dummy COLUMNS rather than features when '
@@ -967,13 +783,12 @@ Examples:
                             'coefficients (FDR < 0.05). This significance test IS the gate: the '
                             'top-N importance cap is disabled so all Wald-significant features are '
                             'tested (unless --top-n-shap is passed explicitly).')
-    # Legacy flags accepted but ignored after the OT-rollup strip
+    # Legacy flags accepted but ignored
     parser.add_argument('--tier', type=str, default=None, help=argparse.SUPPRESS)
     parser.add_argument('--no-tier-filter', action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
-    # Set directories
     if args.input_dir:
         input_dir = Path(args.input_dir)
     else:
@@ -986,38 +801,11 @@ Examples:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve the importance-gate cap. An explicit --top-n-shap always wins.
-    #
-    # ⚠️ --lr-significant-only DISABLES THE CAP ON BOTH PATHWAYS, not just LR.
-    # This script cannot see --algorithm (it has no such argument), so it cannot
-    # scope the behaviour by pathway. The comment that stood here until 2026-08-27
-    # claimed "the RF/default path keeps the top-5 cap" -- that was FALSE whenever
-    # the canonical flag was passed, which on every canonical RF run since the June
-    # 2026 dual-pathway lock it was. On LR the cap-disable is coherent because
-    # Wald-FDR significance replaces it (fig4b_onehot_collapse_and_tier7_gate_2026-06-15.md
-    # §3); on RF the Wald branch is unreachable (it is LR-format-only, shap_utils.py
-    # :231-245), so the cap was removed with NOTHING replacing it.
-    #
-    # DECIDED 2026-08-27 (E2i): the RF pathway applies no importance gate at all, and
-    # the orchestrator now passes --no-shap-filter explicitly for RF rather than
-    # inheriting the state as a side effect of --lr-significant-only. Rationale:
-    # code_review_and_feedback/rf_tier7_gate_provenance_2026-08-27.md.
-    #
-    # SUPERSEDED 2026-08-31 (E2o, "Arm C"): the RF pathway applies a top-5 gate on the
-    # GROUPED SHAP ranking. E2i had rejected a top-5 gate on the ONE-HOT ranking, which
-    # was a mis-implementation -- its headline evidence ("ancestry at ranks 7, 7, 8, 11")
-    # measured the encoding, not the model. E2n then showed a rank gate does select for
-    # conditional importance: gate-rejected hits lose a median 60-71% of their marginal
-    # signal under multivariable adjustment vs 9-15% for accepted hits (pre-registered
-    # bar 0.10; observed 0.47-0.58, p <= 0.001, in all 28 tested cells). RF goes
-    # 114 -> 93 hits. Evidence:
-    # code_review_and_feedback/e2n_gate_variant_experiment_2026-08-31.md.
+    # Importance-gate cap: an explicit --top-n-shap wins; --lr-significant-only (Wald significance is the gate) or --no-shap-filter disables it.
     if args.top_n_shap is not None:
         top_n_shap = args.top_n_shap
     elif args.no_shap_filter or args.lr_significant_only:
-        # --no-shap-filter is included here so every downstream console line and
-        # report header describes the gate as disabled rather than printing a cap
-        # that is never applied.
+        # No cap, so reports describe the gate as disabled
         top_n_shap = None
     else:
         top_n_shap = DEFAULT_TOP_N_FEATURES
@@ -1036,17 +824,16 @@ Examples:
     if not args.no_shap_filter:
         print("RF ranking unit: "
               + ("FEATURE (one-hot dummies grouped, agg=sum, missingness folded "
-                 "-- Arm C, E2o 2026-08-31)"
+                 "-- default since 2026-08-31)"
                  if args.group_rf_levels
                  else "ONE-HOT COLUMN (legacy, pre-2026-08-31)"))
     print("Missingness sentinel in ancestry/ethnicity tests: "
           + (f"EXCLUDED ('{MISSING_SENTINEL}' dropped from both arms; "
-             "estimand = recorded values only -- E2k, 2026-09-18)"
+             "estimand = recorded values only -- default since 2026-09-18)"
              if args.exclude_unknown
              else f"RETAINED as a category level ('{MISSING_SENTINEL}'; legacy, pre-2026-09-18)"))
 
-    # Load SHAP rankings — fail-closed when --shap-file is passed but missing.
-    # Only --no-shap-filter is allowed to bypass the gate.
+    # Fail closed when --shap-file is given but missing; only --no-shap-filter bypasses the gate
     shap_df = None
     shap_file = None
     if args.no_shap_filter:
@@ -1074,10 +861,9 @@ Examples:
             rf_group_missingness='fold',
         )
 
-    # Load top genes summary
     top_genes_df = load_top_genes_summary(input_dir, top_n=args.top_n)
 
-    # Filter to canonical cancer types from TIER 2a (if a definitions file is reachable)
+    # Restrict to the eligible cancer types
     groupings_file = args.groupings_file
     if groupings_file is None:
         candidates = sorted(
@@ -1105,23 +891,19 @@ Examples:
         exclude_unknown=args.exclude_unknown,
     )
 
-    # Save results
     print("\n" + "=" * 80)
     print("Saving results...")
     print("=" * 80)
 
     for category, df in results.items():
         if len(df) > 0:
-            # Create subdirectory for category
             category_dir = output_dir / f"{category}_by_gene"
             category_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save full results
             output_file = category_dir / f"{category}_gene_results.csv"
             df.to_csv(output_file, index=False)
             print(f"  {category}: {output_file}")
 
-            # Save significant results
             if 'significant_fdr' in df.columns:
                 sig_df = df[df['significant_fdr']]
                 if len(sig_df) > 0:
@@ -1129,7 +911,6 @@ Examples:
                     sig_df.to_csv(sig_file, index=False)
                     print(f"  {category} (significant): {sig_file}")
 
-    # Generate report
     report_file = output_dir / "gene_stratified_report.txt"
     generate_association_report(
         results, report_file, args.min_n, top_n_shap,
@@ -1137,7 +918,6 @@ Examples:
         shap_file_path=shap_file
     )
 
-    # Print summary
     print("\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)

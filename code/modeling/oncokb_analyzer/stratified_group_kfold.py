@@ -1,13 +1,7 @@
-"""
-Stratified GroupKFold Implementation
+"""Stratified GroupKFold: keeps each group (institution) in one fold and balances fold sizes.
 
-Implements a cross-validation strategy that:
-1. Keeps all samples from the same group (institution) together in the same fold
-2. Balances fold sizes to minimize variance in patient counts across folds
-
-This solves the critical fold imbalance problem where standard GroupKFold creates
-folds with 2-11× differences in size due to institution size heterogeneity.
-
+Standard GroupKFold can produce folds that differ 2-11x in size when institution sizes
+are heterogeneous.
 """
 
 import numpy as np
@@ -18,61 +12,7 @@ import logging
 
 
 class StratifiedGroupKFold:
-    """
-    Stratified GroupKFold cross-validator.
-
-    Ensures that:
-    1. All samples from the same group stay together (no group splitting)
-    2. Folds have similar sizes (minimizes patient count variance)
-
-    Algorithm:
-    ---------
-    1. Sort groups by size (descending)
-    2. Assign largest groups round-robin to folds
-    3. Iteratively assign remaining groups to the fold with fewest samples
-    4. This greedy approach produces near-optimal fold balance
-
-    Parameters:
-    ----------
-    n_splits : int, default=5
-        Number of folds
-
-    shuffle : bool, default=True
-        Whether to shuffle groups before splitting (preserves group integrity)
-
-    random_state : int, default=None
-        Random seed for shuffling
-
-    min_fold_size : int, default=500
-        Minimum acceptable fold size (raise warning if violated, or error if enforce_constraints=True)
-
-    max_fold_ratio : float, default=2.5
-        Maximum acceptable ratio between largest and smallest fold
-        (raise warning if violated, or error if enforce_constraints=True)
-
-    min_fold_fraction : float, default=0.0
-        Minimum fold size as a fraction of total samples (e.g., 0.10 = 10%).
-        When enforce_constraints=True, raises ValueError if any fold is smaller
-        than this fraction of total samples. Set to 0.0 to disable.
-
-    enforce_constraints : bool, default=False
-        If True, raise ValueError when fold size constraints are violated instead
-        of just logging warnings. Use during extended hyperparameter searches to
-        prevent silent quality issues.
-
-    Examples:
-    --------
-    >>> from stratified_group_kfold import StratifiedGroupKFold
-    >>> import numpy as np
-    >>>
-    >>> X = np.random.randn(1000, 10)
-    >>> y = np.random.randint(0, 2, 1000)
-    >>> groups = np.random.choice(['MSK', 'DFCI', 'JHU', 'VICC', 'UHN'], 1000)
-    >>>
-    >>> cv = StratifiedGroupKFold(n_splits=5, random_state=42)
-    >>> for train_idx, test_idx in cv.split(X, y, groups):
-    >>>     print(f"Train: {len(train_idx)}, Test: {len(test_idx)}")
-    """
+    """Stratified GroupKFold cross-validator."""
 
     def __init__(self, n_splits=5, shuffle=True, random_state=None,
                  min_fold_size=500, max_fold_ratio=2.5,
@@ -94,28 +34,7 @@ class StratifiedGroupKFold:
         return self.n_splits
 
     def split(self, X, y=None, groups=None) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
-        """
-        Generate indices to split data into training and test set.
-
-        Parameters:
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            Training data
-
-        y : array-like, shape (n_samples,), optional
-            Target variable (not used for grouping, but required for sklearn compatibility)
-
-        groups : array-like, shape (n_samples,)
-            Group labels for the samples (e.g., institution IDs)
-
-        Yields:
-        ------
-        train : ndarray
-            The training set indices for that split
-
-        test : ndarray
-            The testing set indices for that split
-        """
+        """Generate indices to split data into training and test set."""
         if groups is None:
             raise ValueError("groups parameter is required for StratifiedGroupKFold")
 
@@ -149,8 +68,7 @@ class StratifiedGroupKFold:
             reverse=True
         )
 
-        # Shuffle groups while maintaining size-based clustering
-        # (shuffling within size buckets maintains balance while adding randomness)
+        # Shuffle groups within size buckets to keep folds balanced.
         if self.shuffle:
             rng = np.random.RandomState(self.random_state)
             # Shuffle within quartiles to maintain approximate size ordering
@@ -179,13 +97,7 @@ class StratifiedGroupKFold:
             yield train_indices, test_indices
 
     def _assign_groups_to_folds(self, sorted_groups, group_indices):
-        """
-        Assign groups to folds using greedy bin packing algorithm.
-
-        This ensures:
-        1. Each group goes entirely into one fold (no splitting)
-        2. Folds have similar total sample sizes
-        """
+        """Assign groups to folds using greedy bin packing algorithm."""
         # Initialize empty folds
         fold_assignments = [[] for _ in range(self.n_splits)]
         fold_sizes = np.zeros(self.n_splits, dtype=int)
@@ -236,13 +148,7 @@ class StratifiedGroupKFold:
         }
 
     def _validate_fold_constraints(self, fold_sizes_arr, n_total):
-        """
-        Check fold size constraints and warn or raise errors.
-
-        When enforce_constraints=False (default), violations produce warnings.
-        When enforce_constraints=True, violations raise ValueError to reject
-        the CV split — useful during extended hyperparameter searches.
-        """
+        """Check fold size constraints and warn or raise errors."""
         min_size = fold_sizes_arr.min()
         max_size = fold_sizes_arr.max()
         size_ratio = max_size / min_size if min_size > 0 else np.inf
@@ -280,32 +186,7 @@ class StratifiedGroupKFold:
 
 
 def calculate_fold_imbalance_metrics(X, y, groups, cv_splitter):
-    """
-    Calculate comprehensive fold imbalance metrics for a given CV splitter.
-
-    Useful for comparing standard GroupKFold vs StratifiedGroupKFold.
-
-    Parameters:
-    ----------
-    X : array-like
-        Feature matrix
-    y : array-like
-        Target vector
-    groups : array-like
-        Group labels
-    cv_splitter : cross-validator
-        Either GroupKFold or StratifiedGroupKFold instance
-
-    Returns:
-    -------
-    dict : Fold balance metrics
-        - fold_sizes: List of fold sizes
-        - fold_group_counts: List of groups per fold
-        - patients_cv: Coefficient of variation for patient counts
-        - groups_cv: Coefficient of variation for group counts
-        - size_ratio: Max fold size / min fold size
-        - actionable_rates: Actionable rate per fold (if y is binary)
-    """
+    """Calculate comprehensive fold imbalance metrics for a given CV splitter."""
     fold_sizes = []
     fold_group_counts = []
     fold_actionable_rates = []

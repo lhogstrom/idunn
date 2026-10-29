@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
-"""
-Raw Data Plotting Utilities
+"""Shared plotting functions for raw-data views of post-hoc results.
 
-Shared visualization functions for creating raw data plots that support both:
-1. Cancer-level analysis (no gene stratification)
-2. Gene-stratified analysis (specific gene within cancer type)
-
-These functions are used by:
-- visualize_raw_data.py (cancer-level post-hoc results)
-- visualize_gene_stratified_results.py (gene-stratified post-hoc results)
-
-Key Features:
-- Optional `gene` parameter for gene-stratified filtering
-- Wilson score confidence intervals for binomial proportions
-- Violin/box plots for age distributions
-- Contingency tables for categorical features
-- Consistent styling across all visualizations
+Supports cancer-level and gene-stratified analyses (optional `gene` argument):
+Wilson CIs for proportions, violin/box age plots, and contingency plots
+for categorical and numeric features.
 """
 
 import re
@@ -28,14 +16,11 @@ from pathlib import Path
 from scipy import stats as sp_stats
 from typing import List, Optional, Tuple, Dict, Any
 
-# Set style
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette("Set2")
 
-# Repository root and default paths
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Default table name
 PATIENT_TABLE = "perPatientOncoKBFilteredForModeling"
 GENE_TABLE = "perPatientLevel1"
 
@@ -54,23 +39,7 @@ def get_default_db_path() -> Optional[str]:
 
 
 def resolve_oncotree_codes(cancer_type: str) -> List[str]:
-    """
-    Resolve a cancer type identifier to plain OncoTree codes for database queries.
-
-    Handles both plain codes ('LUAD') and tier-prefixed codes ('tier1_LUAD',
-    'tier3_LUNG'). For tier2/tier3 groups, returns all constituent OncoTree
-    codes (e.g., 'tier3_LUNG' -> ['LUAD', 'NSCLC']).
-
-    Parameters
-    ----------
-    cancer_type : str
-        Plain OncoTree code or tier-prefixed code
-
-    Returns
-    -------
-    List[str]
-        List of plain OncoTree codes for use in SQL queries
-    """
+    """Resolve a cancer type identifier to plain OncoTree codes for database queries."""
     if re.match(r'^tier\d+_', cancer_type):
         try:
             from multi_tier_utils import get_oncotree_codes_for_group
@@ -85,22 +54,7 @@ def resolve_oncotree_codes(cancer_type: str) -> List[str]:
 
 
 def _oncotree_sql_clause(cancer_type: str, table_alias: str = '') -> str:
-    """
-    Build a SQL WHERE clause fragment for OncoTree code filtering.
-
-    Parameters
-    ----------
-    cancer_type : str
-        Plain or tier-prefixed cancer type code
-    table_alias : str
-        Table alias prefix (e.g., 'p.' or ''). Include the trailing dot.
-
-    Returns
-    -------
-    str
-        SQL clause like "ONCOTREE_CODE = 'LUAD'" or
-        "ONCOTREE_CODE IN ('LUAD', 'NSCLC')"
-    """
+    """Build a SQL WHERE clause fragment for OncoTree code filtering."""
     codes = resolve_oncotree_codes(cancer_type)
     col = f"{table_alias}ONCOTREE_CODE"
     if len(codes) == 1:
@@ -111,23 +65,7 @@ def _oncotree_sql_clause(cancer_type: str, table_alias: str = '') -> str:
 
 
 def wilson_ci(n_success: int, n_total: int, alpha: float = 0.05) -> Tuple[float, float]:
-    """
-    Calculate Wilson score confidence interval for binomial proportion.
-
-    Parameters
-    ----------
-    n_success : int
-        Number of successes (e.g., actionable patients)
-    n_total : int
-        Total number of trials
-    alpha : float
-        Significance level (default 0.05 for 95% CI)
-
-    Returns
-    -------
-    Tuple[float, float]
-        Lower and upper bounds of confidence interval
-    """
+    """Calculate Wilson score confidence interval for binomial proportion."""
     if n_total == 0:
         return 0.0, 0.0
 
@@ -149,40 +87,14 @@ def load_age_data(
     gene: Optional[str] = None,
     db_path: Optional[str] = None
 ) -> pd.DataFrame:
-    """
-    Load age data for a specific cancer type, optionally filtered by gene.
-
-    Parameters
-    ----------
-    cancer_type : str
-        OncoTree cancer type code (e.g., 'LUAD')
-    gene : str, optional
-        Hugo symbol to filter to patients with this specific actionable gene.
-        If None, returns all patients of the cancer type.
-    db_path : str, optional
-        Path to SQLite database
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with columns: age, actionable, actionable_label
-
-    Notes
-    -----
-    When gene is provided:
-    - Actionable group: patients with the specific gene actionable
-    - Non-actionable group: ALL non-actionable patients of the cancer type
-      (not just those without any actionable variant)
-    """
+    """Load age data for a cancer type, optionally gene-stratified (non-actionable group is all non-actionable patients of the cancer type)."""
     db_path = db_path or get_default_db_path()
     conn = sqlite3.connect(db_path)
 
-    # Resolve tier-prefixed codes to plain OncoTree codes
     oncotree_clause = _oncotree_sql_clause(cancer_type)
     oncotree_clause_p = _oncotree_sql_clause(cancer_type, table_alias='p.')
 
     if gene is None:
-        # Cancer-level: all patients of cancer type
         query = f"""
         SELECT
             AGE_AT_SEQ_REPORT as age,
@@ -192,7 +104,6 @@ def load_age_data(
         AND AGE_AT_SEQ_REPORT IS NOT NULL
         """
     else:
-        # Gene-stratified: patients with specific gene actionable vs non-actionable
         # Non-actionable = all non-actionable patients of cancer type
         oncotree_clause_g = _oncotree_sql_clause(cancer_type, table_alias='')
         query = f"""
@@ -228,35 +139,14 @@ def load_categorical_data(
     gene: Optional[str] = None,
     db_path: Optional[str] = None
 ) -> pd.DataFrame:
-    """
-    Load categorical data for a specific cancer type, optionally filtered by gene.
-
-    Parameters
-    ----------
-    cancer_type : str
-        OncoTree cancer type code (e.g., 'LUAD')
-    column : str
-        Database column name (e.g., 'SEX', 'RACE', 'SUBJECT_CENTER')
-    gene : str, optional
-        Hugo symbol to filter to patients with this specific actionable gene.
-        If None, returns all patients of the cancer type.
-    db_path : str, optional
-        Path to SQLite database
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with columns: [column], actionable
-    """
+    """Load categorical data for a specific cancer type, optionally filtered by gene."""
     db_path = db_path or get_default_db_path()
     conn = sqlite3.connect(db_path)
 
-    # Resolve tier-prefixed codes to plain OncoTree codes
     oncotree_clause = _oncotree_sql_clause(cancer_type)
     oncotree_clause_p = _oncotree_sql_clause(cancer_type, table_alias='p.')
 
     if gene is None:
-        # Cancer-level: all patients of cancer type
         query = f"""
         SELECT
             {column},
@@ -266,7 +156,6 @@ def load_categorical_data(
         AND {column} IS NOT NULL
         """
     else:
-        # Gene-stratified: patients with specific gene actionable vs non-actionable
         oncotree_clause_g = _oncotree_sql_clause(cancer_type, table_alias='')
         query = f"""
         SELECT
@@ -303,53 +192,23 @@ def plot_age_distribution(
     db_path: Optional[str] = None,
     file_prefix: str = "age"
 ) -> Optional[str]:
-    """
-    Create age distribution plots (violin + KDE) for a cancer type.
-
-    Parameters
-    ----------
-    cancer_type : str
-        OncoTree cancer type code
-    cohens_d : float
-        Cohen's d effect size
-    p_val : float
-        FDR-adjusted p-value
-    mean_diff : float
-        Mean age difference (actionable - non-actionable)
-    output_dir : Path
-        Output directory for saving plots
-    gene : str, optional
-        Hugo symbol for gene-stratified analysis
-    db_path : str, optional
-        Path to SQLite database
-    file_prefix : str
-        Prefix for output filenames (default: 'age')
-
-    Returns
-    -------
-    str or None
-        Filename of saved plot, or None if no data
-    """
+    """Create age distribution plots (violin + KDE) for a cancer type."""
     df = load_age_data(cancer_type, gene=gene, db_path=db_path)
 
     if len(df) == 0:
         print(f"  Warning: No age data for {cancer_type}" + (f" ({gene})" if gene else ""))
         return None
 
-    # Create figure with two subplots
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-    # Title includes gene if provided
     title_suffix = f" ({gene})" if gene else ""
 
-    # SUBPLOT 1: Violin + box plot
     ax1 = axes[0]
 
     non_act_ages = df[df['actionable'] == 0]['age'].values
     act_ages = df[df['actionable'] == 1]['age'].values
 
     if len(non_act_ages) > 0 and len(act_ages) > 0:
-        # Violin plot
         parts = ax1.violinplot(
             [non_act_ages, act_ages],
             positions=[0, 1],
@@ -358,13 +217,11 @@ def plot_age_distribution(
             widths=0.7
         )
 
-        # Color the violins
         colors = ['#95a5a6', '#e74c3c']
         for pc, color in zip(parts['bodies'], colors):
             pc.set_facecolor(color)
             pc.set_alpha(0.6)
 
-        # Box plot overlay
         ax1.boxplot(
             [non_act_ages, act_ages],
             positions=[0, 1],
@@ -382,7 +239,6 @@ def plot_age_distribution(
                   fontsize=13, fontweight='bold', pad=15)
     ax1.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Statistics annotation
     stats_text = f"Cohen's d = {cohens_d:.3f}\n"
     stats_text += f"Mean Δ = {mean_diff:.1f} years\n"
     stats_text += f"FDR p = {p_val:.2e}"
@@ -390,7 +246,6 @@ def plot_age_distribution(
              transform=ax1.transAxes, fontsize=10, verticalalignment='top',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-    # SUBPLOT 2: Histogram + KDE
     ax2 = axes[1]
 
     ax2.hist(non_act_ages, bins=30, alpha=0.5, color='#95a5a6',
@@ -398,7 +253,6 @@ def plot_age_distribution(
     ax2.hist(act_ages, bins=30, alpha=0.5, color='#e74c3c',
              label='Actionable', density=True)
 
-    # KDE overlay
     if len(non_act_ages) > 1 and len(act_ages) > 1:
         x_range = np.linspace(df['age'].min(), df['age'].max(), 200)
 
@@ -417,7 +271,6 @@ def plot_age_distribution(
     ax2.legend(fontsize=10, framealpha=0.9)
     ax2.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Sample sizes
     ax2.text(0.98, 0.98, f"n(Non-Act) = {len(non_act_ages):,}\nn(Act) = {len(act_ages):,}",
              transform=ax2.transAxes, fontsize=10, verticalalignment='top',
              horizontalalignment='right',
@@ -425,7 +278,6 @@ def plot_age_distribution(
 
     plt.tight_layout()
 
-    # Filename includes gene if provided
     if gene:
         filename = f"{file_prefix}_{cancer_type}_{gene}_distribution"
     else:
@@ -449,31 +301,7 @@ def plot_sex_contingency(
     db_path: Optional[str] = None,
     file_prefix: str = "sex"
 ) -> Optional[str]:
-    """
-    Create sex contingency plots (grouped bars + stacked percentage) for a cancer type.
-
-    Parameters
-    ----------
-    cancer_type : str
-        OncoTree cancer type code
-    odds_ratio : float
-        Odds ratio (Female/Male for actionability)
-    p_val : float
-        FDR-adjusted p-value
-    output_dir : Path
-        Output directory for saving plots
-    gene : str, optional
-        Hugo symbol for gene-stratified analysis
-    db_path : str, optional
-        Path to SQLite database
-    file_prefix : str
-        Prefix for output filenames (default: 'sex')
-
-    Returns
-    -------
-    str or None
-        Filename of saved plot, or None if no data
-    """
+    """Create sex contingency plots (grouped bars + stacked percentage) for a cancer type."""
     df = load_categorical_data(cancer_type, 'SEX', gene=gene, db_path=db_path)
     df = df[df['SEX'].isin(['Female', 'Male'])]
 
@@ -481,20 +309,16 @@ def plot_sex_contingency(
         print(f"  Warning: No sex data for {cancer_type}" + (f" ({gene})" if gene else ""))
         return None
 
-    # Create contingency table
     ct = pd.crosstab(df['SEX'], df['actionable'], margins=True)
 
     if 'Female' not in ct.index or 'Male' not in ct.index:
         print(f"  Warning: Incomplete sex data for {cancer_type}" + (f" ({gene})" if gene else ""))
         return None
 
-    # Title includes gene if provided
     title_suffix = f" ({gene})" if gene else ""
 
-    # Create figure
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-    # SUBPLOT 1: Grouped bar chart (counts)
     ax1 = axes[0]
 
     sex_labels = ['Female', 'Male']
@@ -509,7 +333,6 @@ def plot_sex_contingency(
     bars2 = ax1.bar(x + width/2, actionable, width,
                     label='Actionable', color='#9b59b6', alpha=0.8)
 
-    # Value labels
     for bars in [bars1, bars2]:
         for bar in bars:
             height = bar.get_height()
@@ -526,13 +349,11 @@ def plot_sex_contingency(
     ax1.legend(fontsize=10, framealpha=0.9)
     ax1.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Statistics
     stats_text = f"OR = {odds_ratio:.3f}\nFDR p = {p_val:.2e}"
     ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, fontsize=10,
              verticalalignment='top',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-    # SUBPLOT 2: Stacked percentage bars
     ax2 = axes[1]
 
     female_total = ct.loc['Female', 'All']
@@ -547,7 +368,6 @@ def plot_sex_contingency(
     ax2.bar(x, [female_pct[1], male_pct[1]], bottom=[female_pct[0], male_pct[0]],
             label='Actionable', color='#9b59b6', alpha=0.8)
 
-    # Percentage labels
     ax2.text(0, female_pct[0]/2, f'{female_pct[0]:.1f}%', ha='center', va='center',
              fontsize=11, fontweight='bold', color='white')
     ax2.text(0, female_pct[0] + female_pct[1]/2, f'{female_pct[1]:.1f}%', ha='center',
@@ -567,7 +387,6 @@ def plot_sex_contingency(
     ax2.set_ylim([0, 100])
     ax2.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Sample sizes
     ax2.text(0.98, 0.02, f"Female n={int(female_total):,}\nMale n={int(male_total):,}",
              transform=ax2.transAxes, fontsize=10, verticalalignment='bottom',
              horizontalalignment='right',
@@ -575,7 +394,6 @@ def plot_sex_contingency(
 
     plt.tight_layout()
 
-    # Filename includes gene if provided
     if gene:
         filename = f"{file_prefix}_{cancer_type}_{gene}_contingency"
     else:
@@ -601,46 +419,16 @@ def plot_categorical_contingency(
     db_path: Optional[str] = None,
     file_prefix: Optional[str] = None
 ) -> Optional[str]:
-    """
-    Create contingency plots for categorical features (race/ethnicity/technical).
-
-    Parameters
-    ----------
-    cancer_type : str
-        OncoTree cancer type code
-    column : str
-        Database column name
-    cramers_v : float
-        Cramér's V effect size
-    p_val : float
-        FDR-adjusted p-value
-    output_dir : Path
-        Output directory for saving plots
-    gene : str, optional
-        Hugo symbol for gene-stratified analysis
-    feature_type : str
-        'demographic' or 'technical' (affects color scheme)
-    db_path : str, optional
-        Path to SQLite database
-    file_prefix : str, optional
-        Custom prefix for output filenames. If None, uses 'demo' or 'tech' based on feature_type.
-
-    Returns
-    -------
-    str or None
-        Filename of saved plot, or None if no data
-    """
+    """Create contingency plots for categorical features (race/ethnicity/technical)."""
     df = load_categorical_data(cancer_type, column, gene=gene, db_path=db_path)
 
     if len(df) == 0:
         print(f"  Warning: No {column} data for {cancer_type}" + (f" ({gene})" if gene else ""))
         return None
 
-    # Create contingency table
     ct = pd.crosstab(df[column], df['actionable'], margins=True)
     ct_sorted = ct.sort_values('All', ascending=False)
 
-    # Get categories (exclude 'All')
     categories = [cat for cat in ct_sorted.index if cat != 'All']
 
     if len(categories) < 2:
@@ -648,16 +436,12 @@ def plot_categorical_contingency(
               (f" ({gene})" if gene else ""))
         return None
 
-    # Title includes gene if provided
     title_suffix = f" ({gene})" if gene else ""
 
-    # Create figure
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
-    # Color scheme based on feature type
     action_color = '#e74c3c' if feature_type == 'demographic' else '#2ecc71'
 
-    # SUBPLOT 1: Actionability rates with CI
     ax1 = axes[0]
 
     rates = []
@@ -685,7 +469,6 @@ def plot_categorical_contingency(
     ax1.errorbar(x, rates, yerr=[yerr_lower, yerr_upper],
                  fmt='none', ecolor='black', capsize=5, capthick=2, linewidth=2)
 
-    # Labels
     for i, (bar, rate, total) in enumerate(zip(bars, rates, totals)):
         ax1.text(bar.get_x() + bar.get_width()/2., rate + max(yerr_upper) * 0.1,
                 f'{rate:.1f}%\n(n={total:,})', ha='center', va='bottom',
@@ -700,13 +483,11 @@ def plot_categorical_contingency(
     ax1.set_ylim([0, max(rates) * 1.3 if max(rates) > 0 else 10])
     ax1.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Statistics
     stats_text = f"Cramér's V = {cramers_v:.3f}\nFDR p = {p_val:.2e}"
     ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, fontsize=10,
              verticalalignment='top',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-    # SUBPLOT 2: Grouped bar chart (counts)
     ax2 = axes[1]
 
     non_actionable = [ct_sorted.loc[cat, 0] if 0 in ct_sorted.columns else 0 for cat in categories]
@@ -718,7 +499,6 @@ def plot_categorical_contingency(
     bars2 = ax2.bar(x + width/2, actionable, width,
                     label='Actionable', color=action_color, alpha=0.8)
 
-    # Value labels
     for bars in [bars1, bars2]:
         for bar in bars:
             height = bar.get_height()
@@ -738,16 +518,13 @@ def plot_categorical_contingency(
 
     plt.tight_layout()
 
-    # Safe filename
     safe_column = column.replace('/', '_').replace(' ', '_')
 
-    # Determine prefix
     if file_prefix is None:
         prefix = 'tech' if feature_type == 'technical' else 'demo'
     else:
         prefix = file_prefix
 
-    # Filename includes gene if provided
     if gene:
         filename = f"{prefix}_{cancer_type}_{gene}_{safe_column}_contingency"
     else:
@@ -774,66 +551,28 @@ def plot_numeric_distribution(
     db_path: Optional[str] = None,
     file_prefix: Optional[str] = None
 ) -> Optional[str]:
-    """
-    Create numeric distribution plots for technical features (e.g., number_of_genes).
-
-    Similar to age distribution but for any numeric feature.
-
-    Parameters
-    ----------
-    cancer_type : str
-        OncoTree cancer type code
-    column : str
-        Database column name (numeric)
-    effect_size : float
-        Effect size (r from Mann-Whitney U)
-    p_val : float
-        FDR-adjusted p-value
-    mean_diff : float
-        Mean difference (actionable - non-actionable)
-    output_dir : Path
-        Output directory for saving plots
-    gene : str, optional
-        Hugo symbol for gene-stratified analysis
-    feature_type : str
-        'demographic' or 'technical' (affects color scheme)
-    db_path : str, optional
-        Path to SQLite database
-    file_prefix : str, optional
-        Custom prefix for output filenames
-
-    Returns
-    -------
-    str or None
-        Filename of saved plot, or None if no data
-    """
+    """Create numeric distribution plots for technical features (e.g., number_of_genes)."""
     df = load_categorical_data(cancer_type, column, gene=gene, db_path=db_path)
 
     if len(df) == 0:
         print(f"  Warning: No {column} data for {cancer_type}" + (f" ({gene})" if gene else ""))
         return None
 
-    # Rename column for consistency
     df['value'] = df[column]
     df['actionable_label'] = df['actionable'].map({0: 'Non-Actionable', 1: 'Actionable'})
 
-    # Create figure with two subplots
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-    # Title includes gene if provided
     title_suffix = f" ({gene})" if gene else ""
 
-    # Color scheme
     action_color = '#e74c3c' if feature_type == 'demographic' else '#2ecc71'
 
-    # SUBPLOT 1: Violin + box plot
     ax1 = axes[0]
 
     non_act_vals = df[df['actionable'] == 0]['value'].values
     act_vals = df[df['actionable'] == 1]['value'].values
 
     if len(non_act_vals) > 0 and len(act_vals) > 0:
-        # Violin plot
         parts = ax1.violinplot(
             [non_act_vals, act_vals],
             positions=[0, 1],
@@ -842,13 +581,11 @@ def plot_numeric_distribution(
             widths=0.7
         )
 
-        # Color the violins
         colors = ['#95a5a6', action_color]
         for pc, color in zip(parts['bodies'], colors):
             pc.set_facecolor(color)
             pc.set_alpha(0.6)
 
-        # Box plot overlay
         ax1.boxplot(
             [non_act_vals, act_vals],
             positions=[0, 1],
@@ -866,7 +603,6 @@ def plot_numeric_distribution(
                   fontsize=13, fontweight='bold', pad=15)
     ax1.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Statistics annotation
     stats_text = f"Effect size r = {effect_size:.3f}\n"
     stats_text += f"Mean Δ = {mean_diff:.1f}\n"
     stats_text += f"FDR p = {p_val:.2e}"
@@ -874,7 +610,6 @@ def plot_numeric_distribution(
              transform=ax1.transAxes, fontsize=10, verticalalignment='top',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-    # SUBPLOT 2: Histogram + KDE
     ax2 = axes[1]
 
     ax2.hist(non_act_vals, bins=30, alpha=0.5, color='#95a5a6',
@@ -882,7 +617,6 @@ def plot_numeric_distribution(
     ax2.hist(act_vals, bins=30, alpha=0.5, color=action_color,
              label='Actionable', density=True)
 
-    # KDE overlay
     if len(non_act_vals) > 1 and len(act_vals) > 1:
         try:
             x_range = np.linspace(df['value'].min(), df['value'].max(), 200)
@@ -904,7 +638,6 @@ def plot_numeric_distribution(
     ax2.legend(fontsize=10, framealpha=0.9)
     ax2.grid(axis='y', alpha=0.3, linestyle=':')
 
-    # Sample sizes
     ax2.text(0.98, 0.98, f"n(Non-Act) = {len(non_act_vals):,}\nn(Act) = {len(act_vals):,}",
              transform=ax2.transAxes, fontsize=10, verticalalignment='top',
              horizontalalignment='right',
@@ -912,16 +645,13 @@ def plot_numeric_distribution(
 
     plt.tight_layout()
 
-    # Safe filename
     safe_column = column.replace('/', '_').replace(' ', '_')
 
-    # Determine prefix
     if file_prefix is None:
         prefix = 'tech' if feature_type == 'technical' else 'demo'
     else:
         prefix = file_prefix
 
-    # Filename includes gene if provided
     if gene:
         filename = f"{prefix}_{cancer_type}_{gene}_{safe_column}_distribution"
     else:
