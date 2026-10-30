@@ -51,3 +51,10 @@
 13-Aug-26,statistical model brainstorm,"Some patients had samples in both train and test sets. Had AI change the split so each patient is in only one set, and add a pooled FDR check.",Claude Opus 4.6
 27-Aug-26,statistical model brainstorm,Used AI to connect the hyperparameter search results to final model training and test the random forest depth on each cancer type using training data only.,Claude Opus 4.6
 31-Aug-26,statistical model brainstorm,Queried AI on the random forest SHAP filter for post-hoc testing. Changed to rank features after summing SHAP values across each feature's categories.,Claude Opus 4.6
+1-Sep-26,statistical model brainstorm,"ODG had very few non-actionable patients (23 total, 5 in the test set). Queried AI on the eligibility rule and dropped ODG, leaving 20 cancer types.",Claude Opus 5.0
+11-Sep-26,code structure,Found preservation technique was a model feature but was never tested in the gene-level post-hoc analysis. Used AI to add the test and re-run the post-hoc statistics.,Claude Opus 5.0
+12-Sep-26,vizualizaiton,Used AI to harmonize figure colors and font sizes so all panels share one palette and print at a readable size. AI was also used to scale image size and font proportionally. ,Claude Opus 5.0
+18-Sep-26,statistical model brainstorm,"Used AI to rebuild the final models and post-hoc tests in one run per model type, and to exclude the ""Unknown"" value from the ancestry and ethnicity tests.",Claude Opus 5.0
+19-Sep-26,statistical model brainstorm,Queried AI on the BRCA1 age association in ovarian cancer. Found it was partly driven by germline variants from tumor-only centers and flagged the issue.,Claude Opus 5.0
+23-Oct-26,documentation,Used AI to propose existing literature that could be related to association hits found in our study. Re-organized gene-level literature review claims for downstream human review.,Claude Opus 5.5
+28-Oct-26,code refactor,Used AI to to refactor the one command that rebuilds all manuscript tables and improve code readability.,Claude Opus 5.5

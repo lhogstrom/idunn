@@ -83,6 +83,13 @@ idunn/
 └── runs/                               # Run outputs (gitignored)
 ```
 
+## AI use log
+A declaration of AI use can be found in 
+```
+code/AI_USE_LOG.csv
+```
+
+
 ## Tests
 
 ```bash
