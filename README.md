@@ -93,7 +93,7 @@ code/AI_USE_LOG.csv
 ## Tests
 
 ```bash
-cd code/modeling && python -m pytest tests/ -m "not slow and not integration"
+cd code/modeling && python -m pytest tests/ -m 
 ```
 
 ## Configuration on Cancell server
